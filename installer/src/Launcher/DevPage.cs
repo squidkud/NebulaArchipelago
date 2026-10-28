@@ -1,4 +1,4 @@
-#if NEBULA_DEV
+﻿#if NEBULA_DEV
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -39,7 +39,8 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
         private readonly TextBox repo = new TextBox();
         private readonly TextBox baseCommit = new TextBox();
         private readonly TextBox patchFolders = new TextBox();
-        private readonly Label patchLabel = new Label();
+        private readonly ComboBox patchList = new ComboBox();
+        private readonly List<FileInfo> patches = new List<FileInfo>();
         private readonly CheckBox runAfter = new CheckBox();
         private readonly CheckBox forceApply = new CheckBox();
         private readonly Button apply = new Button();
@@ -67,12 +68,19 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             Row("Source folder", repo, 12);
             Row("Base commit", baseCommit, 48);
             Row("Patch folders", patchFolders, 84);
-            patchLabel.Location = new Point(12, 122);
-            patchLabel.Size = new Size(700, 26);
-            patchLabel.AutoEllipsis = true;
-            page.Controls.Add(patchLabel);
+            page.Controls.Add(new Label { Text = "Patch to apply", Location = new Point(12, 126), Size = new Size(150, 26) });
+            patchList.Location = new Point(170, 122);
+            patchList.Size = new Size(330, 28);
+            patchList.DropDownStyle = ComboBoxStyle.DropDownList;
+            page.Controls.Add(patchList);
+            var browse = new Button { Text = "Browse…", Location = new Point(508, 120), Size = new Size(100, 32) };
+            browse.Click += delegate { BrowsePatch(); };
+            page.Controls.Add(browse);
+            var refresh = new Button { Text = "Refresh", Location = new Point(616, 120), Size = new Size(94, 32) };
+            refresh.Click += delegate { RefreshPatch(); };
+            page.Controls.Add(refresh);
 
-            apply.Text = "Apply the newest patch and rebuild";
+            apply.Text = "Apply the selected patch and rebuild";
             apply.Location = new Point(12, 154);
             apply.Size = new Size(300, 36);
             apply.Click += delegate { Start(true); };
@@ -144,28 +152,48 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             });
         }
 
-        private FileInfo NewestPatch()
+        private FileInfo SelectedPatch()
         {
-            FileInfo newest = null;
+            int index = patchList.SelectedIndex;
+            return index >= 0 && index < patches.Count ? patches[index] : null;
+        }
+
+        /// <summary>Lists every nebula-*.patch of the patch folders, newest first, and keeps the current choice when it is still there.</summary>
+        private void RefreshPatch()
+        {
+            string keep = SelectedPatch() != null ? SelectedPatch().FullName : null;
+            var found = new List<FileInfo>();
             foreach (string folder in patchFolders.Text.Split(';'))
             {
                 string path = folder.Trim();
                 if (path.Length == 0 || !Directory.Exists(path)) continue;
-                foreach (string file in Directory.GetFiles(path, "nebula-*.patch"))
-                {
-                    var info = new FileInfo(file);
-                    if (newest == null || info.LastWriteTime > newest.LastWriteTime) newest = info;
-                }
+                foreach (string file in Directory.GetFiles(path, "nebula-*.patch")) found.Add(new FileInfo(file));
             }
-            return newest;
+            foreach (FileInfo extra in patches)
+                if (extra.Exists && !found.Exists(f => string.Equals(f.FullName, extra.FullName, StringComparison.OrdinalIgnoreCase))) found.Add(extra);
+            found.Sort((x, y) => y.LastWriteTime.CompareTo(x.LastWriteTime));
+            patches.Clear();
+            patches.AddRange(found);
+            patchList.Items.Clear();
+            foreach (FileInfo patch in patches) patchList.Items.Add(patch.Name + "  (" + patch.LastWriteTime.ToString("g") + ")");
+            int select = 0;
+            if (keep != null)
+                for (int i = 0; i < patches.Count; i++)
+                    if (string.Equals(patches[i].FullName, keep, StringComparison.OrdinalIgnoreCase)) select = i;
+            if (patches.Count > 0) patchList.SelectedIndex = select;
         }
 
-        private void RefreshPatch()
+        private void BrowsePatch()
         {
-            FileInfo patch = NewestPatch();
-            patchLabel.Text = patch == null
-                ? "No nebula-*.patch in the patch folders."
-                : "Newest patch: " + patch.Name + "  (" + patch.LastWriteTime.ToString("g") + ")";
+            using (var dialog = new OpenFileDialog { Title = "Choose a patch", Filter = "Patches|*.patch;*.diff|All files|*.*", CheckFileExists = true })
+            {
+                if (dialog.ShowDialog(page.FindForm()) != DialogResult.OK) return;
+                var chosen = new FileInfo(dialog.FileName);
+                if (!patches.Exists(f => string.Equals(f.FullName, chosen.FullName, StringComparison.OrdinalIgnoreCase))) patches.Add(chosen);
+                RefreshPatch();
+                for (int i = 0; i < patches.Count; i++)
+                    if (string.Equals(patches[i].FullName, chosen.FullName, StringComparison.OrdinalIgnoreCase)) patchList.SelectedIndex = i;
+            }
         }
 
         private void Write(string text)
@@ -184,7 +212,6 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
         private void Start(bool applyPatch)
         {
             if (busy) return;
-            RefreshPatch();
             string source = repo.Text.Trim();
             string baseRef = baseCommit.Text.Trim();
             if (!Directory.Exists(Path.Combine(source, ".git")))
@@ -192,12 +219,13 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
                 MessageBox.Show(page.FindForm(), "The source folder is not a git repository: " + source, "Nebula Archipelago", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
-            FileInfo patch = applyPatch ? NewestPatch() : null;
+            FileInfo patch = applyPatch ? SelectedPatch() : null;
             if (applyPatch && patch == null)
             {
-                MessageBox.Show(page.FindForm(), "No nebula-*.patch was found. Download the patch, then try again.", "Nebula Archipelago", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                MessageBox.Show(page.FindForm(), "No patch is selected. Download the patch, press Refresh (or Browse…), then try again.", "Nebula Archipelago", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
+            // The list is refreshed when the tab is built and by "Refresh"; a patch downloaded later needs a refresh.
             busy = true;
             apply.Enabled = false;
             rebuild.Enabled = false;
@@ -291,7 +319,6 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             if (hash != null) appliedHash = hash;
             try { SaveConfig(); } catch (Exception) { }
             Write("Done.");
-            RefreshPatch();
             if (!runAfter.Checked) return;
             string launchError = session.TryLaunch();
             if (launchError != null) MessageBox.Show(page.FindForm(), launchError, "Nebula Archipelago", MessageBoxButtons.OK, MessageBoxIcon.Error);
