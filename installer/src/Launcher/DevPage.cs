@@ -256,6 +256,21 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             return runner.Run(file, args, workdir, delegate(string line) { Write(line); }, token);
         }
 
+        // A git run that was interrupted leaves .git\index.lock behind and every later git command refuses to work.
+        // When no git is running, the lock is stale: remove it.
+        private void RemoveStaleGitLock(string source)
+        {
+            string lockFile = Path.Combine(Path.Combine(source, ".git"), "index.lock");
+            if (!File.Exists(lockFile)) return;
+            if (Process.GetProcessesByName("git").Length > 0)
+            {
+                Write("A git process is running: the lock file " + lockFile + " is left alone.");
+                return;
+            }
+            try { File.Delete(lockFile); Write("Removed the stale git lock: " + lockFile); }
+            catch (Exception ex) { Write("Could not remove " + lockFile + ": " + ex.Message); }
+        }
+
         private static void Require(int code, string what)
         {
             if (code != 0) throw new InvalidOperationException(what + " failed (code " + code + ").");
@@ -274,6 +289,7 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
                         Write("This patch is already applied: building only.");
                     else
                     {
+                        RemoveStaleGitLock(source);
                         // A patch holds all the work since the base commit: start from the base each time.
                         Require(Exec(runner, "git", new[] { "-C", source, "reset", "--hard", baseRef }, source, token), "git reset");
                         Require(Exec(runner, "git", new[] { "-C", source, "clean", "-fd", "-e", "*.patch" }, source, token), "git clean");
