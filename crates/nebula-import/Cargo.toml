@@ -1,0 +1,22 @@
+[package]
+name = "nebula-import"
+description = "Imports a Super Mario Galaxy (RMGE01) disc image into the content folder the native game runs from."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+anyhow.workspace = true
+jni-sys = "0.4"
+nod = "=1.4.4"
+sha1.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-sys.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
