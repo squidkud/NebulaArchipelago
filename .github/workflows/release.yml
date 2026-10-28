@@ -1,0 +1,105 @@
+# Builds Nebula Archipelago on GitHub's Windows machines and publishes a release:
+#   NebulaArchipelago-Setup.exe, its SHA-256, and the APWorld.
+# Start it by pushing a tag ("git tag v1.0.0 && git push origin v1.0.0") or from the Actions tab ("Run workflow").
+# Nobody has to build anything by hand; the files of a release are exactly what this workflow made, and the log shows how.
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish, for example 1.0.0 (a "v" tag is created for it)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Version
+        id: version
+        shell: pwsh
+        run: |
+          if ('${{ github.event_name }}' -eq 'workflow_dispatch') { $v = '${{ github.event.inputs.version }}' }
+          else { $v = '${{ github.ref_name }}' }
+          $v = $v.TrimStart('v')
+          if ($v -notmatch '^\d+\.\d+\.\d+(-beta\.\d+)?$') { throw "Bad version '$v' (expected 1.2.3 or 1.2.3-beta.1)" }
+          "version=$v" >> $env:GITHUB_OUTPUT
+          "tag=v$v" >> $env:GITHUB_OUTPUT
+
+      - name: Tools (Ninja, CMake, Inno Setup)
+        shell: pwsh
+        run: |
+          choco install ninja innosetup -y --no-progress
+          if (-not (Test-Path 'C:\Program Files\CMake\bin\cmake.exe')) { choco install cmake -y --no-progress --installargs 'ADD_CMAKE_TO_PATH=System' }
+          if (-not (Test-Path 'C:\Program Files\LLVM\bin\clang++.exe')) { choco install llvm -y --no-progress }
+
+      - name: Host (NebulaNative.exe)
+        shell: pwsh
+        run: |
+          . .\tools\enter_msvc_environment.ps1
+          $cmake = 'C:\Program Files\CMake\bin\cmake.exe'
+          & $cmake -S . -B build\host -G Ninja -DCMAKE_BUILD_TYPE=Release
+          if ($LASTEXITCODE -ne 0) { throw 'cmake configure failed' }
+          & $cmake --build build\host --target NebulaNative
+          if ($LASTEXITCODE -ne 0) { throw 'host build failed' }
+
+      - name: Game module (smg_game.dll)
+        shell: pwsh
+        run: |
+          .\native\build.ps1 -Petari native\petari -Build build\game
+          if ($LASTEXITCODE -ne 0) { throw 'game build failed' }
+
+      - name: Gather the built game
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force bin | Out-Null
+          Copy-Item build\host\NebulaNative.exe bin\
+          Copy-Item build\game\smg_game.dll bin\
+
+      - name: Installer
+        shell: pwsh
+        run: |
+          .\installer\build-archipelago-release.ps1 -Version '${{ steps.version.outputs.version }}' -Bin bin -OutputDirectory dist -Repository '${{ github.repository }}'
+
+      # Code signing (removes most of Windows' "unknown publisher" warnings): see docs/SIGNING.md. Once SignPath (or another
+      # service) is set up, sign dist\NebulaArchipelago-Setup.exe here, BEFORE the hash below is computed.
+
+      - name: Hash of the final installer
+        shell: pwsh
+        run: |
+          $setup = 'dist\NebulaArchipelago-Setup.exe'
+          $hash = (Get-FileHash -LiteralPath $setup -Algorithm SHA256).Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText("$setup.sha256", "$hash  NebulaArchipelago-Setup.exe`n", (New-Object Text.UTF8Encoding $false))
+          Get-ChildItem dist | Format-Table Name, Length
+
+      - name: Keep the files of this run
+        uses: actions/upload-artifact@v4
+        with:
+          name: nebula-archipelago-${{ steps.version.outputs.version }}
+          path: dist/*
+
+      - name: Publish the release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = '${{ steps.version.outputs.tag }}'
+          $beta = '${{ steps.version.outputs.version }}' -like '*-beta.*'
+          $files = @('dist\NebulaArchipelago-Setup.exe', 'dist\NebulaArchipelago-Setup.exe.sha256', 'dist\super_mario_galaxy_pc_port.apworld')
+          if ($beta) {
+            Rename-Item dist\NebulaArchipelago-Setup.exe NebulaArchipelago-Beta-Setup.exe
+            Rename-Item dist\NebulaArchipelago-Setup.exe.sha256 NebulaArchipelago-Beta-Setup.exe.sha256
+            $files = @('dist\NebulaArchipelago-Beta-Setup.exe', 'dist\NebulaArchipelago-Beta-Setup.exe.sha256', 'dist\super_mario_galaxy_pc_port.apworld')
+          }
+          $args = @('release', 'create', $tag) + $files + @('--title', "Nebula Archipelago $tag", '--generate-notes', '--target', '${{ github.sha }}')
+          if ($beta) { $args += '--prerelease' }
+          & gh @args
+          if ($LASTEXITCODE -ne 0) { throw 'gh release create failed' }

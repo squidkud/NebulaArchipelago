@@ -60,11 +60,12 @@ sh native/sdk/os/tests/run_tests.sh
 .\tools\audit_repo.ps1
 ```
 
-## Setup
+## Installer (Nebula Archipelago)
 
 ```powershell
-.\installer\build-native-setup.ps1 -Version <version> -Bin <folder with NebulaNative.exe and smg_game.dll>
+.\installer\build-archipelago-release.ps1 -Version <version> -Bin <folder with NebulaNative.exe and smg_game.dll>
 ```
 
-Builds the disc import tool, the launcher and Setup, and writes `Nebula-Setup.exe` with the host and game module
-inside it.
+Builds the disc import tool, the launcher, the APWorld and an Inno Setup installer (`dist\NebulaArchipelago-Setup.exe`,
+with its `.sha256`). It needs Inno Setup 6. The GitHub workflow `.github/workflows/release.yml` does all of it (the
+game too) and publishes the release.

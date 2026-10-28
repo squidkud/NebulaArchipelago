@@ -1,3 +1,10 @@
+> **Nebula Archipelago** is a fork of [Nebula](https://github.com/keepvaibin/nebula) (by keepvaibin) that adds
+> [Archipelago](https://archipelago.gg) multiworld support to Super Mario Galaxy: the star shop, shuffles, traps,
+> item pop-ups and the APWorld. Install it with `NebulaArchipelago-Setup.exe` from the
+> [latest release](https://github.com/squidkud/NebulaArchipelago/releases/latest) and read
+> [docs/INSTALL_ARCHIPELAGO.md](docs/INSTALL_ARCHIPELAGO.md) (English and French). The rest of this page is Nebula's own,
+> unchanged text.
+
 # Nebula
 
 Nebula runs **Super Mario Galaxy** natively on Windows. The game is built as native code from the

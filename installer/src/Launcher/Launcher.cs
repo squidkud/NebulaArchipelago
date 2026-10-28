@@ -524,8 +524,8 @@ namespace Nebula.Launcher
             Button(advanced, session.Portable ? "Beta releases" : "Check for updates", 12, y, 200).Click += delegate
             {
                 if (session.Portable) { Process.Start("https://github.com/" + BuildInfo.Repository + "/releases"); return; }
-                string setup = Path.Combine(session.Root, "Nebula-Setup.exe");
-                if (File.Exists(setup)) Process.Start(new ProcessStartInfo(setup, "--update") { WorkingDirectory = session.Root });
+                // An update started here closes the launcher: the installer starts it again.
+                if (UpdateCheck.CheckNow(session)) Application.Exit();
             };
             askUpdates.Text = "Check for updates at start";
             askUpdates.Location = new Point(222, y + 6);

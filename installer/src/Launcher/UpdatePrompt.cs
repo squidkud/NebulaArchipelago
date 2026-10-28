@@ -11,8 +11,9 @@ namespace Nebula.Launcher
     /// <summary>
     /// The update offer at each start: a newer release on GitHub is offered before the game starts; offline, or when
     /// GitHub does not answer within a few seconds, the game starts without a word. Update downloads the release's
-    /// Setup, checks its signature and runs it, which installs the release and starts the game. "Don't ask again"
+    /// installer, checks its SHA-256 and runs it, which installs the release and starts the game. "Don't ask again"
     /// applies only to "Not now"; the launcher's Advanced tab turns the offer back on.
+    /// (Nebula Archipelago: the release's installer is an Inno Setup program checked against the release's SHA-256.)
     /// </summary>
     internal static class UpdateCheck
     {
@@ -22,20 +23,44 @@ namespace Nebula.Launcher
         public static bool OfferBeforeLaunch(LaunchSession session)
         {
             if (session.Portable || !session.AskAboutUpdates) return false;
+            return Offer(session, false);
+        }
+
+        /// <summary>The Advanced tab's "Check for updates": asks even when the start-up offer is off, and says when there is none.</summary>
+        public static bool CheckNow(LaunchSession session)
+        {
+            return Offer(session, true);
+        }
+
+        private static bool Offer(LaunchSession session, bool explicitCheck)
+        {
             ReleaseInfo release;
             try
             {
-                var check = Task.Run(() => Updater.FindNewer(CheckMilliseconds));
-                if (!check.Wait(CheckMilliseconds + 500)) return false;
+                int wait = explicitCheck ? 20000 : CheckMilliseconds;
+                var check = Task.Run(() => Updater.FindNewer(wait));
+                if (!check.Wait(wait + 500))
+                {
+                    if (explicitCheck) MessageBox.Show("GitHub did not answer. Try again later.", "Nebula Archipelago", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    return false;
+                }
                 release = check.Result;
             }
-            catch (Exception) { return false; }
-            if (release == null) return false;
+            catch (Exception)
+            {
+                if (explicitCheck) MessageBox.Show("Couldn't check for updates (no connection?).", "Nebula Archipelago", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return false;
+            }
+            if (release == null)
+            {
+                if (explicitCheck) MessageBox.Show("Nebula Archipelago " + BuildInfo.Version + " is up to date.", "Nebula Archipelago", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return false;
+            }
             using (var prompt = new UpdatePromptForm(release))
             {
                 if (prompt.ShowDialog() != DialogResult.Yes)
                 {
-                    if (prompt.DontAskAgain)
+                    if (prompt.DontAskAgain && !explicitCheck)
                     {
                         session.AskAboutUpdates = false;
                         session.Save();
@@ -49,7 +74,9 @@ namespace Nebula.Launcher
                 if (download.ShowDialog() != DialogResult.OK) return false;
                 setup = download.SetupPath;
             }
-            Process.Start(new ProcessStartInfo(setup, "--apply-update --launch --root " + ProcessRunner.Quote(session.Root))
+            // The installer replaces this version in place and starts the launcher again when it is done (/SILENT shows
+            // only its progress window).
+            Process.Start(new ProcessStartInfo(setup, "/SILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS")
             {
                 UseShellExecute = false, WorkingDirectory = Path.GetDirectoryName(setup)
             });

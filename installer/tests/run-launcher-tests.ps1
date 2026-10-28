@@ -50,12 +50,6 @@ $code = $LASTEXITCODE
 Remove-Item Env:NEBULA_DATA_ROOT
 if ($code -ne 0) { throw 'Launcher cases failed.' }
 
-$setupSources = @(Get-ChildItem -LiteralPath (Join-Path $repo 'installer\src\Setup') -Filter *.cs | ForEach-Object FullName)
-& $csc /nologo /target:exe /platform:x64 /main:Nebula.Setup.SetupTests "/out:$scratch\SetupTests.exe" @refs @common @setupSources (Join-Path $PSScriptRoot 'SetupTests.cs')
-if ($LASTEXITCODE -ne 0) { throw 'SetupTests.exe compilation failed.' }
-& "$scratch\SetupTests.exe" $scratch
-if ($LASTEXITCODE -ne 0) { throw 'Setup cases failed.' }
-
 # nebula.ico: frame sizes, and the same 32 px image in every executable.
 Add-Type -AssemblyName System.Drawing
 $bytes = [IO.File]::ReadAllBytes($icon)
@@ -70,7 +64,6 @@ function Pixels([System.Drawing.Icon]$i) {
 Add-Type -Namespace NebulaTest -Name User32 -MemberDefinition '[DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr LoadImageW(IntPtr h, string name, uint type, int cx, int cy, uint flags);'
 $expected = Pixels ([System.Drawing.Icon]::FromHandle([NebulaTest.User32]::LoadImageW([IntPtr]::Zero, $icon, 1, 32, 32, 0x10)))
 $exes = @("$app\Nebula.exe", "$app\NebulaSettings.exe")
-if ($Setup -ne '') { $exes += $Setup }
 foreach ($exe in $exes) {
     $got = Pixels ([System.Drawing.Icon]::ExtractAssociatedIcon($exe))
     if ($got -ne $expected) { throw "Icon mismatch: $exe" }
