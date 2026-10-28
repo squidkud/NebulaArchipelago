@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
 Builds the Nebula Archipelago installer (NebulaArchipelago-Setup.exe) from a built game.
 
@@ -81,6 +81,8 @@ namespace Nebula
     $launcherSources = @(Get-ChildItem (Join-Path $installer 'src\Launcher\*.cs') | ForEach-Object FullName)
     $common_args = @('/nologo', '/target:winexe', '/platform:x64', '/optimize+', "/win32manifest:$manifest", "/win32icon:$icon")
     Invoke-Checked $csc ($common_args + @('/define:NEBULA_SETTINGS_APP', "/out:$(Join-Path $stage 'Nebula.exe')") + $references + $common + $launcherSources)
+    # The developer launcher (a "Developer" tab that applies patches and rebuilds): a separate download, not in the installer.
+    Invoke-Checked $csc ($common_args + @('/define:NEBULA_SETTINGS_APP;NEBULA_DEV', "/out:$(Join-Path $OutputDirectory 'Nebula-Dev.exe')") + $references + $common + $launcherSources)
 
     # The game and its tables.
     Copy-Item -LiteralPath (Join-Path $Bin 'NebulaNative.exe'), (Join-Path $Bin 'smg_game.dll') -Destination $stage

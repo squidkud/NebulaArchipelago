@@ -93,11 +93,11 @@ jobs:
         run: |
           $tag = '${{ steps.version.outputs.tag }}'
           $beta = '${{ steps.version.outputs.version }}' -like '*-beta.*'
-          $files = @('dist\NebulaArchipelago-Setup.exe', 'dist\NebulaArchipelago-Setup.exe.sha256', 'dist\super_mario_galaxy_pc_port.apworld')
+          $files = @('dist\NebulaArchipelago-Setup.exe', 'dist\NebulaArchipelago-Setup.exe.sha256', 'dist\super_mario_galaxy_pc_port.apworld', 'dist\Nebula-Dev.exe')
           if ($beta) {
             Rename-Item dist\NebulaArchipelago-Setup.exe NebulaArchipelago-Beta-Setup.exe
             Rename-Item dist\NebulaArchipelago-Setup.exe.sha256 NebulaArchipelago-Beta-Setup.exe.sha256
-            $files = @('dist\NebulaArchipelago-Beta-Setup.exe', 'dist\NebulaArchipelago-Beta-Setup.exe.sha256', 'dist\super_mario_galaxy_pc_port.apworld')
+            $files = @('dist\NebulaArchipelago-Beta-Setup.exe', 'dist\NebulaArchipelago-Beta-Setup.exe.sha256', 'dist\super_mario_galaxy_pc_port.apworld', 'dist\Nebula-Dev.exe')
           }
           $args = @('release', 'create', $tag) + $files + @('--title', "Nebula Archipelago $tag", '--generate-notes', '--target', '${{ github.sha }}')
           if ($beta) { $args += '--prerelease' }

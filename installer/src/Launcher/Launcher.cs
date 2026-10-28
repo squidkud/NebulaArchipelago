@@ -350,7 +350,11 @@ namespace Nebula.Launcher
             rayTracingOffered = GraphicsSettings.RayTracingAdapter(graphics.Gpu);
             bool firstRun = !session.SetupComplete;
 #if NEBULA_SETTINGS_APP
+#if NEBULA_DEV
+            Text = "Nebula Archipelago " + BuildInfo.Version + " (developer)";
+#else
             Text = "Nebula Archipelago " + BuildInfo.Version;
+#endif
 #else
             Text = firstRun ? "Welcome to Nebula" : "Nebula settings";
 #endif
@@ -389,10 +393,17 @@ namespace Nebula.Launcher
                 new ModsPage(modsTab, session.App, session.Content);
             }
             if (!session.Portable) pages.Add(updatesTab);
+#if NEBULA_DEV
+            var devTab = new TabPage("Developer");
+            pages.Add(devTab);
+#endif
             pages.Add(advanced);
             tabs.TabPages.AddRange(pages.ToArray());
             Controls.Add(tabs);
             archipelagoPage = new ArchipelagoPage(archipelagoTab, session);
+#if NEBULA_DEV
+            new DevPage(devTab, session);
+#endif
             if (!session.Portable)
             {
                 updatesPage = new UpdatesPage(updatesTab, session, askUpdates);
@@ -618,12 +629,17 @@ namespace Nebula.Launcher
             };
             UiScale.Apply(this);
             // Tab headers are not scaled with the form.
-            using (var g = CreateGraphics()) tabs.ItemSize = new Size((int)(98 * g.DpiX / 96f), (int)(28 * g.DpiY / 96f));
+            using (var g = CreateGraphics()) tabs.ItemSize = new Size((int)(Math.Min(98, 716 / tabs.TabCount) * g.DpiX / 96f), (int)(28 * g.DpiY / 96f));
             // After scaling: the notice moves the rows below it by its measured height.
             RefreshDisplayNotice();
             // Each time the launcher opens it looks for a newer release by itself (unless unticked in the Updates tab).
             if (updatesPage != null)
+            {
+#if !NEBULA_DEV
+                // Not in the developer build: an official update would replace the build being tested.
                 Shown += delegate { if (session.AskAboutUpdates) updatesPage.CheckAsync(true); };
+#endif
+            }
         }
 
         private int Scheme { get { return Math.Max(0, editScheme.SelectedIndex); } }
