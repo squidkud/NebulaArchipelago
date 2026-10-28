@@ -9,7 +9,7 @@ using System.Threading;
 using System.Windows.Forms;
 
 #if NEBULA_SETTINGS_APP
-[assembly: System.Reflection.AssemblyTitle("Nebula settings")]
+[assembly: System.Reflection.AssemblyTitle("Nebula Archipelago")]
 #else
 [assembly: System.Reflection.AssemblyTitle("Nebula")]
 #endif
@@ -18,9 +18,9 @@ namespace Nebula.Launcher
 {
     internal static class Program
     {
-        // Nebula.exe starts the game; the first run (and --settings) shows the
-        // settings first. NebulaSettings.exe is the same program built with
-        // NEBULA_SETTINGS_APP and always opens the settings.
+        // Nebula Archipelago ships one program, Nebula.exe, built with NEBULA_SETTINGS_APP: it always opens
+        // this window (game, Archipelago room, settings, updates) and the game is started from its Play button.
+        // Without the define (a portable build) Nebula.exe starts the game directly once it is set up.
         [STAThread]
         private static int Main(string[] args)
         {
@@ -295,6 +295,10 @@ namespace Nebula.Launcher
         private readonly ComboBox aspect = new ComboBox(), internalScale = new ComboBox(), frameRate = new ComboBox();
         private readonly CheckBox vsync = new CheckBox();
         private readonly CheckBox askUpdates = new CheckBox();
+        private TabControl mainTabs;
+        private ArchipelagoPage archipelagoPage;
+        private UpdatesPage updatesPage;
+        private TabPage updatesTab;
         private readonly ComboBox antiAliasing = new ComboBox(), aaQuality = new ComboBox(), msaa = new ComboBox(),
             upscaler = new ComboBox(),
             dlssQuality = new ComboBox(), textureFilter = new ComboBox(), lighting = new ComboBox(),
@@ -346,7 +350,7 @@ namespace Nebula.Launcher
             rayTracingOffered = GraphicsSettings.RayTracingAdapter(graphics.Gpu);
             bool firstRun = !session.SetupComplete;
 #if NEBULA_SETTINGS_APP
-            Text = "Nebula settings";
+            Text = "Nebula Archipelago " + BuildInfo.Version;
 #else
             Text = firstRun ? "Welcome to Nebula" : "Nebula settings";
 #endif
@@ -366,13 +370,16 @@ namespace Nebula.Launcher
             Controls.Add(intro);
 
             var tabs = new TabControl { Location = new Point(12, 54), Size = new Size(736, 560), SizeMode = TabSizeMode.Fixed };
+            mainTabs = tabs;
+            var archipelagoTab = new TabPage("Archipelago");
+            updatesTab = new TabPage("Updates");
             var display = new TabPage("Display");
             var image = new TabPage("Graphics");
             var sound = new TabPage("Audio");
             var input = new TabPage("Controls");
             var generalPage = new TabPage("General");
             var advanced = new TabPage("Advanced");
-            var pages = new List<TabPage> { display, image, input, sound, generalPage };
+            var pages = new List<TabPage> { archipelagoTab, display, image, input, sound, generalPage };
             if (ModsPage.Available(session.App))
             {
                 // The game's mods (ModsPage). Added with the others: TabPages.Insert is ignored before the control
@@ -381,9 +388,21 @@ namespace Nebula.Launcher
                 pages.Add(modsTab);
                 new ModsPage(modsTab, session.App, session.Content);
             }
+            if (!session.Portable) pages.Add(updatesTab);
             pages.Add(advanced);
             tabs.TabPages.AddRange(pages.ToArray());
             Controls.Add(tabs);
+            archipelagoPage = new ArchipelagoPage(archipelagoTab, session);
+            if (!session.Portable)
+            {
+                updatesPage = new UpdatesPage(updatesTab, session, askUpdates);
+                updatesPage.UpdateFound += delegate(ReleaseInfo release)
+                {
+                    updatesTab.Text = "Updates (new)";
+                    if (!updatesPage.Automatic) return;
+                    tabs.SelectedTab = updatesTab;
+                };
+            }
 
             int y = 16;
             displayPage = display;
@@ -521,18 +540,8 @@ namespace Nebula.Launcher
                 Process.Start("explorer.exe", "\"" + NebulaPaths.Sessions + "\"");
             };
             y += 44;
-            Button(advanced, session.Portable ? "Beta releases" : "Check for updates", 12, y, 200).Click += delegate
-            {
-                if (session.Portable) { Process.Start("https://github.com/" + BuildInfo.Repository + "/releases"); return; }
-                // An update started here closes the launcher: the installer starts it again.
-                if (UpdateCheck.CheckNow(session)) Application.Exit();
-            };
-            askUpdates.Text = "Check for updates at start";
-            askUpdates.Location = new Point(222, y + 6);
-            askUpdates.Size = new Size(360, 24);
-            askUpdates.Checked = session.AskAboutUpdates;
-            askUpdates.Visible = !session.Portable;
-            advanced.Controls.Add(askUpdates);
+            if (session.Portable)
+                Button(advanced, "Beta releases", 12, y, 200).Click += delegate { Process.Start("https://github.com/" + BuildInfo.Repository + "/releases"); };
 
             var play = new Button { Text = "Save and play", Location = new Point(608, 628), Size = new Size(140, 38) };
             play.Click += delegate { if (Commit()) Play(); };
@@ -612,6 +621,9 @@ namespace Nebula.Launcher
             using (var g = CreateGraphics()) tabs.ItemSize = new Size((int)(98 * g.DpiX / 96f), (int)(28 * g.DpiY / 96f));
             // After scaling: the notice moves the rows below it by its measured height.
             RefreshDisplayNotice();
+            // Each time the launcher opens it looks for a newer release by itself (unless unticked in the Updates tab).
+            if (updatesPage != null)
+                Shown += delegate { if (session.AskAboutUpdates) updatesPage.CheckAsync(true); };
         }
 
         private int Scheme { get { return Math.Max(0, editScheme.SelectedIndex); } }
@@ -1196,6 +1208,7 @@ namespace Nebula.Launcher
                 controls.Save();
                 session.Recording = (RecordingMode)Math.Max(0, recording.SelectedIndex);
                 if (!session.Portable) session.AskAboutUpdates = askUpdates.Checked;
+                archipelagoPage.SaveIfFilled();
                 session.Save();
                 return true;
             }
@@ -1208,7 +1221,15 @@ namespace Nebula.Launcher
 
         private void Play()
         {
-            if (!File.Exists(Path.Combine(session.Content, "game.pak")) && !ChooseContent()) return;
+            if (!archipelagoPage.GameReady)
+            {
+                // The game image is asked for in the first tab.
+                mainTabs.SelectedIndex = 0;
+                MessageBox.Show(this, "Choose your Super Mario Galaxy image first (Archipelago tab), then press Save and play.", "Nebula Archipelago",
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+            if (archipelagoPage.Importing) return;
             string error = session.TryLaunch();
             if (error != null)
             {

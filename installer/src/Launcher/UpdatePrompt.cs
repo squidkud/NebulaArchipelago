@@ -74,13 +74,18 @@ namespace Nebula.Launcher
                 if (download.ShowDialog() != DialogResult.OK) return false;
                 setup = download.SetupPath;
             }
-            // The installer replaces this version in place and starts the launcher again when it is done (/SILENT shows
-            // only its progress window).
+            RunInstaller(setup);
+            return true;
+        }
+
+        /// <summary>Starts a downloaded installer. It replaces this version in place and starts the launcher again when it is
+        /// done (/SILENT shows only its progress window).</summary>
+        public static void RunInstaller(string setup)
+        {
             Process.Start(new ProcessStartInfo(setup, "/SILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS")
             {
                 UseShellExecute = false, WorkingDirectory = Path.GetDirectoryName(setup)
             });
-            return true;
         }
     }
 

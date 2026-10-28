@@ -3,7 +3,7 @@
 Builds the Nebula Archipelago installer (NebulaArchipelago-Setup.exe) from a built game.
 
 .DESCRIPTION
-Compiles the launcher and Nebula Settings (in-box C# compiler), builds the disc import tool (Cargo), zips the APWorld,
+Compiles the launcher, Nebula.exe (in-box C# compiler), builds the disc import tool (Cargo), zips the APWorld,
 gathers everything in a stage folder and runs Inno Setup on installer\inno\NebulaArchipelago.iss. Writes the installer and
 its SHA-256 (NebulaArchipelago-Setup.exe.sha256) to -OutputDirectory (default: dist\).
 
@@ -58,7 +58,8 @@ try {
     $targetDir = if ($env:CARGO_TARGET_DIR) { $env:CARGO_TARGET_DIR } else { Join-Path $repo 'target' }
     Copy-Item -LiteralPath (Join-Path $targetDir 'release\nebula-import.exe') -Destination (Join-Path $stage 'tools\nebula-import.exe')
 
-    # The launcher and Nebula Settings (the same program; the second always opens the settings).
+    # The launcher: Nebula.exe, the only program the player opens. NEBULA_SETTINGS_APP makes it always show its window
+    # (Archipelago, settings, updates); the game starts from its Play button.
     $buildInfo = Join-Path $work 'BuildInfo.cs'
     [IO.File]::WriteAllText($buildInfo, @"
 namespace Nebula
@@ -79,8 +80,7 @@ namespace Nebula
     $icon = Join-Path $installer 'assets\nebula.ico'
     $launcherSources = @(Get-ChildItem (Join-Path $installer 'src\Launcher\*.cs') | ForEach-Object FullName)
     $common_args = @('/nologo', '/target:winexe', '/platform:x64', '/optimize+', "/win32manifest:$manifest", "/win32icon:$icon")
-    Invoke-Checked $csc ($common_args + @("/out:$(Join-Path $stage 'Nebula.exe')") + $references + $common + $launcherSources)
-    Invoke-Checked $csc ($common_args + @('/define:NEBULA_SETTINGS_APP', "/out:$(Join-Path $stage 'NebulaSettings.exe')") + $references + $common + $launcherSources)
+    Invoke-Checked $csc ($common_args + @('/define:NEBULA_SETTINGS_APP', "/out:$(Join-Path $stage 'Nebula.exe')") + $references + $common + $launcherSources)
 
     # The game and its tables.
     Copy-Item -LiteralPath (Join-Path $Bin 'NebulaNative.exe'), (Join-Path $Bin 'smg_game.dll') -Destination $stage
