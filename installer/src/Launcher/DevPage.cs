@@ -125,10 +125,13 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             page.Controls.Add(box);
         }
 
+        /// <summary>The Nebula commit the patches are made on (Nebula 3da13ef1: v1.0.1 and the commits after it).</summary>
+        private const string DefaultBase = "3da13ef1";
+
         private void LoadConfig()
         {
             repo.Text = @"C:\dev\nebula";
-            baseCommit.Text = "0dd6d99";
+            baseCommit.Text = DefaultBase;
             patchFolders.Text = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads") + @";C:\dev";
             try
             {
@@ -136,6 +139,7 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
                 var config = Json.Load(ConfigPath);
                 if (!string.IsNullOrEmpty(Json.Str(config, "repo"))) repo.Text = Json.Str(config, "repo");
                 if (!string.IsNullOrEmpty(Json.Str(config, "base"))) baseCommit.Text = Json.Str(config, "base");
+                if (baseCommit.Text == "0dd6d99") baseCommit.Text = DefaultBase;  // the previous default: the patches are on the newer Nebula now
                 if (!string.IsNullOrEmpty(Json.Str(config, "patchFolders"))) patchFolders.Text = Json.Str(config, "patchFolders");
                 appliedHash = Json.Str(config, "patchHash") ?? "";
                 if (config.ContainsKey("runAfter")) runAfter.Checked = Json.Bool(config, "runAfter");
@@ -290,6 +294,8 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
                     else
                     {
                         RemoveStaleGitLock(source);
+                        // The base commit may be newer than the clone: fetch it (offline, the commit may already be there).
+                        Exec(runner, "git", new[] { "-C", source, "fetch", "origin" }, source, token);
                         // A patch holds all the work since the base commit: start from the base each time.
                         Require(Exec(runner, "git", new[] { "-C", source, "reset", "--hard", baseRef }, source, token), "git reset");
                         Require(Exec(runner, "git", new[] { "-C", source, "clean", "-fd", "-e", "*.patch" }, source, token), "git clean");
