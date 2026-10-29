@@ -72,6 +72,7 @@ namespace NebulaArchipelago {
     // The star_colors option: the colour (PowerStar.btp's frame 0 to 3) of the star `scenario` of the current stage tells
     // the class of its item. false (frame untouched) when the option is off or the class is not known yet.
     bool getStarColorFrame(s32 scenario, s32* pFrame);
+    bool areStarColorsOn();
 
     // The music shuffle option: the sound ID of the music the game asks for (a stage's or boss's theme) -> the one that plays
     // instead (the same ID when the option is off or the ID is not a theme). The same multiworld shuffles the same way.
@@ -111,10 +112,32 @@ namespace NebulaArchipelago {
     //   buys the shelf: takes the Star Bits and sends the location. false when it cannot be (bought, too dear, offline).
     bool buyShopItem(s32 index);
 
+    // The green sphere: a dome place whose galaxy has no miniature of its own (a Hungry Luma's or a secret one, after the galaxy
+    // shuffle) shows the Observatory's green sphere instead of a model that does not exist. false for galaxies with a miniature,
+    // for Bowser's Reactors (they keep the place's own model), and when the spheres are off (archipelago.ini `green_spheres=0`,
+    // or the last run stopped while they were on screen). The guard marks the time a sphere is on screen: begin when a dome is
+    // made, end when the game leaves it.
+    bool useGreenSphere(const char* pContentName);
+    void beginSphereGuard();
+    void endSphereGuard();
+
+    // Mario's and Luigi's colours (the slot's YAML: mario_cap_color, mario_shirt_color, mario_overalls_color, mario_gloves_color,
+    // mario_shoes_color, then the same for luigi_): part 0 to 4 Mario's, 5 to 9 Luigi's. false when the part has no colour (the
+    // model keeps its own).
+    static const s32 cPlayerColorParts = 10;
+    bool getPlayerColor(s32 part, u8* pRed, u8* pGreen, u8* pBlue);
+
     // The enemy_shuffle option: the name of the enemy that stands in place of the stage object `pName` (placed as `rIter`
     // says), or `pName` itself. Only plain enemies are swapped - no path, no group, no switch, no argument - and the
     // choice follows the multiworld's seed and the object's place, so it is the same every time the stage loads.
     const char* getShuffledEnemy(const char* pName, const JMapInfoIter& rIter);
+
+    // The skybox_shuffle option: the sky model that stands in place of the sky object `pName` (a name such as "GalaxySky"), or
+    // `pName` itself. The same multiworld gives the same skies.
+    const char* getShuffledSky(const char* pName);
+
+    // The same for the sky inside a dome (AstroDomeSkyA, B or C).
+    const char* getShuffledDomeSky(const char* pName);
 
     // The automatic save's small "Saving..." (NebulaAchievementToast, bottom-left): the save starts the three seconds; the
     // indicator shows while they run and ticks them (false once they ran out); they go on across a scene change.
@@ -125,6 +148,25 @@ namespace NebulaArchipelago {
     // The transformations option: a power-up (MorphItemObjNeo's type: 1 Spring, 2 Bee, 3 Boo, 4 Ice, 5 Fire, 6 Flying) whose
     // item was not received does nothing when taken. Rainbow Mario is never locked.
     bool isTransformationLocked(s32 morphType);
+
+    // The movement option: a move whose item was not received is not there. The skills, by number:
+    enum Skill {
+        Skill_Spin = 0,        // every spin (MarioActor::isRequestSpin)
+        Skill_WallJump = 1,
+        Skill_LongJump = 2,    // the jump out of a run while crouching
+        Skill_Backflip = 3,
+        Skill_SideFlip = 4,    // the jump when turning round
+        Skill_TripleJump = 5,  // the third jump of the chain
+    };
+    bool isSkillLocked(s32 skill);
+
+    // The star select does not show this star: the slot leaves its kind (the Prankster Comet stars, the Purple Coin stars)
+    // out of the multiworld.
+    bool isScenarioHidden(const char* pStageName, s32 scenarioNo);
+
+    // Who plays when the slot settles it: 0 Mario only, 1 Luigi only; -1 when both (or no Archipelago game): the file
+    // select's button is there then.
+    s32 getForcedCharacter();
 
     // What the host wants shown: the oldest notice (ASCII), NebulaAchievementToast's pop-up shows it.
     const wchar_t* getWaitingNotice();

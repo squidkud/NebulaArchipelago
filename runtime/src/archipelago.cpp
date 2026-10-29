@@ -5,8 +5,10 @@
 #include "galaxy/websocket_client.h"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <ctime>
 #include <fstream>
@@ -131,21 +133,63 @@ const char* const kOptionNames[kOptionCount] = {
     "music_shuffle",
     "transformation_items",
     "enemy_shuffle",
-    nullptr,
+    "skybox_shuffle",
     "color_0",  "color_1",  "color_2",  "color_3",  "color_4",  "color_5",  "color_6",  "color_7",
     "color_8",  "color_9",  "color_10", "color_11", "color_12", "color_13", "color_14", "color_15",
     "color_16", "color_17", "color_18", "color_19", "color_20", "color_21", "color_22", "color_23",
+    "movement_items",
+    "include_comet_stars",
+    "include_purple_coin_stars",
 };
+
+// The options an override may change: the ones no logic depends on.
+bool overridable(std::uint32_t option) {
+    return option == static_cast<std::uint32_t>(Option::StarColors) || option == static_cast<std::uint32_t>(Option::DeathLink) ||
+           option == static_cast<std::uint32_t>(Option::MusicShuffle) || option == static_cast<std::uint32_t>(Option::EnemyShuffle) ||
+           option == 15u /* skybox_shuffle */ ||
+           (option >= static_cast<std::uint32_t>(Option::ColorFirst) && option <= static_cast<std::uint32_t>(Option::ColorLast));
+}
 
 bool is_counted_item(std::uint32_t item) {
     return item == kItemPowerStar || item == kItemGreenStar || item == kItemGrandStar ||
-           (item >= kItemBeeMushroom && item <= kItemFlyingStar);
+           (item >= kItemBeeMushroom && item <= kItemFlyingStar) || (item >= kItemSpin && item <= kItemTripleJump);
 }
 
 }  // namespace
 
 const char* option_name(std::uint32_t option) noexcept {
     return option < kOptionCount ? kOptionNames[option] : nullptr;
+}
+
+std::map<std::uint32_t, std::int64_t> parse_option_overrides(std::string_view raw) {
+    std::map<std::uint32_t, std::int64_t> result;
+    std::istringstream stream{normalize_text(raw)};
+    std::string line;
+    while (std::getline(stream, line)) {
+        const std::string trimmed = trim(line);
+        const std::size_t equals = trimmed.find('=');
+        if (trimmed.empty() || trimmed.front() == '#' || trimmed.front() == ';' || equals == std::string::npos) continue;
+        const std::string key = lower(trim(std::string_view(trimmed).substr(0, equals)));
+        if (key.rfind("option.", 0) != 0) continue;
+        const std::string name = key.substr(7);
+        const std::string value = lower(trim(std::string_view(trimmed).substr(equals + 1u)));
+        std::int64_t number = 0;
+        if (value == "on" || value == "true" || value == "yes") number = 1;
+        else if (value == "off" || value == "false" || value == "no") number = 0;
+        else {
+            try {
+                std::size_t used = 0;
+                number = std::stoll(value, &used, 0);
+                if (used != value.size()) continue;
+            } catch (...) {
+                continue;
+            }
+        }
+        for (std::uint32_t id = 1; id < kOptionCount; ++id) {
+            if (kOptionNames[id] != nullptr && name == kOptionNames[id] && overridable(id)) result[id] = number;
+        }
+    }
+    return result;
 }
 
 Config parse_config(std::string_view raw) {
@@ -298,11 +342,19 @@ std::filesystem::path Engine::state_path_locked() const {
 
 void Engine::load_state_locked() {
     applied_.clear();
+    goals_done_ = 0;
     if (state_folder_.empty() || seed_name_.empty()) return;
     std::ifstream in(state_path_locked());
     std::string line;
     while (std::getline(in, line)) {
         const std::size_t equals = line.find('=');
+        if (equals != std::string::npos && line.compare(0, equals, "goals") == 0) {
+            try {
+                goals_done_ = static_cast<std::uint32_t>(std::stoul(line.substr(equals + 1u))) & 3u;
+            } catch (...) {
+            }
+            continue;
+        }
         if (equals == std::string::npos || line.compare(0, 4, "file") != 0) continue;
         try {
             const auto file = static_cast<std::uint32_t>(std::stoul(line.substr(4, equals - 4u)));
@@ -319,6 +371,7 @@ void Engine::save_state_locked() {
     std::ostringstream out;
     out << "# Items this save file has received from the Archipelago server (do not edit)\n";
     for (const auto& [file, count] : applied_) out << "file" << file << '=' << count << '\n';
+    if (goals_done_ != 0u) out << "goals=" << goals_done_ << '\n';
     (void)io::write_text_file_atomically(state_path_locked(), out.str());
 }
 
@@ -384,6 +437,15 @@ std::string Engine::item_name_locked(std::int64_t item, std::int64_t receiving_s
             case kItemFireFlower: return "Fire Flower";
             case kItemIceFlower: return "Ice Flower";
             case kItemFlyingStar: return "Flying (Red Star)";
+            case kItemStarBits200: return "200 Star Bits";
+            case kItemOneUpBurst: return "3 1-Up Mushrooms";
+            case kItemFullHeal: return "Full Heal";
+            case kItemSpin: return "Spin";
+            case kItemWallJump: return "Wall Jump";
+            case kItemLongJump: return "Long Jump";
+            case kItemBackflip: return "Backflip";
+            case kItemSideFlip: return "Side Flip";
+            case kItemTripleJump: return "Triple Jump";
             default: break;
             }
         }
@@ -498,7 +560,7 @@ void Engine::handle_connected(const json::Value& command, std::vector<std::strin
                 for (const json::Value& id : list->items()) {
                     const std::int64_t number = id.as_int(0) - static_cast<std::int64_t>(kLocationBase);
                     if (number >= 1 && number <= static_cast<std::int64_t>(kLocationLast)) valid_.insert(static_cast<std::uint32_t>(number));
-                    if (number >= static_cast<std::int64_t>(kShopFirst) && number <= static_cast<std::int64_t>(kLocationLast)) {
+                    if (number >= static_cast<std::int64_t>(kShopFirst) && number <= static_cast<std::int64_t>(kShopLast)) {
                         if (std::string_view(key) == "checked_locations") checked_shop_.insert(static_cast<std::uint32_t>(number));
                         else checked_shop_.erase(static_cast<std::uint32_t>(number));
                     }
@@ -535,8 +597,7 @@ void Engine::handle_connected(const json::Value& command, std::vector<std::strin
         }
         seed_id_ = hash_text(seed_name_ + "|" + config_.slot);
         const bool star_colors = [&] {
-            const auto it = options_.find(static_cast<std::uint32_t>(Option::StarColors));
-            return it != options_.end() && it->second != 0;
+            return effective_option(Option::StarColors) != 0;
         }();
         if (star_colors || !shop_prices_.empty()) {
             // The colour of a star tells the class of its item, and the shop shows what each shelf holds: ask the server
@@ -553,7 +614,7 @@ void Engine::handle_connected(const json::Value& command, std::vector<std::strin
                 out.push_back(scout_packet.dump());
             }
         }
-        if (const auto it = options_.find(static_cast<std::uint32_t>(Option::DeathLink)); it != options_.end() && it->second != 0) {
+        if (effective_option(Option::DeathLink) != 0) {
             // DeathLink is a tag of the connection: tell the server this one takes part.
             json::Value tags = json::Value::array();
             tags.push(json::Value::string("DeathLink"));
@@ -715,7 +776,7 @@ void Engine::handle_command(const json::Value& command, std::vector<std::string>
                 const std::int64_t number = id->as_int(0) - static_cast<std::int64_t>(kLocationBase);
                 if (number < 1 || number > static_cast<std::int64_t>(kLocationLast)) continue;
                 const std::int64_t bits = flags != nullptr ? flags->as_int(0) : 0;
-                if (number >= static_cast<std::int64_t>(kShopFirst)) {
+                if (number >= static_cast<std::int64_t>(kShopFirst) && number <= static_cast<std::int64_t>(kShopLast)) {
                     const json::Value* item = entry.find("item");
                     const json::Value* player = entry.find("player");
                     scouted_[static_cast<std::uint32_t>(number)] = {item != nullptr ? item->as_int(0) : 0, player != nullptr ? player->as_int(0) : 0};
@@ -745,8 +806,7 @@ void Engine::handle_command(const json::Value& command, std::vector<std::string>
         const std::string who = source != nullptr ? source->as_string() : std::string();
         const double when = time != nullptr ? time->as_double(0.0) : 0.0;
         const std::lock_guard<std::mutex> lock(mutex_);
-        const auto it = options_.find(static_cast<std::uint32_t>(Option::DeathLink));
-        if (it == options_.end() || it->second == 0) return;
+        if (effective_option(Option::DeathLink) == 0) return;
         if (who == config_.slot || (when != 0.0 && when == last_death_time_)) return;  // our own, back from the server
         last_death_time_ = when;
         death_received_ = true;
@@ -790,7 +850,7 @@ void Engine::poll_outgoing(std::vector<std::string>& out) {
         json::Value wanted = json::Value::array();
         for (std::uint32_t i = 0; i < shop_prices_.size(); ++i) {
             const std::uint32_t number = kShopFirst + i;
-            if (number > kLocationLast || found_flags_[number] || checked_shop_.count(number) != 0u) continue;
+            if (number > kShopLast || found_flags_[number] || checked_shop_.count(number) != 0u) continue;
             wanted.push(json::Value::integer(static_cast<std::int64_t>(kLocationBase) + number));
         }
         if (!wanted.items().empty()) {
@@ -829,7 +889,6 @@ void Engine::poll_outgoing(std::vector<std::string>& out) {
         json::Value packet = json::Value::array();
         packet.push(std::move(message));
         out.push_back(packet.dump());
-        notice_locked("Goal reached: telling the server");
     }
 }
 
@@ -861,15 +920,22 @@ void Engine::report_location(std::uint32_t index) {
     if (found_flags_[index]) return;
     found_flags_[index] = true;
     found_.push_back(index);
-    if (index >= kShopFirst) {
+    if (index >= kShopFirst && index <= kShopLast) {
         checked_shop_.insert(index);
         save_cache_locked();  // a shelf bought stays bought when the game restarts before the server answers
     }
 }
 
-void Engine::report_goal() {
+void Engine::report_goal(std::uint32_t character) {
     const std::lock_guard<std::mutex> lock(mutex_);
-    goal_reported_ = true;
+    const std::uint32_t bit = character == 1u ? 2u : 1u;
+    if ((goals_done_ & bit) == 0u) {
+        goals_done_ |= bit;
+        save_state_locked();  // the other character may finish in another run
+    }
+    const std::int64_t who = effective_option(Option::Character);
+    const std::uint32_t needed = who == static_cast<std::int64_t>(kCharacterBoth) ? 3u : who == static_cast<std::int64_t>(kCharacterLuigi) ? 2u : 1u;
+    if ((goals_done_ & needed) == needed) goal_reported_ = true;
 }
 
 std::uint32_t Engine::next_item(std::uint32_t file) {
@@ -917,13 +983,30 @@ std::uint32_t Engine::item_count(std::uint32_t item) const {
 
 bool Engine::option_set(Option option) const {
     const std::lock_guard<std::mutex> lock(mutex_);
-    return options_.count(static_cast<std::uint32_t>(option)) != 0u;
+    return options_.count(static_cast<std::uint32_t>(option)) != 0u || overrides_.count(static_cast<std::uint32_t>(option)) != 0u;
 }
 
 std::uint32_t Engine::option_value(Option option) const {
     const std::lock_guard<std::mutex> lock(mutex_);
+    if (const auto over = overrides_.find(static_cast<std::uint32_t>(option)); over != overrides_.end()) {
+        return static_cast<std::uint32_t>(over->second);
+    }
     const auto it = options_.find(static_cast<std::uint32_t>(option));
     return it != options_.end() ? static_cast<std::uint32_t>(it->second) : 0u;
+}
+
+std::int64_t Engine::effective_option(Option option) const {
+    const std::uint32_t id = static_cast<std::uint32_t>(option);
+    if (const auto over = overrides_.find(id); over != overrides_.end()) return over->second;
+    const auto it = options_.find(id);
+    return it != options_.end() ? it->second : 0;
+}
+
+bool Engine::set_option_overrides(std::map<std::uint32_t, std::int64_t> overrides) {
+    const std::lock_guard<std::mutex> lock(mutex_);
+    if (overrides == overrides_) return false;
+    overrides_ = std::move(overrides);
+    return true;
 }
 
 std::uint32_t Engine::list_value(std::uint32_t list, std::uint32_t index) const {
@@ -973,8 +1056,7 @@ bool Engine::location_valid(std::uint32_t index) const {
 
 void Engine::report_death() {
     const std::lock_guard<std::mutex> lock(mutex_);
-    const auto it = options_.find(static_cast<std::uint32_t>(Option::DeathLink));
-    if (connected_ && it != options_.end() && it->second != 0) death_to_send_ = true;
+    if (connected_ && effective_option(Option::DeathLink) != 0) death_to_send_ = true;
 }
 
 bool Engine::take_death() {
@@ -1045,7 +1127,21 @@ bool Client::sleep_unless_stopped(int ms) const {
     return !stop_;
 }
 
+// Reads archipelago.ini again for its option.<name> lines (see parse_option_overrides).
+void Client::read_overrides(bool announce) {
+    if (config_.path.empty()) return;
+    std::ifstream in(config_.path, std::ios::binary);
+    if (!in) return;
+    const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    const auto overrides = parse_option_overrides(text);
+    const std::size_t count = overrides.size();
+    if (engine_.set_option_overrides(overrides) && (announce || count != 0u) && log_ != nullptr) {
+        log_(("archipelago.ini: " + std::to_string(count) + " option override(s) in force; the game applies them at its next stage").c_str());
+    }
+}
+
 void Client::run() {
+    read_overrides(false);
     const auto say = [this](const std::string& text) {
         if (log_ != nullptr) log_(text.c_str());
     };
@@ -1097,8 +1193,10 @@ void Client::run() {
             continue;
         }
         say("the connection is open; waiting for the server's greeting");
+        auto last_overrides = std::chrono::steady_clock::now();
         std::vector<std::string> out;
         bool refused = false;
+        auto last_ping = std::chrono::steady_clock::now();
         while (!stop_ && socket.is_open()) {
             std::string message;
             const net::WebSocket::Event event = socket.receive(message, 100);
@@ -1109,6 +1207,20 @@ void Client::run() {
                     refused = true;
                     break;
                 }
+            }
+            if (std::chrono::steady_clock::now() - last_overrides > std::chrono::seconds(5)) {
+                last_overrides = std::chrono::steady_clock::now();
+                read_overrides(true);
+            }
+            // A connection can die without any close (Wi-Fi dropped, computer asleep). The server pings about every
+            // 20 s, so a quiet line is probed with our own ping, and given up after 60 s so the retry below starts.
+            if (socket.idle_ms() > 20000 && std::chrono::steady_clock::now() - last_ping > std::chrono::seconds(10)) {
+                last_ping = std::chrono::steady_clock::now();
+                if (!socket.send_ping()) break;
+            }
+            if (socket.idle_ms() > 60000) {
+                say("the server has been silent for 60 seconds; reconnecting");
+                break;
             }
             engine_.poll_outgoing(out);
             bool sent = true;
@@ -1134,6 +1246,9 @@ void Client::run() {
 
 namespace {
 std::mutex g_mutex;
+std::filesystem::path g_settings_folder;  // set by start()
+std::atomic<bool> g_spheres_allowed{true};
+std::atomic<bool> g_guard_exit_registered{false};
 Client* g_client = nullptr;  // never destroyed: its thread may still run when the process ends
 
 std::mutex g_log_mutex;
@@ -1178,6 +1293,7 @@ void start(const std::filesystem::path& settings_folder, LogFn log) {
     const std::lock_guard<std::mutex> lock(g_mutex);
     if (g_client != nullptr || settings_folder.empty()) return;
     g_user_log = log;
+    g_settings_folder = settings_folder;
     {
         std::error_code error;
         std::filesystem::create_directories(settings_folder, error);
@@ -1185,6 +1301,22 @@ void start(const std::filesystem::path& settings_folder, LogFn log) {
         g_log_file.open(settings_folder / "archipelago.log", std::ios::trunc);
     }
     log_sink(("Nebula Archipelago client for the game \"" + std::string(kGameName) + "\"; settings folder: " + settings_folder.string()).c_str());
+
+    {
+        // A guard file left by the last run: it stopped while the green spheres were on screen.
+        std::error_code error;
+        const std::filesystem::path guard = settings_folder / "sphere-guard.txt";
+        const std::filesystem::path off = settings_folder / "green-spheres-off.txt";
+        if (std::filesystem::exists(guard, error)) {
+            std::filesystem::remove(guard, error);
+            std::ofstream(off) << "The game stopped while the green spheres were shown in a dome, so they are off. Delete this file to try again.\n";
+            log_sink("the last run stopped while the green spheres were on screen: they are off (delete green-spheres-off.txt to try again)");
+        }
+        if (std::filesystem::exists(off, error)) {
+            g_spheres_allowed.store(false);
+            log_sink(("green spheres in the domes: off, because " + off.string() + " exists (delete it to turn them back on)").c_str());
+        }
+    }
 
     std::vector<std::filesystem::path> candidates = {settings_folder / "archipelago.ini", settings_folder / "archipelago.ini.txt"};
     {
@@ -1209,7 +1341,25 @@ void start(const std::filesystem::path& settings_folder, LogFn log) {
         log_sink("no archipelago.ini found: the Archipelago client stays off (create the file in the settings folder above)");
         return;
     }
-    const Config config = parse_config(text);
+    {
+        // `green_spheres=0` in archipelago.ini turns the spheres off.
+        std::istringstream lines{normalize_text(text)};
+        std::string line;
+        while (std::getline(lines, line)) {
+            const std::string trimmed = trim(line);
+            const std::size_t equals = trimmed.find('=');
+            if (trimmed.empty() || trimmed.front() == '#' || trimmed.front() == ';' || equals == std::string::npos) continue;
+            if (lower(trim(std::string_view(trimmed).substr(0, equals))) == "green_spheres") {
+                const std::string v = lower(trim(std::string_view(trimmed).substr(equals + 1u)));
+                if (v == "0" || v == "false" || v == "no" || v == "off") {
+                    g_spheres_allowed.store(false);
+                    log_sink("green spheres in the domes: off, because archipelago.ini says green_spheres=0");
+                }
+            }
+        }
+    }
+    Config config = parse_config(text);
+    config.path = found.string();
     if (!config.enabled) {
         log_sink(("the Archipelago client stays off: " + config_problem(text)).c_str());
         return;
@@ -1217,6 +1367,43 @@ void start(const std::filesystem::path& settings_folder, LogFn log) {
     log_sink(("server " + config.server + ", slot \"" + config.slot + "\", password " + (config.password.empty() ? "none" : "set")).c_str());
     g_client = new Client(config, settings_folder / "archipelago", &log_sink);
     g_client->start();
+}
+
+bool spheres_allowed() noexcept {
+    return g_spheres_allowed.load();
+}
+
+void sphere_guard_begin() {
+    std::filesystem::path folder;
+    {
+        const std::lock_guard<std::mutex> lock(g_mutex);
+        folder = g_settings_folder;
+    }
+    if (folder.empty()) return;
+    std::error_code error;
+    const std::filesystem::path guard = folder / "sphere-guard.txt";
+    if (std::filesystem::exists(guard, error)) return;
+    std::ofstream(guard) << "A dome with green spheres is on screen. If the game stops here, the spheres are turned off at the next start.\n";
+    if (!g_guard_exit_registered.exchange(true)) {
+        // A normal exit removes the file; a crash does not.
+        static std::filesystem::path s_guard_path;
+        s_guard_path = guard;
+        std::atexit([] {
+            std::error_code ignored;
+            std::filesystem::remove(s_guard_path, ignored);
+        });
+    }
+}
+
+void sphere_guard_end() {
+    std::filesystem::path folder;
+    {
+        const std::lock_guard<std::mutex> lock(g_mutex);
+        folder = g_settings_folder;
+    }
+    if (folder.empty()) return;
+    std::error_code error;
+    std::filesystem::remove(folder / "sphere-guard.txt", error);
 }
 
 bool active() noexcept {
@@ -1237,8 +1424,8 @@ void report_location(std::uint32_t index) {
     if (Client* c = client()) c->engine().report_location(index);
 }
 
-void report_goal() {
-    if (Client* c = client()) c->engine().report_goal();
+void report_goal(std::uint32_t character) {
+    if (Client* c = client()) c->engine().report_goal(character);
 }
 
 std::uint32_t next_item(std::uint32_t file) {

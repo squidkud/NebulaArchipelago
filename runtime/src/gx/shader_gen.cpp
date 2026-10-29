@@ -16,6 +16,7 @@
 #include "galaxy/gx/gx_bitfields.h"
 #include "galaxy/gx/render_config.h"
 #include "galaxy/gx/uber_constants.h"
+#include "galaxy/gx/vertex_loader.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -357,12 +358,53 @@ static constexpr const char* kMotionInterpolants =
     "    float4   mv_cur    : TEXCOORD12;\n"
     "    float4   mv_prev   : TEXCOORD13;\n";
 
-// Curved surfaces (kVsKeyCurved): the vertex's displacement normal in, and to the hull and domain shaders the
-// eye-space position and the displacement normal turned as normals are; w the clip jitter the draw adds (x, y).
-static constexpr const char* kCurvedInput = "    float3   bend     : BEND;\n";
+// Curved surfaces (kVsKeyCurved): the vertex's curve data in (GxVertexOut::curve), and to the hull and domain shaders
+// the eye-space position, the displacement normal turned as normals are (w the clip jitter the draw adds, x and y),
+// and the crease normal (turned, packed), the place with its first crease neighbour and the second neighbour.
+static constexpr const char* kCurvedInput = "    uint3    curve    : BEND;\n";
 static constexpr const char* kCurvedInterpolants =
     "    float4   curve_pos : TEXCOORD14;\n"
-    "    float4   curve_nrm : TEXCOORD15;\n";
+    "    float4   curve_nrm : TEXCOORD15;\n"
+    "    uint4    curve_data : TEXCOORD16;\n";
+
+// Curved surfaces' packed normals (curved_surfaces.h's pack_normal): octahedral, two 16-bit halves, zero for none.
+static constexpr const char* kCurveCodec = R"HLSL(
+float3 curve_unpack(uint packed) {
+    if (packed == 0u) {
+        return float3(0.0, 0.0, 0.0);
+    }
+    const float2 p = (float2(float(packed >> 16u), float(packed & 0xFFFFu)) - 32768.0) / 32767.0;
+    float3 n = float3(p, 1.0 - abs(p.x) - abs(p.y));
+    if (n.z < 0.0) {
+        n.xy = (1.0 - abs(p.yx)) * float2(p.x >= 0.0 ? 1.0 : -1.0, p.y >= 0.0 ? 1.0 : -1.0);
+    }
+    return normalize(n);
+}
+uint curve_pack(float3 n) {
+    const float sum = abs(n.x) + abs(n.y) + abs(n.z);
+    if (!(sum > 0.0)) {
+        return 0u;
+    }
+    float2 p = n.xy / sum;
+    if (n.z < 0.0) {
+        p = (1.0 - abs(p.yx)) * float2(p.x >= 0.0 ? 1.0 : -1.0, p.y >= 0.0 ? 1.0 : -1.0);
+    }
+    const uint2 h = uint2(round(clamp(p, -1.0, 1.0) * 32767.0) + 32768.0);
+    return (h.x << 16u) | h.y;
+}
+)HLSL";
+
+// The normal corner `a` bends the edge to corner `b` by (curved_surfaces.h): its place's crease normal when `b` is one
+// of its crease neighbours, else its corner's displacement normal. Both triangles holding an edge pick alike.
+static constexpr const char* kCurveEdgeNormal = R"HLSL(
+float3 curve_edge_normal(VSOut a, VSOut b) {
+    const uint place = b.curve_data.y & 0xFFFFu;
+    if (place != 0xFFFFu && (place == (a.curve_data.y >> 16u) || place == (a.curve_data.z & 0xFFFFu))) {
+        return curve_unpack(a.curve_data.x);
+    }
+    return a.curve_nrm.xyz;
+}
+)HLSL";
 
 // Interpolated redraw: a sub-frame blends a CPU-written vertex buffer with the
 // matching draw's vertices of the frame before (GxVertexOut, 144-byte stride;
@@ -451,6 +493,39 @@ void vertex_blend(inout VSIn v, uint id) {
         v.uv[i] = float2(vb_coord(uv.x, v.uv[i].x), vb_coord(uv.y, v.uv[i].y));
     }
 }
+)HLSL";
+
+// Physical ray tracing's de-baked vertex colours (kVsFeatureDebake).
+static constexpr const char* kVsDebakeDef = R"HLSL(
+// Physical ray tracing (flags bit 6): what a de-baked vertex colour is raised by: the model's baked light at its most
+// lit facing (debake_peak: its light at the player's up, GxBackend::flush_draw_state) over the light at this vertex's
+// object-space normal `nrm` (nine spherical harmonics a channel, debake_sh; GxBackend::fit_debake_light), 1/4 to 4.
+// No normal: 1.
+float3 nebula_debake_gain(float3 nrm) {
+    const float len2 = dot(nrm, nrm);
+    if (!(len2 > 0.25)) {
+        return float3(1.0, 1.0, 1.0);
+    }
+    const float3 n = nrm * rsqrt(len2);
+    const float y[9] = {0.282095, 0.488603 * n.y, 0.488603 * n.z, 0.488603 * n.x, 1.092548 * n.x * n.y,
+                        1.092548 * n.y * n.z, 0.315392 * (3.0 * n.z * n.z - 1.0), 1.092548 * n.x * n.z,
+                        0.546274 * (n.x * n.x - n.y * n.y)};
+    float3 light = float3(0.0, 0.0, 0.0);
+    [unroll] for (uint i = 0u; i < 9u; ++i) {
+        light.r += debake_sh[i >> 2u][i & 3u] * y[i];
+        light.g += debake_sh[(9u + i) >> 2u][(9u + i) & 3u] * y[i];
+        light.b += debake_sh[(18u + i) >> 2u][(18u + i) & 3u] * y[i];
+    }
+    const float3 peak = max(debake_peak.rgb, 1e-3);
+    return clamp(peak / max(light, peak * 0.25), 0.25, 4.0);
+}
+
+// A vertex colour with its baked light removed: its hue at full brightness (black stays black).
+float3 nebula_debake(float3 c) {
+    const float m = max(c.r, max(c.g, c.b));
+    return m > (1.0 / 255.0) ? c / m : c;
+}
+
 )HLSL";
 
 static std::string insert_before_close(const char* text, const char* members, bool last) {
@@ -843,12 +918,6 @@ void enh_key_highlight(inout EnhShade e, float3 P) {
     }
 }
 
-// TEV inputs: GX wraps them to 8 bits (an unclamped stage above 255 wraps, as the hardware does); under
-// ray-traced lighting (header bit 17) they clamp instead, as the de-lit colour channel and the sphere
-// map's mean can lift a stage the game kept at 255 just past it.
-int3 tev_in3(int3 x) { return (uber_ps_header.w & 0x20000u) != 0u ? clamp(x, 0, 255) : (x & 255); }
-int tev_in1(int x) { return (uber_ps_header.w & 0x20000u) != 0u ? clamp(x, 0, 255) : (x & 255); }
-
 // The highlights added to the TEV result in linear light. A metal's F0 is its own colour raised to
 // a peak of at least kEnhMetalF0, so metals baked dull still reflect their light in their own hue.
 // `view`: the highlights alone (diagnostics).
@@ -1098,12 +1167,16 @@ std::string_view ShaderGenerator::point_geometry_shader_source() noexcept {
 
 // Curved surfaces' patch stages. The hull shader passes the vertices through and gives each edge as many segments as
 // keep every segment's arc within a quarter pixel of its chord: an arc of angle a over chord c bulges c tan(a/4) / 2,
-// about c a / 8, so n segments bulge c a / (8 n^2) and n = sqrt(c a / 2) pixels. An edge's count depends only on its
-// two vertices, so the two triangles sharing it split it alike (no cracks). The domain shader blends the three
-// vertices at the point, then moves it three quarters of the way to the blend of its projections onto the corners'
-// tangent planes (Phong tessellation's shape factor), and carries that move into the clip position (with the draw's
-// jitter), the per-pixel lighting position and the motion vectors. Fractional odd steps let a count change smoothly
-// as the camera moves.
+// about c a / 8, so n segments bulge c a / (8 n^2) and n = sqrt(c a / 2) pixels, a twice the chord's tilt from the
+// tangent plane at the end that tilts it most. An edge's count depends only on its two vertices, so the two
+// triangles sharing it split it alike (no cracks). The domain shader blends the three vertices at the point, then
+// moves it half way to the blend of its projections onto the corners' tangent planes (Phong tessellation's shape
+// factor, here one half: a sampled circle's edge midpoint then moves c sin(a) / 8 against the circle's
+// c tan(a/4) / 2, onto the circle within 3 % for a 16-gon and 11 % for a hexagon, where three quarters overshoots it
+// by 46 and 33 %). The move is a sum over the triangle's edges, each end projecting by the normal it bends that edge
+// by (curve_edge_normal), so an edge two triangles share moves alike in both. The move goes into the clip position
+// (with the draw's jitter), the per-pixel lighting position and the motion vectors. Fractional odd steps let a count
+// change smoothly as the camera moves.
 static constexpr const char* kCurvePatch = R"HLSL(
 struct CurvePatch {
     float edges[3] : SV_TessFactor;
@@ -1111,16 +1184,31 @@ struct CurvePatch {
 };
 )HLSL";
 
+// An edge's segments squared, before the clamp to 1-16: its chord on screen (pixels) times its turn, halved. `a` and
+// `b` are its ends' clip positions, `qa` and `qb` their eye positions, `na` and `nb` the normals each end bends it by.
+// Zero for an edge that stays straight. The hull shader and the sort (curve_sort_source) both use it.
+static constexpr const char* kCurveValue = R"HLSL(
+float curve_value(float4 a, float4 b, float3 qa, float3 qb, float3 na, float3 nb, float2 half_viewport) {
+    const float3 edge = qb - qa;
+    const float edge_length = length(edge);
+    if (a.w <= 0.0 || b.w <= 0.0 || !(edge_length > 0.0)) {
+        return 0.0;
+    }
+    const float3 along = edge / edge_length;
+    const float tilt = max(abs(dot(along, na)), abs(dot(along, nb)));
+    if (!(tilt > 0.0)) {
+        return 0.0;
+    }
+    const float angle = 2.0 * asin(min(tilt, 1.0));
+    const float chord = length((a.xy / a.w - b.xy / b.w) * half_viewport);
+    return chord * angle * 0.5;
+}
+)HLSL";
+
 static constexpr const char* kCurvedHull = R"HLSL(
 float curve_segments(VSOut a, VSOut b) {
-    const float2 half_viewport = 0.5 * line_point_raster.xy;
-    const bool bends = dot(a.curve_nrm.xyz, a.curve_nrm.xyz) > 0.0 && dot(b.curve_nrm.xyz, b.curve_nrm.xyz) > 0.0;
-    if (!bends || a.pos.w <= 0.0 || b.pos.w <= 0.0) {
-        return 1.0;
-    }
-    const float angle = acos(min(abs(dot(a.curve_nrm.xyz, b.curve_nrm.xyz)), 1.0));
-    const float chord = length((a.pos.xy / a.pos.w - b.pos.xy / b.pos.w) * half_viewport);
-    return clamp(sqrt(chord * angle * 0.5), 1.0, 16.0);
+    return clamp(sqrt(curve_value(a.pos, b.pos, a.curve_pos.xyz, b.curve_pos.xyz, curve_edge_normal(a, b),
+                                  curve_edge_normal(b, a), 0.5 * line_point_raster.xy)), 1.0, 16.0);
 }
 
 // Whether the patch lies wholly past one of the view's side planes or behind the eye, however far its curve bulges:
@@ -1179,17 +1267,18 @@ DSOut main(CurvePatch c, float3 b : SV_DomainLocation, const OutputPatch<VSOut, 
     o.pos = b.x * p[0].pos + b.y * p[1].pos + b.z * p[2].pos;
     o.col0 = b.x * p[0].col0 + b.y * p[1].col0 + b.z * p[2].col0;
     o.col1 = b.x * p[0].col1 + b.y * p[1].col1 + b.z * p[2].col1;
-    [unroll] for (uint i = 0u; i < 8u; ++i) {
-        o.uv[i] = b.x * p[0].uv[i] + b.y * p[1].uv[i] + b.z * p[2].uv[i];
-    }
 CURVE_EXTRA_BLEND
-    const float3 q = b.x * p[0].curve_pos.xyz + b.y * p[1].curve_pos.xyz + b.z * p[2].curve_pos.xyz;
-    float3 phong = float3(0.0, 0.0, 0.0);
-    [unroll] for (uint k = 0u; k < 3u; ++k) {
-        const float3 n = p[k].curve_nrm.xyz;
-        phong += b[k] * (q - dot(q - p[k].curve_pos.xyz, n) * n);
+    // Phong's move, edge by edge: -alpha times the sum over edges (i, k) of b_i b_k ((e.n_ik) n_ik - (e.n_ki) n_ki),
+    // e the edge from i to k and n_ik the normal i bends it by.
+    float3 move = float3(0.0, 0.0, 0.0);
+    [unroll] for (uint i = 0u; i < 3u; ++i) {
+        const uint k = (i + 1u) % 3u;
+        const float3 e = p[k].curve_pos.xyz - p[i].curve_pos.xyz;
+        const float3 ni = curve_edge_normal(p[i], p[k]);
+        const float3 nk = curve_edge_normal(p[k], p[i]);
+        move -= b[i] * b[k] * (dot(e, ni) * ni - dot(e, nk) * nk);
     }
-    const float3 d = 0.75 * (phong - q);
+    const float3 d = 0.5 * move;
     const float4 dc = mul(projection, float4(d, 0.0));
     const float2 jitter = float2(p[0].curve_pos.w, p[0].curve_nrm.w);
     o.pos += float4(dc.xy + jitter * dc.w, dc.z, dc.w);
@@ -1197,6 +1286,232 @@ CURVE_EXTRA_MOVE
     return o;
 }
 )HLSL";
+
+// Each draw's (CurveDraw) triangles kept whole where every edge's curve_value is under kCurveFlat (the hull shader
+// gives such an edge one segment and the domain shader moves nothing), with margin for the two stages' rounding; an
+// edge with an end near the eye plane stays a patch. Three passes (classify, offsets, scatter) keep each list in the
+// draw's order. A split draw's flat triangles come first and draw from its own indices: the sort takes the rest. A
+// draw's output: two DrawIndexedArguments (whole, patches), then the whole triangles' 32-bit indices, then the
+// patches'. The positions, displacement and crease normals and their pick per edge are the curved vertex shader's and
+// curve_edge_normal's.
+static constexpr const char* kCurveSort = R"HLSL(
+struct CurveDraw {
+    uint vertices;   // byte offset of the draw's first vertex
+    uint indices;    // byte offset of its 16-bit indices
+    uint triangles;
+    uint constants;  // byte offset of its vertex constants
+    uint palette;    // byte offset of its matrix palette
+    uint flags;      // bit 0: position matrices from the palette
+    uint output;     // byte offset of its output
+    uint scratch;    // byte offset of its blocks' masks of whole triangles, then their offsets
+};
+#ifndef NEBULA_VULKAN
+#define VK_BINDING(n)
+#else
+#define VK_BINDING(n) [[vk::binding(n, 0)]]
+#endif
+VK_BINDING(0) StructuredBuffer<CurveDraw> draws : register(t0);
+VK_BINDING(5) StructuredBuffer<uint2> blocks : register(t5);  // a group's draw and first triangle
+VK_BINDING(1) ByteAddressBuffer vertex_data : register(t1);
+VK_BINDING(2) ByteAddressBuffer index_data : register(t2);
+VK_BINDING(3) ByteAddressBuffer constant_data : register(t3);
+VK_BINDING(4) ByteAddressBuffer palette_data : register(t4);
+VK_BINDING(6) RWByteAddressBuffer sorted : register(u0);
+
+static const float kCurveFlat = 0.8;
+static const float kNearEye = 0.01;
+
+struct Corner {
+    float4 clip;
+    float3 eye;
+    float3 bend;
+    float3 crease;
+    uint place;
+    uint first_neighbour;
+    uint second_neighbour;
+};
+
+float3 turned(float3x3 cofactor, uint packed) {
+    const float3 n = mul(cofactor, curve_unpack(packed));
+    return dot(n, n) > 0.0 ? normalize(n) : n;
+}
+
+// A group's draw: its projection (rows 0-3), the inline position matrix (4-6), the half viewport (7.xy) and, for
+// palette draws, the 64 position-matrix rows from its palette base (8-71), loaded once per group.
+groupshared float4 draw_rows[72];
+
+void load_draw_rows(CurveDraw d, uint tid) {
+    if (tid < 4u) {
+        draw_rows[tid] = asfloat(constant_data.Load4(d.constants + 16u * tid));
+    } else if (tid < 7u) {
+        draw_rows[tid] = asfloat(constant_data.Load4(d.constants + CB_INLINE_POS + 16u * (tid - 4u)));
+    } else if (tid == 7u) {
+        draw_rows[7] = float4(0.5 * asfloat(constant_data.Load2(d.constants + CB_RASTER)), 0.0, 0.0);
+    }
+    if ((d.flags & 1u) != 0u) {
+        const uint base = constant_data.Load(d.constants + CB_PALETTE_BASE);
+        draw_rows[8u + tid] = asfloat(palette_data.Load4(d.palette + 16u * (base + tid)));
+    }
+    GroupMemoryBarrierWithGroupSync();
+}
+
+Corner corner(CurveDraw d, uint vertex) {
+    const uint at = d.vertices + vertex * VERTEX_STRIDE;
+    const float3 pos = asfloat(vertex_data.Load3(at));
+    const uint pn_row = min(vertex_data.Load(at + VERTEX_MTX) & 0x3Fu, 61u);
+    const uint third = vertex_data.Load(at + VERTEX_MTX + 8u);
+    const uint3 curve = vertex_data.Load3(at + VERTEX_CURVE);
+    const uint first_row = (d.flags & 1u) != 0u ? 8u + pn_row : 4u;
+    float4 rows[3];
+    rows[0] = draw_rows[first_row];
+    rows[1] = draw_rows[first_row + 1u];
+    rows[2] = draw_rows[first_row + 2u];
+    const float4 p = float4(pos, 1.0);
+    const float4 wpos = float4(dot(rows[0], p), dot(rows[1], p), dot(rows[2], p), 1.0);
+    const float3x3 cofactor = float3x3(cross(rows[1].xyz, rows[2].xyz), cross(rows[2].xyz, rows[0].xyz),
+                                       cross(rows[0].xyz, rows[1].xyz));
+    const float4x4 projection = float4x4(draw_rows[0], draw_rows[1], draw_rows[2], draw_rows[3]);
+    Corner c;
+    c.clip = mul(projection, wpos);
+    c.eye = wpos.xyz;
+    c.bend = turned(cofactor, curve.x);
+    c.crease = turned(cofactor, curve.y);
+    c.place = curve.z & 0xFFFFu;
+    c.first_neighbour = curve.z >> 16u;
+    c.second_neighbour = third >> 16u;
+    return c;
+}
+
+float3 edge_normal(Corner a, Corner b) {
+    if (b.place != 0xFFFFu && (b.place == a.first_neighbour || b.place == a.second_neighbour)) {
+        return a.crease;
+    }
+    return a.bend;
+}
+
+bool edge_whole(Corner a, Corner b, float2 half_viewport) {
+    if (abs(a.clip.w) < kNearEye || abs(b.clip.w) < kNearEye) {
+        return false;
+    }
+    return curve_value(a.clip, b.clip, a.eye, b.eye, edge_normal(a, b), edge_normal(b, a), half_viewport) < kCurveFlat;
+}
+
+uint index_at(uint at) {
+    const uint word = index_data.Load(at & ~3u);
+    return (at & 2u) != 0u ? word >> 16u : word & 0xFFFFu;
+}
+
+groupshared uint block_mask[2];
+groupshared uint scan[64];
+
+// Pass one, a thread a triangle (a group a block of 64 of one draw): its bit in the block's mask of whole triangles.
+[numthreads(64, 1, 1)]
+void classify(uint3 group : SV_GroupID, uint tid : SV_GroupIndex) {
+    const uint2 job = blocks[group.x];
+    const CurveDraw d = draws[job.x];
+    const uint t = job.y + tid;
+    if (tid < 2u) {
+        block_mask[tid] = 0u;
+    }
+    load_draw_rows(d, tid);
+    if (t < d.triangles) {
+        const float2 half_viewport = draw_rows[7].xy;
+        const uint at = d.indices + t * 6u;
+        const Corner c0 = corner(d, index_at(at));
+        const Corner c1 = corner(d, index_at(at + 2u));
+        const Corner c2 = corner(d, index_at(at + 4u));
+        if (edge_whole(c1, c2, half_viewport) && edge_whole(c2, c0, half_viewport) &&
+            edge_whole(c0, c1, half_viewport)) {
+            InterlockedOr(block_mask[tid >> 5u], 1u << (tid & 31u));
+        }
+    }
+    GroupMemoryBarrierWithGroupSync();
+    if (tid < 2u) {
+        sorted.Store(d.scratch + 8u * (job.y / 64u) + 4u * tid, block_mask[tid]);
+    }
+}
+
+// Pass two, a group a draw: the whole triangles before each block; the lists' draw arguments.
+[numthreads(64, 1, 1)]
+void offsets(uint3 group : SV_GroupID, uint tid : SV_GroupIndex) {
+    const CurveDraw d = draws[group.x];
+    const uint block_count = (d.triangles + 63u) / 64u;
+    const uint before = d.scratch + 8u * block_count;
+    uint total = 0u;
+    for (uint first = 0u; first < block_count; first += 64u) {
+        const uint b = first + tid;
+        const uint2 mask = b < block_count ? sorted.Load2(d.scratch + 8u * b) : uint2(0u, 0u);
+        const uint count = countbits(mask.x) + countbits(mask.y);
+        scan[tid] = count;
+        GroupMemoryBarrierWithGroupSync();
+        [unroll] for (uint offset = 1u; offset < 64u; offset <<= 1u) {
+            const uint earlier = tid >= offset ? scan[tid - offset] : 0u;
+            GroupMemoryBarrierWithGroupSync();
+            scan[tid] += earlier;
+            GroupMemoryBarrierWithGroupSync();
+        }
+        if (b < block_count) {
+            sorted.Store(before + 4u * b, total + scan[tid] - count);
+        }
+        total += scan[63];
+        GroupMemoryBarrierWithGroupSync();
+    }
+    if (tid == 0u) {
+        sorted.Store4(d.output, uint4(total * 3u, 1u, 0u, 0u));
+        sorted.Store4(d.output + 16u, uint4(0u, (d.triangles - total) * 3u, 1u, 0u));
+        sorted.Store2(d.output + 32u, uint2(0u, 0u));
+    }
+}
+
+// Pass three, a thread a triangle: to its list, at the whole triangles (or patches) before it in the draw.
+[numthreads(64, 1, 1)]
+void scatter(uint3 group : SV_GroupID, uint tid : SV_GroupIndex) {
+    const uint2 job = blocks[group.x];
+    const CurveDraw d = draws[job.x];
+    const uint t = job.y + tid;
+    if (t >= d.triangles) {
+        return;
+    }
+    const uint block = job.y / 64u;
+    const uint2 mask = sorted.Load2(d.scratch + 8u * block);
+    const uint below = tid < 32u ? countbits(mask.x & ((1u << tid) - 1u))
+                                 : countbits(mask.x) + countbits(mask.y & ((1u << (tid - 32u)) - 1u));
+    const bool whole = ((tid < 32u ? mask.x >> tid : mask.y >> (tid - 32u)) & 1u) != 0u;
+    const uint block_count = (d.triangles + 63u) / 64u;
+    const uint wholes_before = sorted.Load(d.scratch + 8u * block_count + 4u * block) + below;
+    const uint at = d.indices + t * 6u;
+    const uint3 v = uint3(index_at(at), index_at(at + 2u), index_at(at + 4u));
+    const uint whole_out = d.output + 40u;
+    const uint slot = whole ? whole_out + 12u * wholes_before : whole_out + 12u * (d.triangles + t - wholes_before);
+    sorted.Store3(slot, v);
+}
+)HLSL";
+
+std::string ShaderGenerator::curve_sort_source() {
+    char defines[256];
+    std::snprintf(defines, sizeof(defines),
+                  "#define VERTEX_STRIDE %zuu\n#define VERTEX_MTX %zuu\n#define VERTEX_CURVE %zuu\n"
+                  "#define CB_PALETTE_BASE %zuu\n#define CB_INLINE_POS %zuu\n#define CB_RASTER %zuu\n",
+                  sizeof(GxVertexOut), offsetof(GxVertexOut, mtx_indices), offsetof(GxVertexOut, curve),
+                  offsetof(GxVsConstants, mtx_palette_base), offsetof(GxVsConstants, inline_pos_matrix),
+                  offsetof(GxVsConstants, line_point_raster));
+    return std::string("// Curved surfaces' triangles sorted (ShaderGenerator::curve_sort_source).\n") + defines +
+           kCurveCodec + kCurveValue + kCurveSort;
+}
+
+// The patch stages' texture coordinates: eight members at the array's semantics (TEXCOORD0-7), not the array. Split
+// in those stages, the array's elements went to SPIR-V over the array's length, not the patch's vertices (glslang:
+// `p.uv[k]` a float3[8], the other members float3[3]).
+static std::string texcoord_members(std::string text) {
+    const std::size_t at = text.find("uv[8]");
+    const std::size_t start = text.rfind('\n', at) + 1u;
+    const std::size_t end = text.find('\n', at) + 1u;
+    std::string members;
+    for (unsigned i = 0; i < 8u; ++i) {
+        members += "    float3   uv" + std::to_string(i) + "      : TEXCOORD" + std::to_string(i) + ";\n";
+    }
+    return text.replace(start, end - start, members);
+}
 
 std::string ShaderGenerator::curved_stage_source(unsigned variant, bool domain) {
     const bool ppl = (variant & 1u) != 0u;
@@ -1214,20 +1529,24 @@ std::string ShaderGenerator::curved_stage_source(unsigned variant, bool domain) 
     s += insert_before_close(kVsConstantsDef, members.c_str(), false);
     // VSOut: what the curved vertex shader writes; DSOut: the same less the curve's, as the pixel shader reads it.
     std::string vs_out = ppl ? kVsStructsPpl : kVsStructs;
-    vs_out = vs_out.substr(vs_out.find("struct VSOut"));
+    vs_out = texcoord_members(vs_out.substr(vs_out.find("struct VSOut")));
     if (motion) {
         vs_out = insert_before_close(vs_out.c_str(), kMotionInterpolants, true);
     }
     std::string ds_out = vs_out;
     ds_out.replace(ds_out.find("VSOut"), 5u, "DSOut");
     vs_out = insert_before_close(vs_out.c_str(), kCurvedInterpolants, true);
-    s += vs_out + ds_out + kCurvePatch;
+    s += vs_out + ds_out + kCurvePatch + kCurveCodec + kCurveEdgeNormal;
     if (!domain) {
-        return s + kCurvedHull;
+        return s + kCurveValue + kCurvedHull;
     }
     std::string stages = kCurvedDomain;
     std::string blend;
     std::string move;
+    for (unsigned i = 0; i < 8u; ++i) {
+        const std::string uv = "uv" + std::to_string(i);
+        blend += "    o." + uv + " = b.x * p[0]." + uv + " + b.y * p[1]." + uv + " + b.z * p[2]." + uv + ";\n";
+    }
     if (ppl) {
         blend += "    o.ppl_pos = b.x * p[0].ppl_pos + b.y * p[1].ppl_pos + b.z * p[2].ppl_pos;\n"
                  "    o.ppl_nrm = b.x * p[0].ppl_nrm + b.y * p[1].ppl_nrm + b.z * p[2].ppl_nrm;\n"
@@ -1280,7 +1599,14 @@ std::string ShaderGenerator::generate_vs(const VertexShaderKey& key) const {
         structs = insert_before_close(structs.c_str(), kCurvedInterpolants, true);
     }
     s << structs;
-    s << kVertexBlendDef;
+    if (curved) {
+        s << kCurveCodec;
+    }
+    const bool blend = (key.features & kVsFeatureVertexBlend) != 0u;
+    const bool debake = (key.features & kVsFeatureDebake) != 0u;
+    if (blend) {
+        s << kVertexBlendDef;
+    }
 
     const bool dual_tex = (key.flags & 0x04u) != 0u;
 
@@ -1313,45 +1639,30 @@ float xfw(uint w) {
     }
     const bool finite_attn = (key.flags & kVsKeyFiniteLightAttn) != 0u;
 
-    s << R"HLSL(// Physical ray tracing (flags bit 6): what a de-baked vertex colour is raised by: the model's baked light at its most
-// lit facing (debake_peak: its light at the player's up, GxBackend::flush_draw_state) over the light at this vertex's
-// object-space normal `nrm` (nine spherical harmonics a channel, debake_sh; GxBackend::fit_debake_light), 1/4 to 4.
-// No normal: 1.
-float3 nebula_debake_gain(float3 nrm) {
-    const float len2 = dot(nrm, nrm);
-    if (!(len2 > 0.25)) {
-        return float3(1.0, 1.0, 1.0);
+    if (debake) {
+        s << kVsDebakeDef;
     }
-    const float3 n = nrm * rsqrt(len2);
-    const float y[9] = {0.282095, 0.488603 * n.y, 0.488603 * n.z, 0.488603 * n.x, 1.092548 * n.x * n.y,
-                        1.092548 * n.y * n.z, 0.315392 * (3.0 * n.z * n.z - 1.0), 1.092548 * n.x * n.z,
-                        0.546274 * (n.x * n.x - n.y * n.y)};
-    float3 light = float3(0.0, 0.0, 0.0);
-    [unroll] for (uint i = 0u; i < 9u; ++i) {
-        light.r += debake_sh[i >> 2u][i & 3u] * y[i];
-        light.g += debake_sh[(9u + i) >> 2u][(9u + i) & 3u] * y[i];
-        light.b += debake_sh[(18u + i) >> 2u][(18u + i) & 3u] * y[i];
+
+    if (blend) {
+        s << "VSOut main(VSIn v, uint vertex_id : SV_VertexID) {\n";
+        s << "    vertex_blend(v, vertex_id);\n";
+    } else {
+        // A game frame's values (kVertexBlendDef's with the frame's zero element): no jitter of a presented frame, the
+        // position before the vertex's own.
+        s << "VSOut main(VSIn v) {\n";
+        if (motion) {
+            s << "    const float2 vb_jitter = float2(0.0, 0.0);\n"
+                 "    const float3 vb_pos_prev = v.pos;\n";
+        }
     }
-    const float3 peak = max(debake_peak.rgb, 1e-3);
-    return clamp(peak / max(light, peak * 0.25), 0.25, 4.0);
-}
 
-)HLSL";
-    // A vertex colour with its baked light removed: its hue at full brightness (black stays black).
-    s << "float3 nebula_debake(float3 c) {\n"
-         "    const float m = max(c.r, max(c.g, c.b));\n"
-         "    return m > (1.0 / 255.0) ? c / m : c;\n"
-         "}\n\n";
-
-    s << "VSOut main(VSIn v, uint vertex_id : SV_VertexID) {\n";
-    s << "    vertex_blend(v, vertex_id);\n";
-
-    // Unpack the position/normal matrix index from the BLENDINDICES semantic. The GX PNMATIDX value is the
-    // XF row index (PNMTX0=0, PNMTX1=3, ...); a matrix occupies rows n..n+2. The loader resolves the
-    // non-per-vertex default from CP MatrixIndexA, so v.mtx_idx is always authoritative. Clamp to the 64-row
-    // position-matrix region so a bad index cannot read past the palette snapshot. The matrix palette is a
-    // root SRV, and hardware does not clamp out-of-bounds reads, which can page-fault the GPU.
-    s << "    uint pn_row = min(v.mtx_idx.x & 0x3Fu, 61u);\n";
+    // The position/normal matrix's XF row (PNMTX0=0, PNMTX1=3, ...; a matrix occupies rows n..n+2): the vertex's
+    // PNMATIDX (BLENDINDICES) where the stream carries one, else the draw's CP MatrixIndexA, the value the loader
+    // would put in each vertex (so a vertex's bytes do not depend on the draw). Clamped to the 64-row
+    // position-matrix region so a bad index cannot read past the palette snapshot: the matrix palette is a root SRV,
+    // and hardware does not clamp out-of-bounds reads, which can page-fault the GPU.
+    s << ((key.flags & 0x01u) != 0u ? "    uint pn_row = min(v.mtx_idx.x & 0x3Fu, 61u);\n"
+                                    : "    uint pn_row = min(matrix_index_a & 0x3Fu, 61u);\n");
     s << "    float3 pos_in = v.pos;\n";
     if ((key.flags & 0x01u) != 0u) {
         s << "    uint pnmtx_row = pn_row + mtx_palette_base;\n";
@@ -1414,30 +1725,38 @@ float3 nebula_debake_gain(float3 nrm) {
     s << "        float((v.color1 >> 16u) & 0xFFu) / 255.0,\n";
     s << "        float((v.color1 >>  8u) & 0xFFu) / 255.0,\n";
     s << "        float((v.color1       ) & 0xFFu) / 255.0);\n";
-    // Physical ray tracing (flags bits 2-3): an unlit channel's vertex colour is the art's baked light.
-    // Bit 6: by the model's facing fit (nebula_debake_gain); else each colour over its brightest channel.
-    s << "    if ((flags & 64u) != 0u) {\n"
-         "        const float3 debake_gain = nebula_debake_gain(v.nrm);\n"
-         "        if ((flags & 4u) != 0u) vtx_col0.rgb = saturate(vtx_col0.rgb * debake_gain);\n"
-         "        if ((flags & 8u) != 0u) vtx_col1.rgb = saturate(vtx_col1.rgb * debake_gain);\n"
-         "    } else {\n";
-    s << "    if ((flags & 4u) != 0u) vtx_col0.rgb = nebula_debake(vtx_col0.rgb) * (float((flags >> 8u) & 0xFFu) / 255.0);\n";
-    s << "    if ((flags & 8u) != 0u) vtx_col1.rgb = nebula_debake(vtx_col1.rgb) * (float((flags >> 16u) & 0xFFu) / 255.0);\n";
-    s << "    }\n";
+    if (debake) {
+        // Physical ray tracing (flags bits 2-3): an unlit channel's vertex colour is the art's baked light.
+        // Bit 6: by the model's facing fit (nebula_debake_gain); else each colour over its brightest channel.
+        s << "    if ((flags & 64u) != 0u) {\n"
+             "        const float3 debake_gain = nebula_debake_gain(v.nrm);\n"
+             "        if ((flags & 4u) != 0u) vtx_col0.rgb = saturate(vtx_col0.rgb * debake_gain);\n"
+             "        if ((flags & 8u) != 0u) vtx_col1.rgb = saturate(vtx_col1.rgb * debake_gain);\n"
+             "    } else {\n";
+        s << "    if ((flags & 4u) != 0u) vtx_col0.rgb = nebula_debake(vtx_col0.rgb) * (float((flags >> 8u) & 0xFFu) / 255.0);\n";
+        s << "    if ((flags & 8u) != 0u) vtx_col1.rgb = nebula_debake(vtx_col1.rgb) * (float((flags >> 16u) & 0xFFu) / 255.0);\n";
+        s << "    }\n";
+    }
     s << "\n";
 
     if (lighting_used) {
         // Lighting-space normal: transform by the normal (inverse-transpose) matrix, 3-float rows at XF words
         // 0x400 + 3*(posidx & 31) (Dolphin VertexShaderGen I_NORMALMATRICES[posidx & 31]). The result is
         // renormalized as in Dolphin. The zero guard keeps draws without a normal attribute NaN-free.
+        // Its nine words lie in three float4s of the palette, from word (nrm_base & 3) of the first.
         s << "    uint nrm_base = 0x400u + 3u * (pn_row & 31u);\n";
-        s << "    float3 nrm_t = float3(\n";
-        s << "        dot(float3(xfw(nrm_base+0u), xfw(nrm_base+1u),"
-             " xfw(nrm_base+2u)), v.nrm),\n";
-        s << "        dot(float3(xfw(nrm_base+3u), xfw(nrm_base+4u),"
-             " xfw(nrm_base+5u)), v.nrm),\n";
-        s << "        dot(float3(xfw(nrm_base+6u), xfw(nrm_base+7u),"
-             " xfw(nrm_base+8u)), v.nrm));\n";
+        s << "    const uint nrm_q = mtx_palette_base + (nrm_base >> 2u);\n"
+             "    const float4 nq0 = mtx_palette[nrm_q];\n"
+             "    const float4 nq1 = mtx_palette[nrm_q + 1u];\n"
+             "    const float4 nq2 = mtx_palette[nrm_q + 2u];\n"
+             "    const uint nrm_o = nrm_base & 3u;\n"
+             "    const float3 nrm_r0 = nrm_o == 0u ? nq0.xyz : nrm_o == 1u ? nq0.yzw\n"
+             "                        : nrm_o == 2u ? float3(nq0.zw, nq1.x) : float3(nq0.w, nq1.xy);\n"
+             "    const float3 nrm_r1 = nrm_o == 0u ? float3(nq0.w, nq1.xy) : nrm_o == 1u ? nq1.xyz\n"
+             "                        : nrm_o == 2u ? nq1.yzw : float3(nq1.zw, nq2.x);\n"
+             "    const float3 nrm_r2 = nrm_o == 0u ? float3(nq1.zw, nq2.x) : nrm_o == 1u ? float3(nq1.w, nq2.xy)\n"
+             "                        : nrm_o == 2u ? nq2.xyz : nq2.yzw;\n";
+        s << "    float3 nrm_t = float3(dot(nrm_r0, v.nrm), dot(nrm_r1, v.nrm), dot(nrm_r2, v.nrm));\n";
         s << "    float3 nrm = (dot(nrm_t, nrm_t) > 0.0)"
              " ? normalize(nrm_t) : nrm_t;\n\n";
     } else if (enhanced) {
@@ -1698,13 +2017,15 @@ float3 nebula_debake_gain(float3 nrm) {
                  palette ? "mtx_palette[pn_row + mtx_palette_base + " : "inline_pos_matrix[", r,
                  palette ? "u]" : "]");
         }
-        s << "    const float3 curve_n = float3(dot(cross(curve_r1, curve_r2), v.bend),\n"
-             "                                  dot(cross(curve_r2, curve_r0), v.bend),\n"
-             "                                  dot(cross(curve_r0, curve_r1), v.bend));\n"
-             "    const float curve_len2 = dot(curve_n, curve_n);\n";
+        s << "    const float3x3 curve_cofactor = float3x3(cross(curve_r1, curve_r2), cross(curve_r2, curve_r0),\n"
+             "                                             cross(curve_r0, curve_r1));\n"
+             "    float3 curve_n = mul(curve_cofactor, curve_unpack(v.curve.x));\n"
+             "    float3 curve_c = mul(curve_cofactor, curve_unpack(v.curve.y));\n"
+             "    curve_n = dot(curve_n, curve_n) > 0.0 ? normalize(curve_n) : curve_n;\n"
+             "    curve_c = dot(curve_c, curve_c) > 0.0 ? normalize(curve_c) : curve_c;\n";
         emit(s, "    o.curve_pos = float4(wpos.xyz, %s);\n", motion ? "jitter_ndc.x" : "0.0");
-        emit(s, "    o.curve_nrm = float4(curve_len2 > 0.0 ? curve_n * rsqrt(curve_len2) : curve_n, %s);\n",
-             motion ? "jitter_ndc.y" : "0.0");
+        emit(s, "    o.curve_nrm = float4(curve_n, %s);\n", motion ? "jitter_ndc.y" : "0.0");
+        s << "    o.curve_data = uint4(curve_pack(curve_c), v.curve.z, v.mtx_idx.z >> 16u, 0u);\n";
     }
     s << "\n    return o;\n}\n";
 
@@ -1720,9 +2041,16 @@ std::string ShaderGenerator::generate_ps(const PixelShaderKey& key) const {
 
     const bool ppl = (key.reserved & kPsKeyPerPixelLighting) != 0u;
     const bool enhanced = (key.reserved & kPsKeyEnhancedLighting) != 0u;
+    // Ray tracing's branches only in the keys of a ray-traced scene: the tint, and an enhanced key's header bits 16, 17
+    // and 31.
+    const bool rt_scene = (key.reserved & kPsKeyRtPaths) != 0u;
+    const bool rt_paths = enhanced && rt_scene;
     const bool ppl_inputs = ppl || enhanced;
     const bool motion = (key.reserved & kPsKeyMotion) != 0u;
     const bool reactive = !motion && (key.reserved & kPsKeyReactive) != 0u;
+    // The effects layer (kPsKeyLayer, a reactive draw): its colour also to targets 2 and 3.
+    const bool layer = reactive && (key.reserved & kPsKeyLayer) != 0u;
+    const char* const layer_fields = layer ? "float4 layer : SV_Target2; float4 trans : SV_Target3; " : "";
     const std::uint32_t enh_env = enhanced ? key.ind_reserved & kEnhancedEnvCoordMask : 0u;
     const bool enh_lit = enhanced && (key.ind_reserved & kEnhancedLit) != 0u;
     const bool scalar_masks = options_.scalar_byte_masks;
@@ -1732,6 +2060,18 @@ std::string ShaderGenerator::generate_ps(const PixelShaderKey& key) const {
         s << insert_before_close(kPsConstantsDef, "    uint4    uber_ps_header;\n", false);
     } else {
         s << kPsConstantsDef;
+    }
+    // A clear ice or crystal draw's tint under physical light (GxBackend: ztex_params.w between -1 and 0 the share it
+    // loses; rt_materials.h kRtIceTintKept): a colour of its art (8-bit sRGB over 255) with that share of its chroma
+    // taken, its luminance kept (linear light, Rec. 709). Its rasterized colours take it, and the texels of its maps that
+    // are textures (alpha_refs.z bits 8-15; not the screen captures it shows through it); GxBackend clears its registers.
+    if (rt_scene) {
+        s << "float3 gx_tint_cleared(float3 c, float share) {\n"
+             "    float3 l = saturate(c);\n"
+             "    l = l <= 0.04045 ? l / 12.92 : pow((l + 0.055) / 1.055, 2.4);\n"
+             "    l = lerp(l, dot(l, float3(0.2126, 0.7152, 0.0722)).xxx, share);\n"
+             "    return l <= 0.0031308 ? l * 12.92 : 1.055 * pow(l, 1.0 / 2.4) - 0.055;\n"
+             "}\n";
     }
     if (scalar_masks) {
         s << "int3 gx_u8(int3 v) { return int3(v.x & 255, v.y & 255, v.z & 255); }\n"
@@ -1774,6 +2114,16 @@ std::string ShaderGenerator::generate_ps(const PixelShaderKey& key) const {
              t.ramp, t.hemi, t.sky, t.knee, t.sheen, t.sheen_rough, t.metal, t.metal_rough, t.metal_f0, t.env_base,
              t.env_graze);
         s << kEnhancedLighting;
+        // TEV inputs: GX wraps them to 8 bits (an unclamped stage above 255 wraps, as the hardware does); under
+        // ray-traced lighting (header bit 17) they clamp instead, as the de-lit colour channel and the sphere
+        // map's mean can lift a stage the game kept at 255 just past it.
+        if (rt_paths) {
+            s << "int3 tev_in3(int3 x) { return (uber_ps_header.w & 0x20000u) != 0u ? clamp(x, 0, 255) : (x & 255); }\n"
+                 "int tev_in1(int x) { return (uber_ps_header.w & 0x20000u) != 0u ? clamp(x, 0, 255) : (x & 255); }\n";
+        } else {
+            s << "int3 tev_in3(int3 x) { return x & 255; }\n"
+                 "int tev_in1(int x) { return x & 255; }\n";
+        }
     }
 
     // Z-texturing (flags bit 1): the fragment depth is replaced by (or offset
@@ -1802,12 +2152,12 @@ std::string ShaderGenerator::generate_ps(const PixelShaderKey& key) const {
         s << "PSOutM main(PSIn pin) {\n";
     } else if (reactive && export_depth) {
         s << "struct PSOutZ { float4 color : SV_Target0; "
-             "float reactive : SV_Target1; float depth : SV_Depth; };\n";
+             "float reactive : SV_Target1; " << layer_fields << "float depth : SV_Depth; };\n";
         s << "PSOutZ main(PSIn pin) {\n";
     } else if (reactive) {
         // Blended draws without dual-source alpha (that would take target 1).
         s << "struct PSOutR { float4 color : SV_Target0; "
-             "float reactive : SV_Target1; };\n";
+             "float reactive : SV_Target1; " << layer_fields << "};\n";
         if (early_depth) s << "[earlydepthstencil]\n";
         s << "PSOutR main(PSIn pin) {\n";
     } else if (export_depth && dual_src) {
@@ -1860,54 +2210,60 @@ std::string ShaderGenerator::generate_ps(const PixelShaderKey& key) const {
             // direction: its ambient plus each light at the mean facing of a lit surface (0.55; lights
             // without a facing term whole), clamped as GX's channel. The art's level and tint stay; the
             // direction of its camera-following lights leaves, and the tracer's sun gives the direction.
-            s << "        if ((uber_ps_header.w & 0x20000u) != 0u) {\n"
-                 "            float3 enh_avg = enh_amb;\n";
-            for (unsigned n = 0; n < 8u; ++n) {
-                if ((lights & (1u << n)) == 0u) continue;
-                emit(s,
-                     "            {\n"
-                     "                float3 ldir;\n"
-                     "                float attn;\n"
-                     "                float3 lcol;\n"
-                     "                enh_light(%uu, %s, pin.ppl_pos, ldir, attn, lcol);\n"
-                     "                enh_avg += lcol * (attn * %s);\n"
-                     "            }\n",
-                     n, spot ? "true" : "false", dfn != 0u ? "0.55" : "1.0");
+            if (rt_paths) {
+                s << "        if ((uber_ps_header.w & 0x20000u) != 0u) {\n"
+                     "            float3 enh_avg = enh_amb;\n";
+                for (unsigned n = 0; n < 8u; ++n) {
+                    if ((lights & (1u << n)) == 0u) continue;
+                    emit(s,
+                         "            {\n"
+                         "                float3 ldir;\n"
+                         "                float attn;\n"
+                         "                float3 lcol;\n"
+                         "                enh_light(%uu, %s, pin.ppl_pos, ldir, attn, lcol);\n"
+                         "                enh_avg += lcol * (attn * %s);\n"
+                         "            }\n",
+                         n, spot ? "true" : "false", dfn != 0u ? "0.55" : "1.0");
+                }
+                // In the game's own light units (header bit 31) the channel is its full light, the ambient and every
+                // light at N.L 1, clamped as GX's channel: the traced light (sky, sun, bounces) multiplies it.
+                s << "            if ((uber_ps_header.w & 0x80000000u) != 0u) {\n"
+                     "                enh_avg = enh_amb;\n";
+                for (unsigned n = 0; n < 8u; ++n) {
+                    if ((lights & (1u << n)) == 0u) continue;
+                    emit(s,
+                         "                {\n"
+                         "                    float3 ldir;\n"
+                         "                    float attn;\n"
+                         "                    float3 lcol;\n"
+                         "                    enh_light(%uu, %s, pin.ppl_pos, ldir, attn, lcol);\n"
+                         "                    enh_avg += lcol * attn;\n"
+                         "                }\n",
+                         n, spot ? "true" : "false");
+                }
+                // Lit by the game's player light rig (flags bit 7, GxBackend::rt_player_rig_draw): its level, not its
+                // hue (a rig such as the prologue's cyan night rig would tint the player); the traced light gives the
+                // colour.
+                s << "                if ((ppl_flags & 128u) != 0u) {\n"
+                     "                    enh_avg = dot(enh_avg, float3(0.2126, 0.7152, 0.0722)).xxx;\n"
+                     "                }\n";
+                // De-baked (GxVsConstants flags bit 4): lit at its program's neutral light (bits 8-15), not the art's
+                // full light, in the full light's hue, since the ambient register or the vertices often hold the
+                // object's own colour.
+                s << "                if ((ppl_flags & 16u) != 0u) {\n"
+                     "                    const float enh_peak = max(enh_avg.r, max(enh_avg.g, enh_avg.b));\n"
+                     "                    enh_avg = (enh_peak > 1e-4 ? enh_avg / enh_peak : float3(1.0, 1.0, 1.0)) *\n"
+                     "                              (float((ppl_flags >> 8u) & 0xFFu) / 255.0);\n"
+                     "                }\n"
+                     "            }\n"
+                     "            pin.col0.rgb = enh_mat * saturate(enh_avg);\n"
+                     "        } else {\n";
+            } else {
+                s << "        {\n";
             }
-            // In the game's own light units (header bit 31) the channel is its full light, the ambient and every light
-            // at N.L 1, clamped as GX's channel: the traced light (sky, sun, bounces) multiplies it.
-            s << "            if ((uber_ps_header.w & 0x80000000u) != 0u) {\n"
-                 "                enh_avg = enh_amb;\n";
-            for (unsigned n = 0; n < 8u; ++n) {
-                if ((lights & (1u << n)) == 0u) continue;
-                emit(s,
-                     "                {\n"
-                     "                    float3 ldir;\n"
-                     "                    float attn;\n"
-                     "                    float3 lcol;\n"
-                     "                    enh_light(%uu, %s, pin.ppl_pos, ldir, attn, lcol);\n"
-                     "                    enh_avg += lcol * attn;\n"
-                     "                }\n",
-                     n, spot ? "true" : "false");
-            }
-            // Lit by the game's player light rig (flags bit 7, GxBackend::rt_player_rig_draw): its level, not its hue
-            // (a rig such as the prologue's cyan night rig would tint the player); the traced light gives the colour.
-            s << "                if ((ppl_flags & 128u) != 0u) {\n"
-                 "                    enh_avg = dot(enh_avg, float3(0.2126, 0.7152, 0.0722)).xxx;\n"
-                 "                }\n";
-            // De-baked (GxVsConstants flags bit 4): lit at its program's neutral light (bits 8-15), not the art's full
-            // light, in the full light's hue, since the ambient register or the vertices often hold the object's own
-            // colour.
-            s << "                if ((ppl_flags & 16u) != 0u) {\n"
-                 "                    const float enh_peak = max(enh_avg.r, max(enh_avg.g, enh_avg.b));\n"
-                 "                    enh_avg = (enh_peak > 1e-4 ? enh_avg / enh_peak : float3(1.0, 1.0, 1.0)) *\n"
-                 "                              (float((ppl_flags >> 8u) & 0xFFu) / 255.0);\n"
-                 "                }\n"
-                 "            }\n"
-                 "            pin.col0.rgb = enh_mat * saturate(enh_avg);\n"
-                 "        } else {\n";
             s << "        const float3 enh_amb_lin = enh_lin(enh_amb);\n"
-                 "        float3 enh_acc = enh_amb_lin * enh_sky(enh, (uber_ps_header.w & 0x20000u) == 0u);\n";
+                 "        float3 enh_acc = enh_amb_lin * enh_sky(enh, "
+              << (rt_paths ? "(uber_ps_header.w & 0x20000u) == 0u" : "true") << ");\n";
             bool first = true;
             for (unsigned n = 0; n < 8u; ++n) {
                 if ((lights & (1u << n)) == 0u) continue;
@@ -1935,8 +2291,18 @@ std::string ShaderGenerator::generate_ps(const PixelShaderKey& key) const {
                  "        }\n"
                  "    }\n";
         } else {
-            s << "    if (enh_on && (uber_ps_header.w & 0x20000u) == 0u) enh_key_highlight(enh, pin.ppl_pos);\n";
+            s << (rt_paths ? "    if (enh_on && (uber_ps_header.w & 0x20000u) == 0u)" : "    if (enh_on)")
+              << " enh_key_highlight(enh, pin.ppl_pos);\n";
         }
+    }
+    // A clear ice or crystal draw's tint (gx_tint_cleared): its rasterized colours here, its textures' texels per stage.
+    if (rt_scene) {
+        s << "    const bool tinted = ztex_params.w < 0.0 && ztex_params.w > -1.0;\n"
+             "    const uint tinted_maps = tinted ? (asuint(alpha_refs.z) >> 8u) & 0xFFu : 0u;\n"
+             "    if (tinted) {\n"
+             "        pin.col0.rgb = gx_tint_cleared(pin.col0.rgb, -ztex_params.w);\n"
+             "        pin.col1.rgb = gx_tint_cleared(pin.col1.rgb, -ztex_params.w);\n"
+             "    }\n";
     }
     s << "    int4 tex_color_i = int4(0,0,0,0);\n";
     s << "    int4 last_raw_tex_i = int4(0,0,0,0);\n";
@@ -2193,12 +2559,20 @@ std::string ShaderGenerator::generate_ps(const PixelShaderKey& key) const {
                     texmap,
                     tex_swz.c_str());
             }
+            if (rt_scene) {
+                emit(s,
+                     "    if (((tinted_maps >> %uu) & 1u) != 0u) {\n"
+                     "        tex_color_i.rgb = int3(round(gx_tint_cleared(float3(tex_color_i.rgb) / 255.0, "
+                     "-ztex_params.w) * 255.0));\n"
+                     "    }\n",
+                     texmap);
+            }
             if (!has_indirect_cmd && ((enh_env >> texcoord) & 1u) != 0u) {
                 // Under ray tracing the game's painted reflection (metals, crystals, sheen) stays as drawn
                 // and the traced reflection screens over it; replacing the map by its mean would flatten
                 // chrome. Enhanced lighting alone scales it.
-                s << "    if (enh_on && (uber_ps_header.w & 0x20000u) == 0u) {\n"
-                     "        tex_color_i.rgb = min(int3(round(float3(tex_color_i.rgb) * enh.env_gain)), int3(255,255,255));\n"
+                s << (rt_paths ? "    if (enh_on && (uber_ps_header.w & 0x20000u) == 0u) {\n" : "    if (enh_on) {\n")
+                  << "        tex_color_i.rgb = min(int3(round(float3(tex_color_i.rgb) * enh.env_gain)), int3(255,255,255));\n"
                      "    }\n";
             }
         } else if (key.num_texgens != 0u) {
@@ -2529,9 +2903,11 @@ std::string ShaderGenerator::generate_ps(const PixelShaderKey& key) const {
     // intermediates, but alpha compare, fog/colour output and the alpha==1 blend quirk see only the low 8 bits.
     // Under ray-traced lighting (enhanced keys, header bit 17) the final result clamps like the inputs, so a
     // channel lifted just past 255 does not wrap.
-    if (enhanced) {
+    if (rt_paths) {
         s << "\n    int4 frag_i = (uber_ps_header.w & 0x20000u) != 0u ? clamp(tev_prev_i, 0, 255)"
              " : (tev_prev_i & int4(255,255,255,255));\n";
+    } else if (enhanced) {
+        s << "\n    int4 frag_i = tev_prev_i & int4(255,255,255,255);\n";
     } else {
         s << (scalar_masks ? "\n    int4 frag_i = gx_u8(tev_prev_i);\n"
                            : "\n    int4 frag_i = tev_prev_i & int4(255,255,255,255);\n");
@@ -2540,11 +2916,11 @@ std::string ShaderGenerator::generate_ps(const PixelShaderKey& key) const {
     if (enhanced) {
         if ((key.ind_reserved & kEnhancedReflective) != 0u) {
             // The ray tracer's reflections own this class's highlights while they run.
-            s << "    if (enh_on && (uber_ps_header.w & 0x30000u) == 0u)\n"
-                 "        frag.rgb = enh_finish(frag.rgb, enh, (uber_ps_header.w & 0x40000u) != 0u);\n\n";
+            s << (rt_paths ? "    if (enh_on && (uber_ps_header.w & 0x30000u) == 0u)\n" : "    if (enh_on)\n")
+              << "        frag.rgb = enh_finish(frag.rgb, enh, (uber_ps_header.w & 0x40000u) != 0u);\n\n";
         } else {
-            s << "    if (enh_on && (uber_ps_header.w & 0x20000u) == 0u)\n"
-                 "        frag.rgb = enh_finish(frag.rgb, enh, (uber_ps_header.w & 0x40000u) != 0u);\n\n";
+            s << (rt_paths ? "    if (enh_on && (uber_ps_header.w & 0x20000u) == 0u)\n" : "    if (enh_on)\n")
+              << "        frag.rgb = enh_finish(frag.rgb, enh, (uber_ps_header.w & 0x40000u) != 0u);\n\n";
         }
         if (enh_lit) {
             // Diagnostics: colour channel 0 itself, the game's left of the split.
@@ -2722,13 +3098,44 @@ std::string ShaderGenerator::generate_ps(const PixelShaderKey& key) const {
             s << "    if (ztex_params.w > 0.0) {\n";
             s << "        uint lit_w, lit_h;\n";
             s << "        tex[7].GetDimensions(lit_w, lit_h);\n";
-            s << "        const int2 lit_at = min(int2(pin.pos.xy * ztex_params.w), int2(lit_w, lit_h) - 1);\n";
+            // The light texture's thirds (rt_lighting.hlsl LightTexturePS): water and glass (tex_dims[7].w 2) the
+            // surface behind's light, falling water (1-1.5) its own, the rest (the effects) the open air's over water.
+            s << "        const uint lit_third = lit_w / 3u;\n"
+                 "        int2 lit_at = min(int2(pin.pos.xy * ztex_params.w), int2(lit_third, lit_h) - 1);\n"
+                 "        lit_at.x += int(lit_third * (tex_dims[7].w >= 1.5 ? 0u : tex_dims[7].w >= 1.0 ? 2u : 1u));\n";
             s << ((key.output_flags & 0x80u) != 0u
                       ? "        lin *= min(max(tex[7].Load(int3(lit_at, 0)).rgb, 0.0), 1.15);\n"
                       : "        lin *= max(tex[7].Load(int3(lit_at, 0)).rgb, 0.0);\n");
+            // Falling water (tex_dims[7].w 1 + 0.4 x its aeration, map 7 being the light texture here; xyz the art's
+            // clear water colour, sRGB, white where the table names none): its painted colour lies between that colour
+            // and white, white water (a foam of bubbles and drops, drawn as painted) by how far towards white
+            // (rt_engine.hlsl fall_foam); the rest is clear water, which passes what lies behind it but for the white
+            // its bubbles scatter, its aeration, under the same light. rt_engine.hlsl fall_water does the same for the
+            // game's opaque sheets.
+            s << "        if (abs(tex_dims[7].w - 1.0) < 0.5) {\n"
+                 "            const float3 fall_c = frag.rgb <= 0.04045 ? frag.rgb / 12.92 : pow((frag.rgb + 0.055) / 1.055, 2.4);\n"
+                 "            const float3 fall_s = saturate(tex_dims[7].xyz);\n"
+                 "            const float3 fall_h = fall_s <= 0.04045 ? fall_s / 12.92 : pow((fall_s + 0.055) / 1.055, 2.4);\n"
+                 "            const float3 fall_d = 1.0 - fall_h;\n"
+                 "            const float fall_hi = max(fall_c.r, max(fall_c.g, fall_c.b));\n"
+                 "            const float fall_foam = dot(fall_d, fall_d) > 1e-3 ? saturate(dot(fall_c - fall_h, fall_d) / dot(fall_d, fall_d))\n"
+                 "                                  : (fall_hi > 1e-6 ? min(fall_c.r, min(fall_c.g, fall_c.b)) / fall_hi : 1.0);\n"
+                 "            const float fall_haze = saturate((tex_dims[7].w - 1.0) / 0.4);\n"
+                 "            const float3 fall_l = max(tex[7].Load(int3(lit_at, 0)).rgb, 0.0);\n"
+                 "            const float fall_keep = fall_foam + (1.0 - fall_foam) * fall_haze;\n"
+                 "            if (fall_keep > 1e-4) {\n"
+                 "                lin = (fall_foam * lin + (1.0 - fall_foam) * fall_haze * fall_l) / fall_keep;\n"
+                 "            }\n"
+                 "            efb_color.a = uint(round(float(efb_color.a) * fall_keep));\n";
+            if (dual_src) {
+                s << "            tev_alpha *= fall_keep;\n";
+            }
+            s << "        }\n";
             s << "    }\n";
         }
-        s << "    if (ztex_params.w < 0.0) {\n"
+        // At most -1 a light source shown in the table's colour (`recolour`); between -1 and 0 a clear ice or crystal
+        // draw's tint, cleared from its colour inputs before the TEV (main's start).
+        s << "    if (ztex_params.w <= -1.0) {\n"
              "        const uint code = uint(-ztex_params.w) - 1u;\n"
              "        const float3 c = float3(code & 255u, (code >> 8u) & 255u, (code >> 16u) & 255u) / 255.0;\n"
              "        const float3 hue = c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4);\n"
@@ -2741,6 +3148,10 @@ std::string ShaderGenerator::generate_ps(const PixelShaderKey& key) const {
         s << "    uint dst_alpha6 = uint(round(saturate(alpha_refs.w)"
              " * 255.0)) >> 2;\n";
         s << "    frag.a = float(dst_alpha6) / 63.0;\n";
+    } else if (reactive) {
+        // A blended draw writing the reactive mask blends single-source at the TEV's 8-bit alpha (on an RGBA6 EFB
+        // in place of dual-source blending: GxBackend's motion keys).
+        s << "    frag.a = float(efb_color.a) / 255.0;\n";
     } else {
         s << "    frag.a = float(efb_color.a >> 2) / 63.0;\n";
     }
@@ -2767,13 +3178,28 @@ std::string ShaderGenerator::generate_ps(const PixelShaderKey& key) const {
     } else if (reactive && export_depth) {
         s << "    PSOutZ zout;\n";
         s << "    zout.color = frag;\n";
-        s << "    zout.reactive = min(saturate(frag.a), 0.9);\n";
+        s << ((key.output_flags & 0x40u) != 0u
+                  ? "    zout.reactive = tex_dims[7].w > 1.5 ? 0.0 : min(saturate(frag.a), 0.9);\n"
+                  : "    zout.reactive = min(saturate(frag.a), 0.9);\n");
+        if (layer) {
+            s << "    zout.layer = frag;\n"
+                 "    zout.trans = frag;\n";
+        }
         s << "    zout.depth = 1.0 - float(zcoord_i) / 16777216.0;\n";
         s << "    return zout;\n}\n";
     } else if (reactive) {
         s << "    PSOutR rout;\n";
         s << "    rout.color = frag;\n";
-        s << "    rout.reactive = min(saturate(frag.a), 0.9);\n";
+        // A ray-traced scene's water and glass (lit translucent kind 2) cover nothing: the water's and clear
+        // surfaces' composites take the mask as what the frame's effects cover in front of them. Falling water (kind
+        // 1) covers with its white water (its alpha the white share).
+        s << ((key.output_flags & 0x40u) != 0u
+                  ? "    rout.reactive = tex_dims[7].w > 1.5 ? 0.0 : min(saturate(frag.a), 0.9);\n"
+                  : "    rout.reactive = min(saturate(frag.a), 0.9);\n");
+        if (layer) {
+            s << "    rout.layer = frag;\n"
+                 "    rout.trans = frag;\n";
+        }
         s << "    return rout;\n}\n";
     } else if (export_depth) {
         s << "    PSOutZ zout;\n";
@@ -2824,11 +3250,12 @@ std::string ShaderGenerator::describe(const PixelShaderKey& key) {
 std::string ShaderGenerator::describe(const VertexShaderKey& key) {
     char buf[128];
     std::snprintf(buf, sizeof(buf),
-        "VS:tg=%u chans=%u flags=0x%02x tmidx=0x%02x",
+        "VS:tg=%u chans=%u flags=0x%02x tmidx=0x%02x features=0x%x",
         static_cast<unsigned>(key.num_texgens),
         static_cast<unsigned>(key.num_chans),
         static_cast<unsigned>(key.flags),
-        static_cast<unsigned>(key.texmtx_idx_mask));
+        static_cast<unsigned>(key.texmtx_idx_mask),
+        static_cast<unsigned>(key.features));
     return buf;
 }
 

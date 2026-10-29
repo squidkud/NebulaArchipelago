@@ -95,9 +95,16 @@ void MiniatureGalaxy::init(const JMapInfoIter& rIter) {
 #ifdef TARGET_PC
     mContentGalaxyName = NebulaArchipelago::getShuffledGalaxy(mGalaxyName);
 
-    if (mContentGalaxyName != mGalaxyName && NebulaArchipelago::hasMiniatureModel(mContentGalaxyName)) {
-        snprintf(mContentObjectBuffer, sizeof(mContentObjectBuffer), "Mini%s", mContentGalaxyName);
-        mContentObjectName = mContentObjectBuffer;
+    if (mContentGalaxyName != mGalaxyName) {
+        if (NebulaArchipelago::hasMiniatureModel(mContentGalaxyName)) {
+            snprintf(mContentObjectBuffer, sizeof(mContentObjectBuffer), "Mini%s", mContentGalaxyName);
+            mContentObjectName = mContentObjectBuffer;
+        } else if (NebulaArchipelago::useGreenSphere(mContentGalaxyName)) {
+            // A galaxy with no miniature (a Hungry Luma's or a secret one) is shown as the green sphere that the Observatory
+            // shows when a Hungry Luma opens a galaxy.
+            mContentObjectName = "MiniSurprisedGalaxy";
+            NebulaArchipelago::beginSphereGuard();
+        }
     }
 #endif
 
@@ -128,6 +135,11 @@ void MiniatureGalaxy::init(const JMapInfoIter& rIter) {
     MR::connectToSceneNoShadowedMapObj(this);
 
     MR::initStarPointerTarget(this, ::cPointingRadius, TVec3f(0.0f, 0.0f, 0.0f));
+#ifdef TARGET_PC
+    if (strcmp(mContentObjectName, "MiniSurprisedGalaxy") == 0) {
+        MR::setStarPointerTargetRadius3d(this, ::cPointingRadius * 0.5f);
+    }
+#endif
     MR::invalidateClipping(this);
 
     initPartsModel();
@@ -280,6 +292,8 @@ void MiniatureGalaxy::makeArchiveList(NameObjArchiveListCollector* pCollector, c
     if (NebulaArchipelago::hasMiniatureModel(pContent)) {
         snprintf(contentObjectName, sizeof(contentObjectName), "Mini%s", pContent);
         objectName = contentObjectName;
+    } else if (pContent != objectNameOfSlot + strlen("Mini") && NebulaArchipelago::useGreenSphere(pContent)) {
+        objectName = "MiniSurprisedGalaxy";
     }
 
     // A Bowser place holding a galaxy that is not a boss is a plain place (its own model).
@@ -461,8 +475,18 @@ void MiniatureGalaxy::initPartsModel() {
 }
 
 void MiniatureGalaxy::setScale(f32 scale) {
-    mScale.setAll< f32 >(scale);
-    MR::setStarPointerTargetRadius3d(this, ::cPointingRadius * scale);
+#ifdef TARGET_PC
+    // The green sphere is a small model next to the galaxies' miniatures: it is drawn bigger.
+    const bool isSphere = mContentObjectName != nullptr && strcmp(mContentObjectName, "MiniSurprisedGalaxy") == 0;
+    const f32 selfScale = isSphere ? scale * 3.0f : scale;
+    // The pointer's reach around the sphere is small: half of a galaxy's, and it does not grow with the picture.
+    const f32 pointRadius = isSphere ? ::cPointingRadius * scale * 0.5f : ::cPointingRadius * scale;
+#else
+    const f32 selfScale = scale;
+    const f32 pointRadius = ::cPointingRadius * scale;
+#endif
+    mScale.setAll< f32 >(selfScale);
+    MR::setStarPointerTargetRadius3d(this, pointRadius);
 
     mShadowModel->mScale.setAll< f32 >(scale);
 
@@ -635,6 +659,12 @@ bool MiniatureGalaxy::isUseKoopaFaceModel() const {
     if (!mKoopaLook) {
         return false;
     }
+
+#ifdef TARGET_PC
+    if (strcmp(mContentObjectName, "MiniSurprisedGalaxy") == 0) {
+        return false;
+    }
+#endif
 
     return ::isUseKoopaFaceModel(mContentObjectName, mContentGalaxyName);
 }

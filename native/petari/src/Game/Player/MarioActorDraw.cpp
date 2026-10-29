@@ -1,4 +1,6 @@
 #include "Game/LiveActor/DisplayListMaker.hpp"
+#include <JSystem/J3DGraphBase/J3DNativeState.hpp>
+#include <JSystem/J3DGraphBase/J3DNativeView.hpp>
 #include "Game/LiveActor/ModelManager.hpp"
 #include "Game/MapObj/CollectCounter.hpp"
 #include "Game/MapObj/IceStep.hpp"
@@ -9,6 +11,9 @@
 #include "Game/Player/MarioAnimator.hpp"
 #include "Game/Player/MarioParts.hpp"
 #include "Game/Player/MarioState.hpp"
+#ifdef TARGET_PC
+#include "Game/Player/NebulaPlayerColors.hpp"
+#endif
 #include "Game/Player/ModelHolder.hpp"
 #include "Game/Player/TornadoMario.hpp"
 #include "Game/Scene/SceneFunction.hpp"
@@ -35,15 +40,10 @@
 #include <JSystem/JUtility/JUTNameTab.hpp>
 #include <JSystem/JUtility/JUTTexture.hpp>
 #include <cstring>
-#include <revolution/gd/GDBase.h>
 
 namespace MR {
     void showMaterial(J3DModel*, const char*);
 };  // namespace MR
-
-extern "C" {
-void GDSetTexImgPtr(GXTexMapID, void*);
-}
 
 class JetTurtleShadow : public LiveActor {
 public:
@@ -108,11 +108,11 @@ void MarioActor::initDrawAndModel() {
 
     initFace();
 
-    mDL[0] = new (0x20) u8[0x100];
-    mDL[1] = new (0x20) u8[0x100];
+    mDL[0].reserve(16);
+    mDL[1].reserve(16);
     mCurrDL = 0;
 
-    mDLchanger = new DLchanger(2, 0x100);
+    mDLchanger = new DLchanger(2, 16);
     _1A4 = 0.0f;
 
     swapTextureInit();
@@ -138,6 +138,16 @@ void MarioActor::initDrawAndModel() {
 
     initScreenBox();
     MR::startBtp(this, "ElementEnd");
+
+#ifdef TARGET_PC
+    // The colours of archipelago.ini: the pictures of the character's models are recoloured before the first draw (the
+    // rainbow model, mModels[4], keeps its own colours).
+    for (u32 i = 0; i < 6; i++) {
+        if (i != 4 && mModels[i] != nullptr) {
+            NebulaPlayerColors::apply(mModels[i]->getModelData(), gIsLuigi);
+        }
+    }
+#endif
 }
 
 void MarioActor::initBeeMario() {
@@ -496,18 +506,26 @@ void MarioActor::drawMarioModel() const {
 
             MR::showJoint(model, "HandR0");
             MR::showJoint(model, "HandL0");
+#ifdef TARGET_PC
+            // The camera is close: Mario is fading out, and the game fades the plain face of the body model (white eyes). The
+            // separate face model (with the pupils and lids) is faded and drawn instead.
+            if (_A5C == nullptr || MR::isHiddenModel(_A5C)) {
+                MR::showJoint(model, "Face0");
+            }
+#else
             MR::showJoint(model, "Face0");
+#endif
         } else {
             if (mCurrModel == 4) {
-                model->setDynamicDL(nullptr, 0);
+                model->setDynamicDL(nullptr);
             } else {
-                model->setDynamicDL(mDL[mCurrDL], mDLSize);
+                model->setDynamicDL(&mDL[mCurrDL]);
             }
         }
 
         if (mBeeWallWalk != 0) {
-            GXSetAlphaUpdate(GX_TRUE);
-            GXSetDstAlpha(GX_TRUE, 0);
+            J3DNativeState::setAlphaUpdate(GX_TRUE);
+            J3DNativeState::setDstAlpha(GX_TRUE, 0);
         }
 
         model->setDrawView(0);
@@ -525,13 +543,21 @@ void MarioActor::drawMarioModel() const {
 
     if (!MR::isHiddenModel(_A5C)) {
         J3DModelX* cool = static_cast< J3DModelX* >(MR::getJ3DModel(_A5C));
-        cool->setDynamicDL(mDL[mCurrDL], mDLSize);
+#ifdef TARGET_PC
+        if (mMario->isStatusActive(MarioStatus_FpView)) {
+            mDLchanger->addDL(cool);  // faded with the body
+        } else {
+            cool->setDynamicDL(&mDL[mCurrDL]);
+        }
+#else
+        cool->setDynamicDL(&mDL[mCurrDL]);
+#endif
         cool->directDraw(nullptr);
     }
 
     if (mBeeWallWalk != 0) {
-        GXSetAlphaUpdate(GX_FALSE);
-        GXSetDstAlpha(GX_FALSE, 0);
+        J3DNativeState::setAlphaUpdate(GX_FALSE);
+        J3DNativeState::setDstAlpha(GX_FALSE, 0);
     }
 }
 
@@ -540,30 +566,28 @@ void MarioActor::drawMarioModel() const {
 // nothing of him drawn while the camera is within 300 units). Under the ray tracer his body is still there for its
 // rays, as RTX Remix keeps a first-person player model out of the camera's rays alone (rtx.playerModel): his shadow,
 // and his reflection in crystals, glass, water and mirrors. Drawn whole and opaque as in the third-person view,
-// between trace-only markers the renderer keeps out of the picture; the model's flags and the joints the first-person
-// draw shows are left as that draw leaves them. The accessory model (_A5C) only while the game draws none of him: half
-// faded, it draws that one itself.
+// between trace-only markers the renderer keeps out of the picture, with his separate hand and face models (the plain
+// hands and face of the body model stay hidden, as in the third-person view); the model's flags are left as that draw
+// leaves them.
 void MarioActor::drawTracedBody(J3DModelX* pModel) const {
     if (!MotionSignal::traceOnlyWanted()) {
         return;
     }
     const J3DModelX::Flags flags = pModel->mFlags;
-    pModel->setDynamicDL(mCurrModel == 4 ? nullptr : mDL[mCurrDL], mDLSize);
-    MR::showJoint(pModel, "HandR0");
-    MR::showJoint(pModel, "HandL0");
-    MR::showJoint(pModel, "Face0");
+    pModel->setDynamicDL(mCurrModel == 4 ? nullptr : &mDL[mCurrDL]);
+    // The body model's own hands and face (joints HandR0, HandL0 and Face0) are the plain ones the game keeps hidden; what
+    // the player sees are the separate hand and face models, so those are drawn here too (the joints stay hidden), with
+    // the dynamic display list that gives the eyes their pupils and lids.
     MotionSignal::traceOnly(true);
     pModel->setDrawView(0);
     pModel->directDraw(nullptr);
-    if (_1A1 && !MR::isHiddenModel(_A5C)) {
-        J3DModelX* cool = static_cast< J3DModelX* >(MR::getJ3DModel(_A5C));
-        cool->setDynamicDL(mDL[mCurrDL], mDLSize);
-        cool->directDraw(nullptr);
+    drawHand();
+    if (_A5C != nullptr && mCurrModel != 1 && mCurrModel != 3 && mCurrModel != 4) {
+        J3DModelX* pFace = static_cast< J3DModelX* >(MR::getJ3DModel(_A5C));
+        pFace->setDynamicDL(&mDL[mCurrDL]);
+        pFace->directDraw(nullptr);
     }
     MotionSignal::traceOnly(false);
-    MR::hideJoint(pModel, "HandR0");
-    MR::hideJoint(pModel, "HandL0");
-    MR::hideJoint(pModel, "Face0");
     pModel->mFlags = flags;
 }
 #endif
@@ -691,8 +715,17 @@ void MarioActor::updateFace() {
     }
 
     if (mMario->isStatusActive(MarioStatus_FpView)) {
+#ifdef TARGET_PC
+        // While Mario only fades (the camera is near), his face model stays: it is faded and drawn in place of the body
+        // model's plain face. Hidden once he is gone altogether.
+        if (_1A1) {
+            MR::hideModel(_A5C);
+            return;
+        }
+#else
         MR::hideModel(_A5C);
         return;
+#endif
     }
 
     if (MR::isHiddenModel(this) || is481or482On() || mMario->mMovementStates._F || _1C3) {
@@ -855,7 +888,7 @@ void MarioActor::drawIndirectModel() const {
 
             mDLchanger->addDL(model);
         } else {
-            model->setDynamicDL(mDL[mCurrDL], mDLSize);
+            model->setDynamicDL(&mDL[mCurrDL]);
         }
 
         MR::showJoint(model, "Face0");
@@ -909,7 +942,7 @@ void MarioActor::drawReflectModel() const {
     model->mFlags.clear();
 
     if (_A08 == 2) {
-        GXSetZScaleOffset(1.0f, 0.00001f);
+        J3DNativeView::setZScaleOffset(1.0f, 0.00001f);
         model->mFlags._1A = true;
         model->setDrawView(3);
         model->directDraw(nullptr);
@@ -924,7 +957,7 @@ void MarioActor::drawReflectModel() const {
         model->mFlags._14 = true;
     }
 
-    GXSetZScaleOffset(1.0f, 0.0f);
+    J3DNativeView::setZScaleOffset(1.0f, 0.0f);
     model->setDrawView(3);
     model->directDraw(nullptr);
     model->mFlags.clear();
@@ -976,7 +1009,6 @@ void MarioActor::drawModelBlur() const {
             }
         }
 
-        DCStoreRange(mBlurMatrices[_B10][idx], getModelData()->getDrawMtxNum() * sizeof(Mtx));
 
         _94[idx + ((i - 1) << 3)]->addDL(model);
         model->directDraw(nullptr);
@@ -986,26 +1018,9 @@ void MarioActor::drawModelBlur() const {
 }
 
 void MarioActor::createTextureDL(DLholder* pHolder, u16 texMapID, u16 texIndex) {
-    MR::ProhibitSchedulerAndInterrupts prohibit(false);
-
-    u8 tempDL[0x200] ATTRIBUTE_ALIGN(32);
-    GDLObj obj;
-    GDInitGDLObj(&obj, tempDL, sizeof(tempDL));
-    __GDCurrentDL = &obj;
-
     ResTIMG* texture = _B64[texIndex];
-    GDSetTexImgPtr(static_cast< GXTexMapID >(texMapID), reinterpret_cast< u8* >(texture) + texture->mImageDataOffset);
-
-    GDPadCurr32();
-
-    const u32 dlSize = static_cast< u32 >(obj.ptr - obj.start);
-    const u32 alignedSize = (dlSize + 0x1F) & ~0x1F;
-
-    pHolder->mSize = dlSize;
-    pHolder->mDL = new (0x20) u8[alignedSize];
-
-    MR::copyMemory(pHolder->mDL, tempDL, alignedSize);
-    DCStoreRange(pHolder->mDL, alignedSize);
+    pHolder->mList.reserve(1);
+    pHolder->mList.setTexImgPtr(static_cast< GXTexMapID >(texMapID), reinterpret_cast< u8* >(texture) + texture->mImageDataOffset);
 }
 
 void MarioActor::swapTexture(const char* pMaterialName, u8 texNo) const {
@@ -1033,16 +1048,10 @@ void MarioActor::swapTexture(const char* pMaterialName, u8 texNo) const {
 
     const DLholder* holder = _B6C;
     const u8 modelIdx = mCurrModel;
-    u8* dl = holder[texNo].mDL;
-    u16 dlSize = holder[texNo].mSize;
+    const J3DStateList* dl = holder[texNo].mList.isEmpty() ? nullptr : &holder[texNo].mList;
     J3DModelX* model = mModels[modelIdx];
 
-    if (dl == nullptr) {
-        dlSize = 0;
-    }
-
     model->_1C8[materialNo] = dl;
-    model->_1CC[materialNo] = dlSize;
 }
 
 void MarioActor::copyMaterial(J3DModel* pModel, u16 materialNo, s32 packetIndex) {
@@ -1095,14 +1104,9 @@ void J3DModelX::swapDrawBuffer(u32 drawBuffer) {
 
 void DLchanger::addDL(J3DModelX* pModel) {
     DLholder* buffer = &mBuffers[mCurrentBuffer];
-    pModel->setDynamicDL(buffer->mDL, buffer->mSize);
+    pModel->setDynamicDL(&buffer->mList);
 }
 
-void J3DModelX::setDynamicDL(u8* pDL, u32 dlSize) {
-    if (pDL == nullptr) {
-        dlSize = 0;
-    }
-
-    _1B8 = pDL;
-    _1BC = dlSize;
+void J3DModelX::setDynamicDL(const J3DStateList* pList) {
+    _1B8 = pList;
 }

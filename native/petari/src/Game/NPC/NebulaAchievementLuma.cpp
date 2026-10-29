@@ -1,8 +1,10 @@
 #include "Game/NPC/NebulaAchievementLuma.hpp"
+#include <JSystem/JUtility/JUTNativeLog.hpp>
 
 #ifdef TARGET_PC
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Scene/GameSceneFunction.hpp"
+#include "Game/System/NebulaArchipelago.hpp"
 #include "Game/System/GameDataFunction.hpp"
 #include "Game/Util/JMapInfo.hpp"
 #include "Game/Util/MapUtil.hpp"
@@ -25,7 +27,9 @@ namespace {
     const f32 cAhead = 600.0f;
     const f32 cLeft = 450.0f;
     const f32 cAboveFloor = 140.0f;
-    const s32 cColor = 0;  // the Lumas' yellow (Tico's ColorChange frames)
+    // Tico's ColorChange frames: 0 yellow, 1 blue, 2 green, 3 red, 4 purple, 5 pink.
+    const s32 cColorBoard = 0;  // the Lumas' yellow: the achievements
+    const s32 cColorShop = 3;   // red: the Star Bit shop of an Archipelago slot
     const char cMessageId[] = "Nebula_AchievementLuma";  // MessageData answers it from NebulaText
 };  // namespace
 
@@ -63,9 +67,9 @@ void NebulaAchievementLuma::init(const JMapInfoIter& rIter) {
     mPosition.set(place);
     // Facing where Mario arrives.
     mRotation.set(0.0f, static_cast< f32 >(atan2(start.x - place.x, start.z - place.z)) * (180.0f / 3.14159265f), 0.0f);
-    OSReport("NebulaAchievementLuma: at %.0f %.0f %.0f (start %.0f %.0f %.0f)\n", place.x, place.y, place.z, start.x, start.y, start.z);
+    JUTNativeLog("NebulaAchievementLuma: at %.0f %.0f %.0f (start %.0f %.0f %.0f)\n", place.x, place.y, place.z, start.x, start.y, start.z);
 
-    initBase(cColor);
+    initBase(NebulaArchipelago::hasShop() ? cColorShop : cColorBoard);
     initMessage(cMessageId);
     mWaitNerve = &NrvNebulaAchievementLuma::NebulaAchievementLumaNrvWait::sInstance;
     setNerve(&NrvNebulaAchievementLuma::NebulaAchievementLumaNrvWait::sInstance);

@@ -12,6 +12,7 @@
 #include <revolution.h>
 #ifdef TARGET_PC
 #include "Game/Util/MotionSignal.hpp"
+#include "JSystem/J3DGraphBase/J3DNativeShape.hpp"
 #endif
 
 namespace {
@@ -228,8 +229,11 @@ ResFileInfo* ResourceHolder::createAndRegisterObject(const char* pName, void* pD
         if (MR::isUseFur(modelData) || MR::strcasecmp(pName, "MarioShadow.bdl") == 0) {
             MR::downFracVtx(modelData);
         }
+        // Lists for its materials, made from their MAT3 data as a .bmd model's are (J3DModelLoader skips the file's).
+        modelData->newSharedDisplayList(0);
 #ifdef TARGET_PC
         MotionSignal::modelResource(modelData, pName);
+        J3DNativeShape::registerModel(modelData);
 #endif
         return mModelResTable->add(pName, modelData, true);
     }
@@ -240,6 +244,7 @@ ResFileInfo* ResourceHolder::createAndRegisterObject(const char* pName, void* pD
         modelData->newSharedDisplayList(0);
 #ifdef TARGET_PC
         MotionSignal::modelResource(modelData, pName);
+        J3DNativeShape::registerModel(modelData);
 #endif
         return mModelResTable->add(pName, modelData, true);
     }

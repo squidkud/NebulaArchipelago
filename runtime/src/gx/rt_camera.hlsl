@@ -12,11 +12,15 @@
 //   taps; Jimenez 2014, "Next Generation Post Processing in Call of Duty: Advanced Warfare"): the sum of the levels is
 //   the picture blurred at every scale, normalised. A share of every pixel's light (c_bloom) leaves for it: energy is
 //   kept, nothing is thresholded (a bright lamp glows because it is bright, not because a sprite was drawn).
-// - Tone curve: the light to the display's range. Khronos PBR Neutral (Khronos 2024; three.js, Blender): below 0.76
-//   the light passes unchanged (the game's colours as drawn), above it a shoulder that reaches white only at infinity,
-//   and the brightest light loses its saturation towards white (a lamp's core burns white, not a saturated blob).
-//   The standard's toe (darkening the darkest tones by up to 0.04) is left out: the game's darks stay as drawn.
-//   c_flags kCameraAces: ACES 1.0 (RRT and sRGB ODT, Hill's fit, as Unreal's filmic curve), for comparison.
+// - Tone curve: the light to the display's range, channel by channel. Below 0.76 the light passes unchanged (the
+//   game's colours as drawn); above it Khronos PBR Neutral's shoulder (Khronos 2024), which reaches 1 only at infinity,
+//   on each channel alone: the RGBA8 EFB's clip at 1, made smooth. The game's colours were drawn against that clip,
+//   which fills a colour's channels one by one: its stacked glows run from orange through yellow to white (a flame's
+//   core), and a light whose channels all pass the shoulder burns white. The standard's own form keeps the light's hue
+//   (one scale for the three channels) and blends it towards white: a flame's sum, red far past its green, went to
+//   salmon pink (the Dreadnought's beams; hue-kept paths to white are known for it). The standard's toe (darkening the
+//   darkest tones by up to 0.04) is left out: the game's darks stay as drawn. For comparison: c_flags kCameraAces,
+//   ACES 1.0 (RRT and sRGB ODT, Hill's fit, as Unreal's filmic curve); kCameraNeutral, the standard's hue-kept form.
 // - Sun shafts: the light the air scatters towards the camera around a sun the sky shows (crepuscular rays), from
 //   where the sky shows it: along each pixel's line to the sun on the picture, the sky's light near the sun where the
 //   depth shows sky (the world in front of it blocks it), decaying with the distance (Mitchell 2007, "Volumetric Light
@@ -29,6 +33,7 @@
 static const uint kCameraPhysical = 1u;
 static const uint kCameraAces = 2u;
 static const uint kCameraClip = 4u;    // GALAXY_RT_TONEMAP=2: the light clipped at 1 (no curve), for comparison
+static const uint kCameraNeutral = 8u; // GALAXY_RT_TONEMAP=3: Khronos PBR Neutral's hue-kept form, for comparison
 
 cbuffer RtCamera : register(b0)
 {
@@ -40,7 +45,7 @@ cbuffer RtCamera : register(b0)
     float c_bloom;          // the share of the light the lens scatters
     uint c_flags;
     uint c_levels;          // the pyramid's levels
-    uint c_pad;
+    uint c_subframe;        // a sub-frame's light slot + 1: the shafts' sun turns into its camera (c_reproject); 0 none
     float4 c_sun;           // the visible sun on the picture (pixels), the shafts' strength (0: none), the picture's height
     uint2 c_quarter;        // the shafts' texels (a quarter of the picture's side)
     float c_far;            // the depth of the far plane (sky)
@@ -55,6 +60,8 @@ Texture2D<float> c_depth : register(t1);              // its depth (the conversi
 StructuredBuffer<uint2> c_bloom_in : register(t2);    // the upward pyramid (the finish reads its first level)
 RWStructuredBuffer<uint2> c_down : register(u0);      // the downward pyramid, all levels (half-float RGB)
 RWStructuredBuffer<uint2> c_up : register(u1);        // the upward pyramid
+// Per light slot, a sub-frame's eye space into its traced frame's (3x4 rows; SceneRayTracer::write_reprojection).
+StructuredBuffer<float4> c_reproject : register(t3);
 
 float3 srgb_decode(float3 c)
 {
@@ -155,14 +162,41 @@ void CameraUpCS(uint3 id : SV_DispatchThreadID)
 // texel: no bands), each the sky's light there (sky: the far plane or a backdrop) weighted by its nearness to the sun
 // (forward scattering: a seventh of the picture's height, so the sun's glow scatters, not the stars across the sky),
 // decaying 4% a step. Into the downward pyramid's first texels (free once the bloom is summed).
+//
+// A sub-frame replays its traced frame under its own camera: the sun (eye space of the traced frame) turns into the
+// sub-frame's by the rotation of c_reproject's rows, which map the sub-frame's eye space into the traced frame's (its
+// transpose maps back), and stands where that camera sees it. Behind that camera there are no shafts.
+bool shafts_sun(out float3 sun, out float2 at_pixel)
+{
+    sun = normalize(c_sun_dir.xyz);
+    at_pixel = c_sun.xy;
+    if (c_subframe == 0u) {
+        return true;
+    }
+    const uint row = (c_subframe - 1u) * 3u;
+    sun = normalize(c_reproject[row].xyz * sun.x + c_reproject[row + 1u].xyz * sun.y + c_reproject[row + 2u].xyz * sun.z);
+    if (sun.z >= -0.05f) {
+        return false;
+    }
+    const float2 ndc = float2(c_proj.x * sun.x + c_proj.y * sun.z, c_proj.z * sun.y + c_proj.w * sun.z) / -sun.z;
+    at_pixel = float2(c_viewport.x + (ndc.x + 1.0f) * 0.5f * c_viewport.z, c_viewport.y + (1.0f - ndc.y) * 0.5f * c_viewport.w);
+    return true;
+}
+
 [numthreads(8, 8, 1)]
 void CameraShaftsCS(uint3 id : SV_DispatchThreadID)
 {
     if (any(id.xy >= c_quarter)) {
         return;
     }
+    float3 sun_dir;
+    float2 sun_pixel;
+    if (!shafts_sun(sun_dir, sun_pixel)) {
+        c_down[id.y * c_quarter.x + id.x] = uint2(0u, 0u);
+        return;
+    }
     const float2 pixel = (float2(id.xy) + 0.5f) * 4.0f;
-    const float2 delta = (c_sun.xy - pixel) / 32.0f;
+    const float2 delta = (sun_pixel - pixel) / 32.0f;
     const float reach = 0.14f * c_sun.w;
     float3 sum = float3(0.0f, 0.0f, 0.0f);
     float decay = 1.0f;
@@ -179,7 +213,7 @@ void CameraShaftsCS(uint3 id : SV_DispatchThreadID)
         const float ndc = (depth - c_depth_params.z) / max(c_depth_params.w - c_depth_params.z, 1e-7f);
         const float eye_z = -c_depth_params.y / (ndc + c_depth_params.x);
         if (depth <= c_far + 1e-6f || -eye_z > c_sky_distance) {
-            const float2 off = at - c_sun.xy;
+            const float2 off = at - sun_pixel;
             // Each sample's light is capped at 8 (exposed): 32 jittered steps per quarter texel either land on the
             // sun's few disc pixels or miss them, and the disc's full radiance would draw dotted streaks across the
             // sky.
@@ -197,7 +231,7 @@ void CameraShaftsCS(uint3 id : SV_DispatchThreadID)
     const float3 eye_dir = normalize(float3((ndc.x + c_proj.y) / c_proj.x, (ndc.y + c_proj.w) / c_proj.z, -1.0f));
     const float g = c_sun_dir.w;
     const float phase = pow(1.0f - g, 3.0f) /
-                        pow(max(1.0f + g * g - 2.0f * g * dot(eye_dir, normalize(c_sun_dir.xyz)), 1e-6f), 1.5f);
+                        pow(max(1.0f + g * g - 2.0f * g * dot(eye_dir, sun_dir), 1e-6f), 1.5f);
     const float own = c_depth.Load(int3(clamp(int2(pixel), int2(0, 0), int2(c_size) - 1), 0));
     float air = 1.0f;
     if (own > c_far + 1e-6f) {
@@ -224,7 +258,16 @@ float3 shafts_at(int2 p)
     return sum;
 }
 
-// Khronos PBR Neutral's shoulder and desaturation (no toe: see the header).
+// Khronos PBR Neutral's shoulder on each channel alone (no toe: see the header): unchanged below the start, then
+// 1 - d^2 / (x + d - start), which meets the line there with its slope.
+float3 shoulder_curve(float3 c)
+{
+    const float start = 0.8f - 0.04f;
+    const float d = 1.0f - start;
+    return min(c, start) + (1.0f - d * d / (max(c, start) + d - start)) - start;
+}
+
+// Khronos PBR Neutral's shoulder and desaturation, the hue kept (no toe: see the header).
 float3 neutral_curve(float3 c)
 {
     const float start = 0.8f - 0.04f;
@@ -287,7 +330,10 @@ float4 CameraPS(float4 position : SV_Position) : SV_Target0
         }
         c = lerp(c, bloom / float(c_levels), c_bloom);
     }
-    c = (c_flags & kCameraClip) != 0u ? saturate(c) : (c_flags & kCameraAces) != 0u ? aces_curve(c) : neutral_curve(c);
+    c = (c_flags & kCameraClip) != 0u      ? saturate(c)
+        : (c_flags & kCameraAces) != 0u    ? aces_curve(c)
+        : (c_flags & kCameraNeutral) != 0u ? neutral_curve(c)
+                                           : shoulder_curve(c);
     // Into 8 bits with a dither (interleaved gradient noise, Jimenez 2014; stochastic rounding): bloom, shafts and
     // the shoulder's gradients come out smooth instead of in bands.
     const float u = frac(52.9829189f * frac(dot(float2(p), float2(0.06711056f, 0.00583715f))));

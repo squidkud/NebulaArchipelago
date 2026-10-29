@@ -121,7 +121,7 @@ struct RtReflectScene {
 class RtReflections {
 public:
     // Constants of one trace, in an upload allocation the caller makes (256-byte aligned).
-    static constexpr std::size_t kConstantsBytes = 1152u;
+    static constexpr std::size_t kConstantsBytes = 1168u;
     // Results kept for the sub-frames of the game frames being interpolated (the lighting's slots).
     static constexpr unsigned kSlots = 4u;
 
@@ -130,12 +130,22 @@ public:
     RtReflections& operator=(const RtReflections&) = delete;
     ~RtReflections() { shutdown(); }
 
-    // GALAXY_RT_REFLECT=0 leaves it off. False when a pipeline cannot be created.
-    bool initialize(ID3D12Device5* device, std::uint64_t timestamp_frequency, DXGI_FORMAT color_format);
+    // At `quality` (RenderConfig::rt_quality). GALAXY_RT_REFLECT=0 leaves it off. False when a pipeline cannot be
+    // created.
+    bool initialize(ID3D12Device5* device, std::uint64_t timestamp_frequency, DXGI_FORMAT color_format,
+                    unsigned quality);
+    // The pipelines of `quality` made into the ray tracing pipeline library and dropped: a start that prepares the
+    // library makes every quality's (rt_prepare.h).
+    static bool prepare_pipelines(ID3D12Device5* device, DXGI_FORMAT color_format, unsigned quality);
     // Keeps the environment memory and the captured sky (the stage's; reset_memory clears them): started again on
     // the same device, the reflections continue from what the stage has shown.
     void shutdown() noexcept;
     [[nodiscard]] bool ready() const noexcept { return ready_; }
+    // The water pass's buffers for a sample grid of `samples` in `tiles` 8 x 8 tiles (what trace_water makes on its
+    // first water under the engine): made by the tracer's starting worker, not by the first stage with water.
+    bool prepare_water(std::uint32_t samples, std::uint32_t tiles) {
+        return ensure_buffers(samples, tiles, false) && ensure_water_buffers();
+    }
     // GALAXY_RT_LOG_SEQ's frames (the ray tracer's).
     void set_log_seq(bool on) noexcept { log_seq_ = on; }
 
@@ -163,11 +173,13 @@ public:
                      void* constants_cpu, D3D12_GPU_VIRTUAL_ADDRESS constants_gpu,
                      D3D12_GPU_DESCRIPTOR_HANDLE color_depth);
     // As composite(), the water's reflections over it.
-    // `scene_srv`: the frame with the game's water drawn (a copy; 0: the water keeps the game's look).
+    // `scene_srv`: the frame with the game's water drawn (a copy; 0: the water keeps the game's look); `layer_srv`:
+    // the effects layer drawn over the water (its colour and transmittance, two views; 0: none).
     void composite_water(ID3D12GraphicsCommandList* list, D3D12_CPU_DESCRIPTOR_HANDLE target,
                          D3D12_GPU_DESCRIPTOR_HANDLE depth_srv, std::uint32_t width, std::uint32_t height,
                          unsigned slot, D3D12_GPU_VIRTUAL_ADDRESS reproject, float split,
-                         D3D12_GPU_DESCRIPTOR_HANDLE scene_srv = {}, D3D12_GPU_DESCRIPTOR_HANDLE opaque_srv = {});
+                         D3D12_GPU_DESCRIPTOR_HANDLE scene_srv = {}, D3D12_GPU_DESCRIPTOR_HANDLE opaque_srv = {},
+                         D3D12_GPU_DESCRIPTOR_HANDLE layer_srv = {});
 
 private:
     bool log_seq_ = false;
@@ -178,8 +190,9 @@ private:
     static constexpr unsigned kStatsWords = 32u;
     // Trace, composite, water trace, water composite: begin and end each.
     static constexpr unsigned kTimestampsPerSlot = 8u;
-    // Surface classes (rt_surfaces.h) and the reflections' bare metal (rt_reflections.hlsl kBareMetalClass).
-    static constexpr unsigned kClasses = 9u;
+    // Surface classes (rt_surfaces.h), the reflections' bare metal (rt_reflections.hlsl kBareMetalClass) and falling
+    // water (kFallingWater).
+    static constexpr unsigned kClasses = 10u;
     static constexpr unsigned kBareMetalClass = 8u;
     // Class of the translucent water's surface (rt_reflections.hlsl kWaterSurface).
     static constexpr unsigned kWaterClass = 5u;
@@ -247,7 +260,7 @@ private:
         float cover = 0.0f;
     };
 
-    bool create_pipelines(DXGI_FORMAT color_format);
+    bool create_pipelines(DXGI_FORMAT color_format, unsigned quality);
     // `opaque`: the opaque pass's buffers too (the engine skips that pass; the water pass needs the rest).
     bool ensure_buffers(std::uint32_t samples, std::uint32_t tiles, bool opaque);
     bool ensure_water_buffers();
@@ -355,6 +368,7 @@ private:
     bool memory_reset_ = false;
     D3D12_GPU_DESCRIPTOR_HANDLE water_scene_{};  // composite_water's scene copy while it draws
     D3D12_GPU_DESCRIPTOR_HANDLE water_opaque_{}; // ... and its copy of the frame before the water
+    D3D12_GPU_DESCRIPTOR_HANDLE effects_layer_{};  // ... and the effects layer drawn over the water
     float water_cover_ = 0.0f;         // GALAXY_RT_WATER_COVER: share of the game's drawn water low-passed
     float foam_ = 0.6f;               // GALAXY_RT_WATER_FOAM: shore foam
     float shallow_caustics_ = 0.6f;   // GALAXY_RT_WATER_SHALLOW_CAUSTICS

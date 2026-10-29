@@ -4,6 +4,7 @@
 // Elsewhere a wss:// address is refused. Text messages only; ping, pong and close are answered here.
 #pragma once
 
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -76,6 +77,11 @@ public:
     // frame or a broken connection returns Closed.
     [[nodiscard]] Event receive(std::string& message, int timeout_ms);
     void close();
+    // Milliseconds since the server last sent anything (a ping or pong counts); used to notice a connection that died
+    // without a close (Wi-Fi dropped, computer slept).
+    [[nodiscard]] long long idle_ms() const noexcept;
+    // A ping frame; false when the connection is gone. The server's pong then counts as activity.
+    [[nodiscard]] bool send_ping();
 
     // Whether wss:// can be used in this build.
     [[nodiscard]] static bool tls_available() noexcept;
@@ -93,6 +99,7 @@ private:
     FrameDecoder decoder_;
     std::string partial_;  // the message being joined from fragments
     bool open_ = false;
+    std::chrono::steady_clock::time_point last_activity_ = std::chrono::steady_clock::now();
 };
 
 }  // namespace galaxy::net

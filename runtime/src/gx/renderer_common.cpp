@@ -201,6 +201,40 @@ float4 main(V v) : SV_Target {
 }
 )HLSL";
 
+// A display copy one EFB pixel to one XFB pixel without gamma: kConvPs's arithmetic for it alone. Each of the filter's
+// rows (the copy rect's clamp, one physical row apart) truncated to 8 bits, weighted, shifted down by six; opaque. The
+// same constants as kConvPs; its rows are loads, which is what its bilinear taps at texel centres return.
+static constexpr char kDisplayFilterPs[] = R"HLSL(
+cbuffer C : register(b0) {
+    float4 src_xform;
+    float4 modes;
+    float4 filt;
+    float4 filt2;
+};
+Texture2D srctex : register(t0);
+uint3 row(int x, int y, int lo, int hi) {
+    return uint3(saturate(srctex.Load(int3(x, clamp(y, lo, hi), 0)).rgb) * 255.0);
+}
+float4 main(float4 pos : SV_Position) : SV_Target {
+    const int2 p = int2(src_xform.xy) + int2(pos.xy);
+    const int lo = int(filt.w);
+    const int hi = int(filt2.x);
+    const uint3 weights = uint3(filt.xyz + 0.5);
+    uint3 sum = row(p.x, p.y, lo, hi) * weights.y;
+    [branch] if (weights.x != 0u) {
+        sum += row(p.x, p.y - 1, lo, hi) * weights.x;
+    }
+    [branch] if (weights.z != 0u) {
+        sum += row(p.x, p.y + 1, lo, hi) * weights.z;
+    }
+    uint3 rgb = sum >> 6;
+    if (weights.x + weights.y + weights.z >= 128u) {
+        rgb &= 0x1ffu;
+    }
+    return float4(float3(min(rgb, uint3(255u, 255u, 255u))) / 255.0, 1.0);
+}
+)HLSL";
+
 namespace {
 
 // Fullscreen triangle with UVs, without a vertex buffer.
@@ -364,6 +398,10 @@ std::string_view efb_conversion_shader_source() noexcept {
     return std::string_view{kConvPs, sizeof(kConvPs) - 1u};
 }
 
+std::string_view display_filter_shader_source() noexcept {
+    return std::string_view{kDisplayFilterPs, sizeof(kDisplayFilterPs) - 1u};
+}
+
 EfbConversionShaderConstants make_efb_conversion_constants(
     const EfbCopyParams& params,
     bool is_depth_copy,
@@ -450,7 +488,11 @@ EfbClearValues make_efb_clear_values(std::uint32_t ar, std::uint32_t gb,
     std::uint32_t b = gb & 255u, a = (ar >> 8u) & 255u;
     const auto expand6 = [](std::uint32_t v) { return (v & 0xfcu) | (v >> 6u); };
     const auto expand5 = [](std::uint32_t v) { return (v & 0xf8u) | (v >> 5u); };
-    if (pixel_format == 1u) {
+    const bool exact = (pixel_format & kEfbClearExact) != 0u;
+    pixel_format &= static_cast<std::uint8_t>(~kEfbClearExact);
+    if (exact) {
+        if (pixel_format != 1u) a = 255u;
+    } else if (pixel_format == 1u) {
         r = expand6(r); g = expand6(g); b = expand6(b); a = expand6(a);
     } else {
         if (pixel_format == 2u) { r = expand5(r); g = expand6(g); b = expand5(b); }

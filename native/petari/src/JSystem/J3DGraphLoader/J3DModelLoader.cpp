@@ -1,4 +1,5 @@
 #include "JSystem/J3DGraphAnimator/J3DJoint.hpp"
+#include <JSystem/J3DGraphBase/J3DNativeTexture.hpp>
 #include "Game/System/NebulaCurvedSurfaces.hpp"
 #include "JSystem/J3DGraphLoader/J3DModelLoader.hpp"
 #include "JSystem/J3DGraphAnimator/J3DModelData.hpp"
@@ -121,7 +122,6 @@ J3DModelData* J3DModelLoader::load(void const* i_data, u32 i_flags) {
     }
     J3DModelHierarchy const* hierarchy = mpModelData->getHierarchy();
     mpModelData->makeHierarchy(NULL, &hierarchy);
-    mpModelData->getShapeTable()->sortVcdVatCmd();
     mpModelData->getJointTree().findImportantMtxIndex();
     setupBBoardInfo();
     if (mpModelData->getFlag() & 0x100) {
@@ -163,7 +163,8 @@ J3DModelData* J3DModelLoader::loadBinaryDisplayList(void const* i_data, u32 i_fl
     mpModelData = new J3DModelData();
     mpModelData->clear();
     mpModelData->mpRawData = i_data;
-    mpModelData->setModelDataType(1);
+    // Its materials are full ones made from MAT3 (no precompiled lists): the model is drawn as a .bmd one.
+    mpModelData->setModelDataType(0);
     mpMaterialTable = &mpModelData->mMaterialTable;
     J3DModelFileData const* data = (J3DModelFileData*)i_data;
     J3DModelBlock const* block = data->mBlocks;
@@ -193,8 +194,8 @@ J3DModelData* J3DModelLoader::loadBinaryDisplayList(void const* i_data, u32 i_fl
             readTexture((J3DTextureBlock*)block);
             break;
         case 'MDL3':
-            readMaterialDL((J3DMaterialDLBlock*)block, i_flags);
-            modifyMaterial(i_flags);
+            // The file's precompiled material lists (console commands): its materials come from MAT3, their lists
+            // from J3DModel::makeDL as a .bmd model's.
             break;
         case 'MAT3':
             flags = 0x50100000;
@@ -213,10 +214,8 @@ J3DModelData* J3DModelLoader::loadBinaryDisplayList(void const* i_data, u32 i_fl
     }
     J3DModelHierarchy const* hierarchy = mpModelData->getHierarchy();
     mpModelData->makeHierarchy(NULL, &hierarchy);
-    mpModelData->getShapeTable()->sortVcdVatCmd();
     mpModelData->getJointTree().findImportantMtxIndex();
     setupBBoardInfo();
-    mpModelData->indexToPtr();
     return mpModelData;
 }
 
@@ -498,7 +497,6 @@ void J3DModelLoader::readShape(J3DShapeBlock const* i_block, u32 i_flags) {
         shape_table->mShapeName = NULL;
     }
     shape_table->mShapeNodePointer = new J3DShape*[shape_table->mShapeNum];
-    factory.allocVcdVatCmdBuffer(shape_table->mShapeNum);
     J3DModelHierarchy const* hierarchy_entry = mpModelData->getHierarchy();
     GXVtxDescList* vtx_desc_list = NULL;
     for (; hierarchy_entry->mType != 0; hierarchy_entry++) {
@@ -514,6 +512,20 @@ void J3DModelLoader::readShape(J3DShapeBlock const* i_block, u32 i_flags) {
     }
 }
 
+// The model's images handed to the renderer as they load (J3DNativeTexture::registerImage).
+static void registerTextureImages(const ResTIMG* pRes, u32 num) {
+    for (u32 i = 0; i < num; i++) {
+        const ResTIMG& rTimg = pRes[i];
+        const u8* pImage = reinterpret_cast< const u8* >(&rTimg) + (s32)rTimg.mImageDataOffset;
+        J3DNativeTexture::registerImage(pImage, rTimg.mFormat, rTimg.mWidth, rTimg.mHeight,
+                                        rTimg.mMipmap ? rTimg.mImageNum : 1);
+        if (rTimg.mPaletteNum != 0) {
+            J3DNativeTexture::registerPalette(reinterpret_cast< const u8* >(&rTimg) + (s32)rTimg.mPaletteDataOffset,
+                                              rTimg.mPaletteNum);
+        }
+    }
+}
+
 void J3DModelLoader::readTexture(J3DTextureBlock const* i_block) {
     ResTIMG* texture_res;
     u32 texture_num = i_block->mTextureNum;
@@ -524,6 +536,7 @@ void J3DModelLoader::readTexture(J3DTextureBlock const* i_block) {
         mpMaterialTable->mTextureName = NULL;
     }
     mpMaterialTable->mTexture = new J3DTexture(texture_num, texture_res);
+    registerTextureImages(texture_res, texture_num);
 }
 
 void J3DModelLoader_v26::readMaterialTable(J3DMaterialBlock const* i_block, u32 i_flags) {
@@ -570,6 +583,7 @@ void J3DModelLoader::readTextureTable(J3DTextureBlock const* i_block) {
         mpMaterialTable->mTextureName = NULL;
     }
     mpMaterialTable->mTexture = new J3DTexture(texture_num, texture_res);
+    registerTextureImages(texture_res, texture_num);
 }
 
 void J3DModelLoader::readPatchedMaterial(J3DMaterialBlock const* i_block, u32 i_flags) {

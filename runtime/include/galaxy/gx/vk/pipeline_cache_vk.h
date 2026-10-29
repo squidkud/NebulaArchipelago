@@ -53,6 +53,10 @@ public:
 
     // Render thread only.
     [[nodiscard]] VkPipeline get(const PsoKey& key, const PixelShaderKey& ps_key, const VertexShaderKey& vs_key);
+    // The key's own pipeline once built, else VK_NULL_HANDLE with its build queued on a worker: never builds or
+    // waits here (a variant the draw can do without).
+    [[nodiscard]] VkPipeline get_if_ready(const PsoKey& key, const PixelShaderKey& ps_key,
+                                          const VertexShaderKey& vs_key);
     void drain_completions();
 
     void flush_disk();
@@ -98,6 +102,7 @@ private:
         PsoKey key{};
         VertexShaderKey vs_key{};
         PixelShaderKey ps_key{};
+        std::uint32_t unused = 0;  // the record's size a multiple of PsoKey's alignment, with no padding
     };
     // Written and read as raw records (vk_keys.bin).
     static_assert(std::has_unique_object_representations_v<Entry>);

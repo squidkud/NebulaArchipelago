@@ -38,7 +38,7 @@ namespace {
 constexpr std::uint32_t kShaderFileMagic = 0x53565847u;  // "GXVS"
 constexpr std::uint32_t kKeyFileMagic = 0x4b565847u;     // "GXVK"
 constexpr std::uint32_t kShaderFileVersion = 2u;
-constexpr std::uint32_t kKeyFileVersion = 1u;
+constexpr std::uint32_t kKeyFileVersion = 2u;
 constexpr std::uint32_t kMaxRecords = 65536u;
 constexpr std::uint32_t kMaxSpirvWords = 1u << 20u;
 
@@ -229,6 +229,7 @@ std::string uber_ps_hlsl(unsigned variant) {
     ps += uber_ps_variant_dual_source(variant) ? "#define UBER_DUAL_SRC 1\n" : "#define UBER_DUAL_SRC 0\n";
     ps += uber_ps_variant_export_depth(variant) ? "#define UBER_EXPORT_DEPTH 1\n" : "#define UBER_EXPORT_DEPTH 0\n";
     ps += uber_ps_variant_early_depth(variant) ? "#define UBER_EARLY_DEPTH 1\n" : "#define UBER_EARLY_DEPTH 0\n";
+    ps += "#define UBER_LAYER 0\n";
     ps += uber_ps_source();
     return ps;
 }
@@ -318,7 +319,7 @@ constexpr VkVertexInputAttributeDescription kVertexAttributes[] = {
     {8, 0, VK_FORMAT_R32G32_SFLOAT, 72},      {9, 0, VK_FORMAT_R32G32_SFLOAT, 80},
     {10, 0, VK_FORMAT_R32G32_SFLOAT, 88},     {11, 0, VK_FORMAT_R32G32_SFLOAT, 96},
     {12, 0, VK_FORMAT_R32G32_SFLOAT, 104},    {13, 0, VK_FORMAT_R32G32_SFLOAT, 112},
-    {14, 0, VK_FORMAT_R32G32B32_UINT, 120},    {15, 0, VK_FORMAT_R32G32B32_SFLOAT, 132},
+    {14, 0, VK_FORMAT_R32G32B32_UINT, 120},    {15, 0, VK_FORMAT_R32G32B32_UINT, 132},
 };
 static_assert(sizeof(GxVertexOut) == 144u);
 
@@ -374,8 +375,13 @@ bool PipelineCacheVk::initialize(VkDevice device, const vk::GxLayout* layout, co
         driver_key_ = vk::driver_key(vk::Context::get().identity());
     }
     load_compat();
-    // Pipelines a crashed process was building: never again on this driver build.
+    // Pipelines a crashed process was building: never again on this driver build. The last session ran this one when
+    // its compat state loaded (each session saves it at start); another's crash (a hybrid laptop's other GPU) says
+    // nothing about this one.
     for (const vk::CompileJournal::Left& left : journal_.open(cache_dir_ / "vk_compiling.bin")) {
+        if (!compat_known_) {
+            continue;
+        }
         std::fprintf(stderr, "[vk-compat] %s pipeline %016llx crashed the driver last launch; skipped\n",
                      left.kind == kJournalSpecialised ? "specialised" : "uber",
                      static_cast<unsigned long long>(left.key));
@@ -512,13 +518,10 @@ VkPipeline PipelineCacheVk::create_pipeline(const RenderStateKey& rs, VkShaderMo
             expanded = true;
         }
     }
-    // A curved surface's patches (kVsKeyCurved): its vertex output variant's hull and domain stages. D3D's tessellation
-    // domain has its origin at the lower left; so set, the HLSL stages' triangles keep their winding.
-    VkPipelineTessellationDomainOriginStateCreateInfo domain_origin{
-        VK_STRUCTURE_TYPE_PIPELINE_TESSELLATION_DOMAIN_ORIGIN_STATE_CREATE_INFO};
-    domain_origin.domainOrigin = VK_TESSELLATION_DOMAIN_ORIGIN_LOWER_LEFT;
+    // A curved surface's patches (kVsKeyCurved): its vertex output variant's hull and domain stages. In the default
+    // domain origin (upper left) the hull stage's triangle_cw, VertexOrderCw as glslang writes it, winds each patch's
+    // triangles as the patch is wound, as on D3D12, so they cull as the triangles they replace.
     VkPipelineTessellationStateCreateInfo tessellation{VK_STRUCTURE_TYPE_PIPELINE_TESSELLATION_STATE_CREATE_INFO};
-    tessellation.pNext = &domain_origin;
     tessellation.patchControlPoints = 3u;
     const bool curved = (rs.primitive_topology & kTopologyTypeMask) == kTopologyPatch;
     if (curved) {
@@ -584,8 +587,8 @@ VkPipeline PipelineCacheVk::create_pipeline(const RenderStateKey& rs, VkShaderMo
     case CullMode::Back: raster.cullMode = VK_CULL_MODE_FRONT_BIT; break;
     default: raster.cullMode = VK_CULL_MODE_NONE; break;
     }
-    if (topology != VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST || expanded) {
-        raster.cullMode = VK_CULL_MODE_NONE;  // GX culls polygons, not lines or points
+    if ((topology != VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST && topology != VK_PRIMITIVE_TOPOLOGY_PATCH_LIST) || expanded) {
+        raster.cullMode = VK_CULL_MODE_NONE;  // GX culls polygons (a curved surface's patches too), not lines or points
     }
     VkPipelineMultisampleStateCreateInfo multisample{VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};
     multisample.rasterizationSamples = static_cast<VkSampleCountFlagBits>(1u << rs.samples_log2);
@@ -647,6 +650,11 @@ VkPipeline PipelineCacheVk::create_pipeline(const RenderStateKey& rs, VkShaderMo
         }
         if ((bb & (1u << 28u)) != 0u) {  // constant destination alpha is independent
             target.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+            target.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+            target.alphaBlendOp = VK_BLEND_OP_ADD;
+        }
+        if ((bb & kRenderStateZeroAlpha) != 0u) {  // constant destination alpha 0, drawn single-source
+            target.srcAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
             target.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
             target.alphaBlendOp = VK_BLEND_OP_ADD;
         }
@@ -1008,9 +1016,12 @@ void PipelineCacheVk::compile_uber_shaders() noexcept {
         const auto start = std::chrono::steady_clock::now();
         const std::string vs(uber_vs_source());
         uber_vs_ = module_for(vs, vk::ShaderStage::Vertex, false);
+        // The effects layer's variants are the ray tracer's (Direct3D 12 only).
         for (unsigned variant = 0; variant < kUberPsVariants; ++variant) {
-            uber_ps_[variant] = module_for(uber_ps_hlsl(variant), vk::ShaderStage::Fragment,
-                                           uber_ps_variant_dual_source(variant));
+            if (!uber_ps_variant_layer(variant)) {
+                uber_ps_[variant] = module_for(uber_ps_hlsl(variant), vk::ShaderStage::Fragment,
+                                               uber_ps_variant_dual_source(variant));
+            }
         }
         if (layout_->geometry_shaders) {
             line_gs_ = module_for(std::string(ShaderGenerator::line_geometry_shader_source()),
@@ -1028,8 +1039,11 @@ void PipelineCacheVk::compile_uber_shaders() noexcept {
             curved = curved_hs_[variant] != VK_NULL_HANDLE && curved_ds_[variant] != VK_NULL_HANDLE;
         }
         set_curved_surfaces_offered(curved);
-        const bool complete = uber_vs_ != VK_NULL_HANDLE &&
-            std::all_of(uber_ps_.begin(), uber_ps_.end(), [](VkShaderModule m) { return m != VK_NULL_HANDLE; });
+        // Every variant Vulkan builds (the effects layer's are not).
+        bool complete = uber_vs_ != VK_NULL_HANDLE;
+        for (unsigned variant = 0; variant < kUberPsVariants; ++variant) {
+            complete = complete && (uber_ps_variant_layer(variant) || uber_ps_[variant] != VK_NULL_HANDLE);
+        }
         std::fprintf(stderr, "[uber-pipeline-vk] %s in %llu ms\n", complete ? "shaders ready" : "shader compile failed",
                      static_cast<unsigned long long>(elapsed_us(start) / 1000u));
         // A new driver build's self-test before any stand-in is used: a variant the driver refuses is then never tried
@@ -1109,6 +1123,9 @@ std::size_t PipelineCacheVk::build_shader_seed(const std::filesystem::path& keys
     add(std::string(uber_vs_source()), vk::ShaderStage::Vertex, false);
     add(vk::with_point_size(std::string(uber_vs_source())), vk::ShaderStage::Vertex, false);
     for (unsigned variant = 0; variant < kUberPsVariants; ++variant) {
+        if (uber_ps_variant_layer(variant)) {
+            continue;
+        }
         const bool dual = uber_ps_variant_dual_source(variant);
         add(uber_ps_hlsl(variant), vk::ShaderStage::Fragment, dual);
         if (dual) {
@@ -1235,7 +1252,9 @@ void PipelineCacheVk::self_test() {
     opaque.primitive_topology = gpu::kTopologyTypeTriangleValue;
     std::vector<std::pair<RenderStateKey, unsigned>> tests;
     for (unsigned variant = 0; variant < kUberPsVariants; ++variant) {
-        tests.emplace_back(opaque, variant);
+        if (!uber_ps_variant_layer(variant)) {
+            tests.emplace_back(opaque, variant);
+        }
     }
     RenderStateKey blended = opaque;  // alpha blend against the second output
     blended.blend_bits |= 1u | (4u << 2u) | (5u << 5u) | (1u << 27u);
@@ -1396,6 +1415,35 @@ void PipelineCacheVk::worker_main() {
             unsaved_.store(true, std::memory_order_release);
         }
     }
+}
+
+VkPipeline PipelineCacheVk::get_if_ready(const PsoKey& key, const PixelShaderKey& ps_key,
+                                         const VertexShaderKey& vs_key) {
+    if (const auto it = published_.find(key); it != published_.end()) {
+        return it->second;
+    }
+    if (in_flight_.contains(key)) {
+        return VK_NULL_HANDLE;
+    }
+    const Entry entry{key, vs_key, ps_key};
+    {
+        std::lock_guard<std::mutex> lock(entries_mutex_);
+        if (entry_keys_.insert(key).second) {
+            entries_.push_back(entry);
+            unsaved_.store(true, std::memory_order_release);
+        }
+    }
+    {
+        std::lock_guard<std::mutex> lock(compat_mutex_);
+        const std::uint64_t hash = key.hash();
+        if (refused_keys_.contains(hash) || crashed_keys_.contains(hash)) {
+            published_[key] = VK_NULL_HANDLE;
+            return VK_NULL_HANDLE;
+        }
+    }
+    in_flight_.insert(key);
+    enqueue(entry);
+    return VK_NULL_HANDLE;
 }
 
 VkPipeline PipelineCacheVk::get(const PsoKey& key, const PixelShaderKey& ps_key, const VertexShaderKey& vs_key) {

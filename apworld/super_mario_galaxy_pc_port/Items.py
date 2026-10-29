@@ -31,7 +31,19 @@ FIRE_FLOWER = "Fire Flower"
 ICE_FLOWER = "Ice Flower"
 FLYING_STAR = "Flying (Red Star)"
 TRANSFORMATIONS = (BEE_MUSHROOM, BOO_MUSHROOM, SPRING_MUSHROOM, FIRE_FLOWER, ICE_FLOWER, FLYING_STAR)
-VICTORY = "Victory"  # the event the goal places; never sent to the game
+STAR_BITS_200 = "200 Star Bits"
+ONE_UP_BURST = "3 1-Up Mushrooms"
+FULL_HEAL = "Full Heal"
+SPIN = "Spin"
+WALL_JUMP = "Wall Jump"
+LONG_JUMP = "Long Jump"
+BACKFLIP = "Backflip"
+SIDE_FLIP = "Side Flip"
+TRIPLE_JUMP = "Triple Jump"
+SKILLS = (SPIN, WALL_JUMP, LONG_JUMP, BACKFLIP, SIDE_FLIP, TRIPLE_JUMP)
+VICTORY = "Victory"  # the event of the ending reached with Mario (the only character, or the first); never sent to the game
+VICTORY_LUIGI = "Victory (Luigi)"  # the same with Luigi
+COMPLETE = "All Stars Complete"  # the event of the goal All Stars: every star there is
 
 
 class SMGItem(Item):
@@ -56,6 +68,15 @@ item_table: Dict[str, ItemData] = {
     FIRE_FLOWER: ItemData(ITEM_BASE + 17, ItemClassification.progression),
     ICE_FLOWER: ItemData(ITEM_BASE + 18, ItemClassification.progression),
     FLYING_STAR: ItemData(ITEM_BASE + 19, ItemClassification.progression),
+    STAR_BITS_200: ItemData(ITEM_BASE + 20, ItemClassification.filler),
+    ONE_UP_BURST: ItemData(ITEM_BASE + 21, ItemClassification.filler),
+    FULL_HEAL: ItemData(ITEM_BASE + 22, ItemClassification.filler),
+    SPIN: ItemData(ITEM_BASE + 23, ItemClassification.progression),
+    WALL_JUMP: ItemData(ITEM_BASE + 24, ItemClassification.progression),
+    LONG_JUMP: ItemData(ITEM_BASE + 25, ItemClassification.progression),
+    BACKFLIP: ItemData(ITEM_BASE + 26, ItemClassification.progression),
+    SIDE_FLIP: ItemData(ITEM_BASE + 27, ItemClassification.progression),
+    TRIPLE_JUMP: ItemData(ITEM_BASE + 28, ItemClassification.progression),
     FIRE_TRAP: ItemData(ITEM_BASE + 6, ItemClassification.trap),
     SHOCK_TRAP: ItemData(ITEM_BASE + 7, ItemClassification.trap),
     FREEZE_TRAP: ItemData(ITEM_BASE + 8, ItemClassification.trap),
@@ -69,4 +90,5 @@ item_name_groups = {
     "Stars": {POWER_STAR, GREEN_STAR, GRAND_STAR},
     "Traps": set(TRAPS),
     "Transformations": set(TRANSFORMATIONS),
+    "Movement": set(SKILLS),
 }

@@ -29,7 +29,8 @@ namespace Nebula.Launcher
             Application.SetCompatibleTextRenderingDefault(false);
             try
             {
-                // The in-game menu runs these: the DLSS download, and a restart once the game has exited.
+                // The in-game menu runs these: the DLSS download, and a restart once the game has exited (--record: a
+                // diagnostics run).
                 if (args.Length > 0 && string.Equals(args[0], "--install-dlss", StringComparison.OrdinalIgnoreCase))
                 {
                     if (GraphicsSettings.DlssInstalled()) return 0;
@@ -41,7 +42,10 @@ namespace Nebula.Launcher
                     int.TryParse(args[1], out restartAfter))
                 {
                     WaitForExit(restartAfter);
-                    string restartError = new LaunchSession().TryLaunch();
+                    var restart = new LaunchSession();
+                    if (args.Length > 2 && string.Equals(args[2], "--record", StringComparison.OrdinalIgnoreCase))
+                        restart.Recording = RecordingMode.Lightweight;
+                    string restartError = restart.TryLaunch();
                     if (restartError == null) return 0;
                     MessageBox.Show(restartError, "Nebula", MessageBoxButtons.OK, MessageBoxIcon.Error);
                     return 1;
@@ -257,6 +261,8 @@ namespace Nebula.Launcher
         private AudioSettings audio = AudioSettings.Load();
         private GeneralSettings general = GeneralSettings.Load();
         private readonly ComboBox textSpeed = new ComboBox(), languageBox = new ComboBox();
+        // The installed disc's languages (GeneralSettings.Offered), as the Language row lists them.
+        private List<int> offeredLanguages = new List<int> { 0 };
         private readonly ControlsSettings controls = ControlsSettings.Load();
         private bool loading;
         // The player chose the upscaler, its quality, the interpolation or the frame rate. Without that, a save
@@ -346,6 +352,8 @@ namespace Nebula.Launcher
         public SettingsForm(LaunchSession session)
         {
             this.session = session;
+            offeredLanguages = GeneralSettings.Offered(Path.Combine(session.Content, "game.pak"));
+            SaveArchive.LooseTitle = SaveArchive.TitleOf(GameDisc.GameId(Path.Combine(session.Content, "game.pak")));
             upscalerChoices = GraphicsSettings.UpscalerChoices(graphics.Gpu);
             rayTracingOffered = GraphicsSettings.RayTracingAdapter(graphics.Gpu);
             bool firstRun = !session.SetupComplete;
@@ -519,7 +527,7 @@ namespace Nebula.Launcher
             Row(generalPage, "Text speed", textSpeed, ref y);
             textSpeed.Items.AddRange(GeneralSettings.TextSpeeds);
             Row(generalPage, "Language", languageBox, ref y);
-            languageBox.Items.AddRange(GeneralSettings.Languages);
+            foreach (int language in offeredLanguages) languageBox.Items.Add(GeneralSettings.LanguageNames[language]);
 
             y = 16;
             Label(advanced, "Game content", 12, y + 3);
@@ -978,7 +986,7 @@ namespace Nebula.Launcher
                 volumeValues[i].Text = volumes[i].Value + "%";
             }
             textSpeed.SelectedIndex = Math.Max(0, Math.Min(general.TextSpeed - 1, GeneralSettings.TextSpeeds.Length - 1));
-            languageBox.SelectedIndex = Math.Max(0, Math.Min(general.Language, GeneralSettings.Languages.Length - 1));
+            languageBox.SelectedIndex = Math.Max(0, offeredLanguages.IndexOf(general.Language));
             recording.SelectedIndex = (int)session.Recording;
             contentLabel.Text = session.Content;
             windowSize = new Size(graphics.WindowWidth, graphics.WindowHeight);
@@ -1217,7 +1225,7 @@ namespace Nebula.Launcher
                 for (int i = 0; i < volumes.Length; i++) audio.Percent[i] = volumes[i].Value;
                 audio.Save();
                 general.TextSpeed = Math.Max(0, textSpeed.SelectedIndex) + 1;
-                general.Language = Math.Max(0, languageBox.SelectedIndex);
+                general.Language = offeredLanguages[Math.Max(0, Math.Min(languageBox.SelectedIndex, offeredLanguages.Count - 1))];
                 general.Save();
                 EndCapture();
                 if (controls.InputMode != ControlsSettings.ModeRealWiimote) controls.InputMode = Math.Max(0, inputSource.SelectedIndex);
@@ -1263,6 +1271,13 @@ namespace Nebula.Launcher
                 if (dialog.ShowDialog(this) != DialogResult.OK) return false;
                 session.Content = Path.GetDirectoryName(dialog.FileName);
                 contentLabel.Text = session.Content;
+                // Another disc's languages: the row lists them, its choice kept where the disc has it.
+                int chosen = offeredLanguages[Math.Max(0, Math.Min(languageBox.SelectedIndex, offeredLanguages.Count - 1))];
+                offeredLanguages = GeneralSettings.Offered(Path.Combine(session.Content, "game.pak"));
+                SaveArchive.LooseTitle = SaveArchive.TitleOf(GameDisc.GameId(Path.Combine(session.Content, "game.pak")));
+                languageBox.Items.Clear();
+                foreach (int language in offeredLanguages) languageBox.Items.Add(GeneralSettings.LanguageNames[language]);
+                languageBox.SelectedIndex = Math.Max(0, offeredLanguages.IndexOf(chosen));
                 return true;
             }
         }

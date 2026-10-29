@@ -12,6 +12,9 @@
 #include "Game/Util/MtxUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
+#ifdef TARGET_PC
+#include "Game/System/NebulaArchipelago.hpp"
+#endif
 
 namespace {
     const Vec cJumpOutDemoRotate = {347.0f, 0.0f, 0.0f};
@@ -44,6 +47,9 @@ void AstroDomeSky::init(const JMapInfoIter& rIter) {
     MR::getJMapInfoArg0NoInit(rIter, &arg0);
 
     const char* pSkyName = ::cAstroDomeSkyTable[arg0 - 1];
+#ifdef TARGET_PC
+    pSkyName = NebulaArchipelago::getShuffledDomeSky(pSkyName);
+#endif
     initModelManagerWithAnm(pSkyName, nullptr, true);
 
     mProjmap = MR::initDLMakerProjmapEffectMtxSetter(this);

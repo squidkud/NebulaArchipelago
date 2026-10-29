@@ -1,6 +1,6 @@
 #pragma once
 
-#include "JSystem/J3DGraphBase/J3DFifo.hpp"
+#include "JSystem/J3DGraphBase/J3DNativeShape.hpp"
 #include "nebula_disc.hpp"
 #include <revolution.h>
 
@@ -40,38 +40,46 @@ struct BEData< J3DCurrentMtxInfo > {
 };
 #endif
 
-class J3DCurrentMtx : public J3DCurrentMtxInfo {
+// The matrices a shape's corners take when they carry none: its position matrix's id and texture coordinates 0-7's
+// (GX_IDENTITY where a coordinate has no matrix).
+class J3DCurrentMtx {
 public:
     J3DCurrentMtx() {
-        mMtxIdxRegA = 0x3cf3cf00;
-        mMtxIdxRegB = 0x00f3cf3c;
+        mPosition = 0;
+        for (int i = 0; i < 8; i++) {
+            mTexture[i] = GX_IDENTITY;
+        }
     }
 
+    // The model file's form: six bits per id, the position's and four texture coordinates' in the first word, the
+    // other four in the second.
     J3DCurrentMtx& operator=(J3DCurrentMtxInfo const& info) {
-        mMtxIdxRegA = info.mMtxIdxRegA;
-        mMtxIdxRegB = info.mMtxIdxRegB;
+        mPosition = info.mMtxIdxRegA & 0x3F;
+        for (int i = 0; i < 4; i++) {
+            mTexture[i] = (info.mMtxIdxRegA >> (6 * (i + 1))) & 0x3F;
+            mTexture[4 + i] = (info.mMtxIdxRegB >> (6 * i)) & 0x3F;
+        }
         return *this;
     }
 
-    u32 getMtxIdxRegA() const {
-        return mMtxIdxRegA;
-    }
-    u32 getMtxIdxRegB() const {
-        return mMtxIdxRegB;
-    }
-
     void load() const {
-        J3DFifoLoadCPCmd(0x30, mMtxIdxRegA);
-        J3DFifoLoadCPCmd(0x40, mMtxIdxRegB);
-        J3DFifoLoadXFCmdHdr(0x1018, 2);
-        GXCmd1u32(mMtxIdxRegA);
-        GXCmd1u32(mMtxIdxRegB);
+        J3DNativeShape::setCurrent(mPosition, mTexture);
     }
 
     inline void setCurrentTexMtx(u8 param_1, u8 param_2, u8 param_3, u8 param_4, u8 param_5, u8 param_6, u8 param_7, u8 param_8) {
-        mMtxIdxRegA = (param_1 << 6) | (param_2 << 0xc) | (param_3 << 0x12) | (param_4 << 0x18);
-        mMtxIdxRegB = (param_5) | param_6 << 6 | param_7 << 0xc | param_8 << 0x12;
+        mPosition = 0;
+        mTexture[0] = param_1;
+        mTexture[1] = param_2;
+        mTexture[2] = param_3;
+        mTexture[3] = param_4;
+        mTexture[4] = param_5;
+        mTexture[5] = param_6;
+        mTexture[6] = param_7;
+        mTexture[7] = param_8;
     }
+
+    /* 0x00 */ u8 mPosition;
+    /* 0x01 */ u8 mTexture[8];
 };
 
 typedef void (J3DShapeMtx::*J3DShapeMtx_LoadFunc)(int, u16) const;
@@ -127,17 +135,12 @@ public:
         initialize();
     }
 
-    static const int kVcdVatDLSize = 0xC0;
-
     void initialize();
     void addTexMtxIndexInDL(_GXAttr, u32);
     void addTexMtxIndexInVcd(_GXAttr);
     void calcNBTScale(Vec const&, f32 (*)[3][3], f32 (*)[3][3]);
     u16 countBumpMtxNum() const;
-    void loadVtxArray() const;
-    bool isSameVcdVatCmd(J3DShape*);
-    void makeVtxArrayCmd();
-    void makeVcdVatCmd();
+    void initVtxAttr();
     void loadPreDrawSetting() const;
     void setArrayAndBindPipeline() const;
 
@@ -170,11 +173,11 @@ public:
         mVertexData = pVtxData;
     }
 
-    void* getVcdVatCmd() {
-        return mVcdVatCmd;
-    }
-    void setVcdVatCmd(void* pVatCmd) {
-        mVcdVatCmd = (u8*)pVatCmd;
+    // Its groups' geometry and its model's arrays registered with the renderer before its first draw.
+    void prepareGeometry() const {
+        if (!mNebulaRegistered) {
+            J3DNativeShape::registerShape(const_cast< J3DShape* >(this));
+        }
     }
     void show() {
         offFlag(J3DShpFlag_Visible);
@@ -190,6 +193,11 @@ public:
     void setCurrentMtx(J3DCurrentMtx& mtx) {
         mCurrentMtx = mtx;
     }
+#ifdef TARGET_PC
+    const J3DCurrentMtx& getCurrentMtx() const {
+        return mCurrentMtx;
+    }
+#endif
 
     void setScaleFlagArray(u8* pScaleFlagArray) {
         mScaleFlagArray = pScaleFlagArray;
@@ -242,11 +250,6 @@ public:
         return &mMax;
     }
 
-    static void resetVcdVatCache() {
-        sOldVcdVatCmd = NULL;
-    }
-
-    static void* sOldVcdVatCmd;
     static bool sEnvelopeFlag;
     friend struct J3DShapeFactory;
     friend class J3DJointTree;
@@ -258,7 +261,7 @@ public:
     /* 0x10 */ f32 mRadius;
     /* 0x14 */ Vec mMin;
     /* 0x20 */ Vec mMax;
-    /* 0x2C */ u8* mVcdVatCmd;
+    /* 0x2C */ bool mNebulaRegistered;
     /* 0x30 */ GXVtxDescList* mVtxDesc;
     /* 0x34 */ bool mHasNBT;
     /* 0x38 */ J3DShapeMtx** mShapeMtx;

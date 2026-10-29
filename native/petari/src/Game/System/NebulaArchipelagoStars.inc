@@ -43,6 +43,7 @@ static const ApGalaxy cApGalaxies[] = {
     {"CubeBubbleExLv2Galaxy", 0, 0},
     {"HeavensDoorGalaxy", 0, 0},
     {"KoopaBattleVs3Galaxy", 0, 0},
+    {"PeachCastleFinalGalaxy", 0, 0},
 };
 
 // The stars, in StarData.STARS' order (location number = index + 1): galaxy name, scenario (1-based), kind.
@@ -167,4 +168,5 @@ static const ApStar cApStars[] = {
     {"HeavensDoorGalaxy", 1, ApKind_grand},
     {"HeavensDoorGalaxy", 2, ApKind_purple},
     {"KoopaBattleVs3Galaxy", 1, ApKind_ending},
+    {"PeachCastleFinalGalaxy", 1, ApKind_festival},
 };

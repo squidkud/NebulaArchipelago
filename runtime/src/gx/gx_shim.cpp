@@ -81,6 +81,10 @@ void attach_stripe_particle(std::size_t stream_offset, std::uint32_t particle, s
     backend().attach_stripe_particle({stream_offset, particle, age_lifetime, strip});
 }
 
+void attach_shape_record(shapes::Record record) {
+    backend().attach_shape_record(std::move(record));
+}
+
 bool peek_efb(
     std::uint16_t x,
     std::uint16_t y,
@@ -96,11 +100,6 @@ bool peek_efb_published(
     std::uint16_t token,
     std::uint32_t& value) {
     return backend().peek_efb_published(x, y, kind, token, value);
-}
-
-void set_indexed_load_host_order(bool host_order) noexcept {
-    extern std::atomic<bool> g_indexed_load_host_order;
-    g_indexed_load_host_order.store(host_order, std::memory_order_relaxed);
 }
 
 void notify_guest_memory_write(

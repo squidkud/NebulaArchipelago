@@ -1,4 +1,6 @@
 #include "Game/MapObj/BrightObj.hpp"
+#include <JSystem/J3DGraphBase/J3DNativeView.hpp>
+#include <JSystem/J3DGraphBase/J3DNativeState.hpp>
 #ifdef TARGET_PC
 #include "Game/Util/GameLightSignal.hpp"
 #endif
@@ -172,8 +174,6 @@ BrightObjBase::BrightObjBase() : mInfo(), mBrightCenter(0.0f, 0.0f), mNowCenter(
 }
 
 void BrightObjBase::checkVisibilityOfSphere(u16 index, const BrightCamInfo& rCamInfo) {
-    GXPokeAlphaRead(GX_READ_NONE);
-
     TVec3f drawPos(mDrawInfo.mPosition[index]);
     TVec3f camDir(rCamInfo.mCameraDir[index]);
     TVec3f drawDir(rCamInfo.mCameraPos[index] - drawPos);
@@ -196,6 +196,7 @@ void BrightObjBase::checkVisibilityOfSphere(u16 index, const BrightCamInfo& rCam
 
     const TPos3f& rView = ::getBrightView(rCamInfo, index);
     CheckArg args = CheckArg();
+    args.mReadback = cReadbackChannel + index;
     const TProj3f& rProj = rCamInfo.mProjectionMtx[index];
 
     ::calcScreenPosition(&args.mCenter, drawPos, rView, rProj);
@@ -231,8 +232,7 @@ void BrightObjBase::checkVisible(BrightObjBase::CheckArg* pArg, const TVec3f& rT
         TVec2f frameBufferPos;
         MR::convertScreenPosToFrameBufferPos(&frameBufferPos, screenPos);
 
-        u32 color;
-        GXPeekARGB((s32)(frameBufferPos.x), (s32)(frameBufferPos.y), &color);
+        const u32 color = J3DNativeView::readbackColor(pArg->mReadback, (s32)(frameBufferPos.x), (s32)(frameBufferPos.y));
 
         if ((color & 0xFF000000) >= 0xF0000000) {
             pArg->mCurrBrightness++;
@@ -270,19 +270,19 @@ void BrightObjBase::drawSphere(const TVec3f& rPos, float radius) const {
     TDDraw::setup(0, 0, 1);
     TDDraw::loadViewMtx(mtx);
 
-    GXSetColorUpdate(GX_FALSE);
-    GXSetAlphaUpdate(GX_TRUE);
-    GXSetDstAlpha(GX_FALSE, 0);
-    GXSetZMode(GX_TRUE, GX_ALWAYS, GX_FALSE);
+    J3DNativeState::setColorUpdate(GX_FALSE);
+    J3DNativeState::setAlphaUpdate(GX_TRUE);
+    J3DNativeState::setDstAlpha(GX_FALSE, 0);
+    J3DNativeState::setZMode(GX_TRUE, GX_ALWAYS, GX_FALSE);
 
     TDDraw::drawSphere(TVec3f(0, 0, 0), radius * 1.1f, 0xFF000000, 0x10);
 
-    GXSetZMode(GX_TRUE, GX_LEQUAL, GX_FALSE);
+    J3DNativeState::setZMode(GX_TRUE, GX_LEQUAL, GX_FALSE);
 
     TDDraw::drawSphere(TVec3f(0, 0, 0), radius, 0x00FF00FF, 0x10);
 
-    GXSetColorUpdate(GX_TRUE);
-    GXSetAlphaUpdate(GX_FALSE);
+    J3DNativeState::setColorUpdate(GX_TRUE);
+    J3DNativeState::setAlphaUpdate(GX_FALSE);
 }
 
 BrightObj::BrightObj(const char* pName) : LiveActor(pName), BrightObjBase(), mRadius(::sSunModelScale) {

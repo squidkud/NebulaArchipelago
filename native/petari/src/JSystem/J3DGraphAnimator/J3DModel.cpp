@@ -127,32 +127,27 @@ s32 J3DModel::createMatPacket(J3DModelData* pModelData, u32 mdlFlags) {
                     matPacket->setDisplayListObj(matPacket->mpDisplayListObj);
                 } else {
                     J3DDisplayListObj* dlobj = materialNode->getSharedDisplayListObj();
-                    s32 ret = dlobj->single_To_Double();
-                    if (ret != kJ3DError_Success) {
-                        return ret;
-                    }
 
                     matPacket->setDisplayListObj(dlobj);
                 }
             } else if (mdlFlags & J3DMdlFlag_UseSharedDL) {
                 if (mdlFlags & J3DMdlFlag_UseSingleDL) {
-                    materialNode->newSingleSharedDisplayList(materialNode->countDLSize());
+                    materialNode->newSharedDisplayList();
 
                     J3DDisplayListObj* dlobj = materialNode->getSharedDisplayListObj();
                     matPacket->setDisplayListObj(dlobj);
                 } else {
-                    materialNode->newSharedDisplayList(materialNode->countDLSize());
+                    materialNode->newSharedDisplayList();
 
                     J3DDisplayListObj* dlobj = materialNode->getSharedDisplayListObj();
-                    dlobj->single_To_Double();
 
                     matPacket->setDisplayListObj(dlobj);
                 }
             } else {
                 if (mdlFlags & J3DMdlFlag_UseSingleDL) {
-                    matPacket->newSingleDisplayList(materialNode->countDLSize());
+                    matPacket->newDisplayList();
                 } else {
-                    matPacket->newDisplayList(materialNode->countDLSize());
+                    matPacket->newDisplayList();
                 }
             }
         }
@@ -355,19 +350,14 @@ void J3DModel::viewCalc() {
         mMtxBuffer->calcDrawMtx(getMtxCalcMode(), mBaseScale, mBaseTransformMtx);
         calcNrmMtx();
         calcBumpMtx();
-        DCStoreRangeNoSync(getDrawMtxPtr(), mModelData->getDrawMtxNum() * sizeof(Mtx));
-        DCStoreRange(getNrmMtxPtr(), mModelData->getDrawMtxNum() * sizeof(Mtx33));
     } else if (checkFlag(J3DMdlFlag_SkinNrmCpu)) {
         mMtxBuffer->calcDrawMtx(getMtxCalcMode(), mBaseScale, mBaseTransformMtx);
         calcBBoardMtx();
-        DCStoreRange(getDrawMtxPtr(), mModelData->getDrawMtxNum() * sizeof(Mtx));
     } else {
         mMtxBuffer->calcDrawMtx(getMtxCalcMode(), mBaseScale, mBaseTransformMtx);
         calcNrmMtx();
         calcBBoardMtx();
         calcBumpMtx();
-        DCStoreRangeNoSync(getDrawMtxPtr(), mModelData->getDrawMtxNum() * sizeof(Mtx));
-        DCStoreRange(getNrmMtxPtr(), mModelData->getDrawMtxNum() * sizeof(Mtx33));
     }
 
     prepareShapePackets();
@@ -382,7 +372,6 @@ void J3DModel::calcBumpMtx() {
             J3DMaterial* material = getModelData()->getMaterialNodePointer(i);
             if (material->getNBTScale()->mbHasScale == TRUE) {
                 material->getShape()->calcNBTScale(*material->getNBTScale()->getScale(), getNrmMtxPtr(), getBumpMtxPtr(bumpMtxIdx));
-                DCStoreRange(getBumpMtxPtr(bumpMtxIdx), mModelData->getDrawMtxNum() * sizeof(Mtx33));
                 bumpMtxIdx++;
             }
         }

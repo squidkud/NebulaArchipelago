@@ -165,6 +165,12 @@ public:
     [[nodiscard]] bool rt_reflections_active() const noexcept { return false; }
     [[nodiscard]] bool rt_engine() const noexcept { return false; }
     [[nodiscard]] bool rt_engine_clear() const noexcept { return false; }
+    [[nodiscard]] bool rt_mist_open() const noexcept { return false; }
+    // The effects layer opens over ray-traced water (RendererD3D12::begin_layer_window), which this renderer has not.
+    void begin_layer_window() noexcept {}
+    [[nodiscard]] bool layer_window() const noexcept { return false; }
+    [[nodiscard]] std::int64_t last_present_qpc() const noexcept { return swap_present_qpc_; }
+    void rt_note_mist(const float*, float, float, float) noexcept {}
     [[nodiscard]] bool rt_log_seq() const noexcept { return false; }
     [[nodiscard]] bool rt_scene_untraced() const noexcept { return false; }
     void rt_set_scene_untraced(bool) noexcept {}
@@ -225,7 +231,20 @@ public:
                    bool alpha_enable, bool depth_enable, unsigned rect_x = 0, unsigned rect_y = 0, unsigned rect_w = 0,
                    unsigned rect_h = 0, std::uint8_t pixel_format = 0);
     void draw(const DrawCall& call);
+    // Curved surfaces sorted on the GPU (RendererD3D12::sort_curved): the dispatches at the end of the frame's uploads,
+    // which run before its draws. Returns the draw's DrawCall::curve_sort, -1 where it cannot be sorted.
+    [[nodiscard]] std::int32_t sort_curved(gpu::Address vertices, gpu::Address indices, std::uint32_t triangles,
+                                           gpu::Address constants, gpu::Address palette, bool palette_rows);
+    // The frame being recorded (DrawCall::curve_sort_list).
+    [[nodiscard]] std::uint32_t curve_sort_list() const noexcept { return curve_sort_list_; }
+    // The resident decoded vertices (RendererD3D12::create_resident_vertices): written once, read every frame, so in
+    // device memory where the device maps it (vk::BufferPlace::DeviceMapped).
+    [[nodiscard]] UploadBuffer create_resident_vertices(std::size_t bytes, const char* name);
+    void copy_resident_vertices(std::uint64_t, std::uint64_t) noexcept {}
     void copy_efb_to_xfb(const EfbCopyParams& params, XfbTexture& dest);
+    // Native presentation (renderer_d3d12.h): not yet on Vulkan, whose display copies stay copies.
+    [[nodiscard]] bool can_hand_over_display_copy(const EfbCopyParams&, const XfbTexture&) const { return false; }
+    [[nodiscard]] gpu::TextureRef hand_over_efb_color(gpu::TextureRef fresh) { return fresh; }
     [[nodiscard]] bool copy_efb_to_texture(const EfbCopyParams& params, TextureCache& textures, bool is_depth_copy);
     // `black`: the frame is presented black (the pass clears; the XFB is not drawn).
     bool present(const XfbTexture* source, bool capture_backbuffer = false, bool black = false);
@@ -252,6 +271,9 @@ public:
     [[nodiscard]] std::uint64_t replay_serial() const noexcept { return replay_serial_; }
     [[nodiscard]] std::uint32_t replay_xfb_addr() const noexcept { return replay_xfb_addr_; }
     void note_replay_scene() noexcept { ++replay_scene_count_; }
+    // As RendererD3D12: a frame that draws no 3D scene, recorded as its screen layer alone.
+    void note_replay_screen_frame() noexcept { replay_screen_frame_ = true; }
+    void cancel_replay_screen_frame() noexcept { replay_screen_frame_ = false; }
     [[nodiscard]] unsigned replay_failure() const noexcept { return replay_failure_; }
     void note_replay_failure(unsigned reason) noexcept { replay_failure_ = reason; }
     void set_subframe_capture(bool capture) noexcept { subframe_capture_ = capture; }
@@ -469,6 +491,7 @@ private:
     VkPipelineLayout utility_layout_ = VK_NULL_HANDLE;      // utility set + 64 bytes of push constants
     VkPipelineLayout conversion_layout_ = VK_NULL_HANDLE;   // conversion set + 64 bytes of push constants
     VkRenderPass color_pass_ = VK_NULL_HANDLE;    // one RGBA8 target, ends shader-readable
+    VkRenderPass grey_pass_ = VK_NULL_HANDLE;     // one R8 target (one-channel copies), ends shader-readable
     VkRenderPass present_pass_ = VK_NULL_HANDLE;  // the swapchain image, cleared, ends presentable
     VkSampler linear_clamp_ = VK_NULL_HANDLE;
     VkSampler point_clamp_ = VK_NULL_HANDLE;
@@ -513,6 +536,8 @@ private:
 
     // Pipelines the renderer owns.
     VkPipeline conversion_pipeline_ = VK_NULL_HANDLE;
+    VkPipeline grey_conversion_pipeline_ = VK_NULL_HANDLE;  // into one-channel copies (grey_pass_)
+    VkPipeline display_filter_pipeline_ = VK_NULL_HANDLE;   // 1:1 display copies without gamma
     // The renderer's own draws into the EFB pass, per EFB sample count (log2), made at first use: masked clears,
     // and whole-colour and depth clears as draws (DeviceQuirks::clear_with_draw only; null otherwise).
     enum class EfbUtility : unsigned { ClearRgb, ClearAlpha, ClearRgba, ClearDepth, Count };
@@ -609,6 +634,7 @@ private:
     double display_refresh_hz_ = 0.0;
     std::uint64_t display_refresh_checks_ = 0;
     std::int64_t measured_present_window_qpc_ = 0;
+    std::int64_t swap_present_qpc_ = 0;   // every present's (last_present_qpc)
     std::uint64_t measured_present_count_ = 0;
     std::uint64_t last_frame_slot_wait_us_ = 0;
     std::uint64_t last_begin_reset_us_ = 0;
@@ -730,6 +756,7 @@ private:
     bool prev_valid_ = false;
     std::vector<std::uint32_t> pairing_scratch_;
     unsigned replay_scene_count_ = 0;
+    bool replay_screen_frame_ = false;
     unsigned replay_reject_ = 0;
     std::uint64_t replay_serial_ = 0;
     std::uint32_t replay_xfb_addr_ = 0;
@@ -759,6 +786,42 @@ private:
     VkPipeline stripe_gather_pipeline_ = VK_NULL_HANDLE;
     VkDescriptorPool blend_pool_ = VK_NULL_HANDLE;
     bool blend_failed_ = false;
+
+    // Curved surfaces' sort (sort_curved, ShaderGenerator::curve_sort_source): per frame slot its draws, the buffers the
+    // shaders read (draws, the vertex, index, constant and matrix buffers, blocks) and write (the sorted lists).
+    struct CurveSortDraw {
+        std::uint32_t vertices;
+        std::uint32_t indices;
+        std::uint32_t triangles;
+        std::uint32_t constants;
+        std::uint32_t palette;
+        std::uint32_t flags;
+        std::uint32_t output;
+        std::uint32_t scratch;
+    };
+    struct CurveSortFrame {
+        std::vector<CurveSortDraw> draws;
+        std::array<VkBuffer, 4> sources{};  // vertices, indices, constants, palettes
+        std::uint64_t bytes = 0;
+        std::shared_ptr<vk::Buffer> records;
+        std::shared_ptr<vk::Buffer> blocks;
+        std::shared_ptr<vk::Buffer> sorted;
+        VkDescriptorSet set = VK_NULL_HANDLE;
+        std::array<VkBuffer, 7> bound{};
+    };
+    static constexpr std::uint64_t kCurveSortBytes = 8u << 20u;
+    bool ensure_curve_sort();
+    void record_curve_sort(VkCommandBuffer commands);
+    std::array<CurveSortFrame, kFramesInFlight> curve_sort_{};
+    std::vector<std::array<std::uint32_t, 2>> curve_sort_blocks_;
+    VkDescriptorSetLayout curve_set_layout_ = VK_NULL_HANDLE;
+    VkPipelineLayout curve_layout_ = VK_NULL_HANDLE;
+    VkDescriptorPool curve_pool_ = VK_NULL_HANDLE;
+    VkPipeline curve_classify_ = VK_NULL_HANDLE;
+    VkPipeline curve_offsets_ = VK_NULL_HANDLE;
+    VkPipeline curve_scatter_ = VK_NULL_HANDLE;
+    std::uint32_t curve_sort_list_ = 0;
+    bool curve_sort_failed_ = false;
 
     // A sequence: the playing log's sub-frames between two game frames.
     struct SequenceState {
@@ -929,6 +992,54 @@ private:
     VkQueryPool timestamps_ = VK_NULL_HANDLE;
     std::array<bool, kFramesInFlight> timestamp_pending_{};
     double timestamp_period_ns_ = 0.0;
+    // GALAXY_GPU_PASSES=1: GPU time by pass for present-stats' gpu-pass-ms (RendererD3D12's). A mark starts a pass in
+    // the frame's commands; the time to the next mark (or the frame's end) is that pass's. The curved surfaces' sort,
+    // in the upload commands, takes the two queries after the frame's marks.
+    enum class GpuPass : std::uint8_t {
+        Scene, Resolve, EfbCopy, XfbCopy, Bloom, SceneAa, SceneAo, Upscale, RayTracing, Present, CurveSort, Count
+    };
+    static constexpr unsigned kGpuPassSlots = 512;
+    void gpu_pass(GpuPass pass);
+    void read_gpu_passes();
+    class GpuPassScope {
+    public:
+        GpuPassScope(RendererVk& renderer, GpuPass pass) : renderer_(renderer), outer_(renderer.current_pass_) {
+            renderer_.gpu_pass(pass);
+        }
+        ~GpuPassScope() { renderer_.gpu_pass(outer_); }
+        GpuPassScope(const GpuPassScope&) = delete;
+        GpuPassScope& operator=(const GpuPassScope&) = delete;
+    private:
+        RendererVk& renderer_;
+        GpuPass outer_;
+    };
+    VkQueryPool pass_queries_ = VK_NULL_HANDLE;
+    // The frame's shader invocations (gpu-stats): vertex, tessellation control patches and evaluation, clipped
+    // primitives, fragment and compute, in VkQueryPipelineStatisticFlagBits' order.
+    VkQueryPool stats_queries_ = VK_NULL_HANDLE;
+    // GALAXY_GPU_DRAWS=1: each GX draw between two timestamps, its time summed by pipeline for present-stats'
+    // [gpu-draws] lines (RendererD3D12's; the timestamps serialize the draws: the total grows, the shares hold).
+    static constexpr unsigned kGpuDrawSlots = 16384;
+    struct GpuDrawMark {
+        gpu::Pipeline* pipeline = nullptr;
+        std::uint32_t triangles = 0;
+    };
+    struct GpuDrawCost {
+        double ms = 0.0;
+        std::uint64_t draws = 0;
+        std::uint64_t triangles = 0;
+    };
+    VkQueryPool draw_queries_ = VK_NULL_HANDLE;
+    std::array<std::vector<GpuDrawMark>, kFramesInFlight> draw_marks_{};
+    std::unordered_map<gpu::Pipeline*, GpuDrawCost> draw_cost_;
+    std::array<bool, kFramesInFlight> stats_pending_{};
+    std::array<double, 6> stats_sum_{};
+    std::array<std::array<GpuPass, kGpuPassSlots>, kFramesInFlight> pass_marks_{};
+    std::array<unsigned, kFramesInFlight> pass_mark_count_{};
+    std::array<bool, kFramesInFlight> pass_sort_timed_{};
+    GpuPass current_pass_ = GpuPass::Scene;
+    bool pass_recording_ = false;  // between begin_frame and end_frame
+    std::array<double, static_cast<std::size_t>(GpuPass::Count)> pass_ms_{};
 };
 
 using Renderer = RendererVk;

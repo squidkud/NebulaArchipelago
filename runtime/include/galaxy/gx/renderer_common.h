@@ -104,6 +104,9 @@ struct EfbClearValues {
 [[nodiscard]] EfbClearValues make_efb_clear_values(
     std::uint32_t ar, std::uint32_t gb, std::uint32_t z24,
     std::uint8_t pixel_format) noexcept;
+// With an EFB pixel format (0-2), clear values as given, not quantized to the format: the 8-bit values a draw stores
+// (alpha 255 on a format without alpha).
+inline constexpr std::uint8_t kEfbClearExact = 0x80u;
 
 // The EFB conversion shader's root constants (16 dwords).
 struct EfbConversionShaderConstants {
@@ -111,6 +114,8 @@ struct EfbConversionShaderConstants {
 };
 
 [[nodiscard]] std::string_view efb_conversion_shader_source() noexcept;
+// A display copy one EFB pixel to one XFB pixel without gamma (efb_conversion_shader_source's arithmetic for it).
+[[nodiscard]] std::string_view display_filter_shader_source() noexcept;
 
 // The renderers' utility shaders (HLSL; the Vulkan backend annotates and compiles the same source): the
 // fullscreen-triangle blit, the EFB colour-channel clear, the depth carry after a resolution change, and the
@@ -227,6 +232,16 @@ struct DrawCall {
     std::uint32_t blend_slot = 0;
     // Interpolated redraw: the scene's pixel-constant record, -1 for none.
     std::int32_t ps_record = -1;
+    // A split curved surface (flat_pipeline set): its first `flat_index_count` indices are triangles no corner bends,
+    // drawn as a triangle list with `flat_pipeline` (the same shaders without the patch stages), the rest as patches
+    // with `pipeline`.
+    gpu::Pipeline* flat_pipeline = nullptr;
+    std::uint32_t flat_index_count = 0;
+    // The split draw's place in its command list's curve sort (the renderer's sort_curved), -1 for none: its
+    // triangles the hull shader would leave whole are drawn as a triangle list too. Interpolated redraws draw the
+    // split as above.
+    std::int32_t curve_sort = -1;
+    std::uint32_t curve_sort_list = 0;
 };
 
 }  // namespace galaxy::gx

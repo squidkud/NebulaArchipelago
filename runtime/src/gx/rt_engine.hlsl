@@ -22,7 +22,8 @@ static const uint kEvGBufferPrev = 1u;    // the last traced frame's
 static const uint kEvDiTemp = 2u;         // per pixel uint4: the direct reservoir after temporal reuse (reservoir_store)
 static const uint kEvDi = 3u;             // per pixel uint4: this frame's final direct reservoir
 static const uint kEvDiPrev = 4u;         // the last frame's
-static const uint kEvDirect = 5u;         // per pixel uint4: the lights' direct diffuse (m) rgb (halves); z: the light
+static const uint kEvDirect = 5u;         // per pixel uint4: the lights' direct diffuse (m) rgb (halves) and the sun's
+                                          // visibility (y's high half: the share its ray lets through); z: the light
                                           // change (light_change: its kept sample's, whether its light is new; halves);
                                           // w: the sun's penumbra (kShadow*) and the water its light crosses (halves)
 static const uint kEvGiTemp = 6u;         // per half-pixel two uint4: the indirect reservoir after temporal reuse
@@ -32,7 +33,7 @@ static const uint kEvGiOut = 9u;          // per half-pixel uint2: indirect diff
 static const uint kEvSpecular = 10u;      // per pixel uint2: traced specular rgb (halves), hit distance
 static const uint kEvHistDiffuse = 11u;   // per pixel uint4: diffuse rgb, history length (halves); moments 1, 2
 static const uint kEvHistDiffusePrev = 12u;
-static const uint kEvHistSpecular = 13u;
+static const uint kEvHistSpecular = 13u;   // per pixel kSpecHistoryBytes (EngineTemporalCS)
 static const uint kEvHistSpecularPrev = 14u;
 static const uint kEvAtrousA = 15u;       // per pixel uint4: diffuse rgb + variance, specular rgb + variance (halves);
 static const uint kEvAtrousB = 16u;       // before EngineTemporalCS the sun shadow's blurs (x: visibility, penumbra)
@@ -54,6 +55,10 @@ static const uint kEvClear = 27u;         // per pixel 2 uint4 (EngineClearCS): 
 static const uint kEvMotion = 28u;
 // The world's radiance cache (engine_cache_light, EngineCacheCS): kCacheEntries entries of kCacheEntryBytes.
 static const uint kEvRadianceCache = 29u;
+// The waterfall mist's pass (MistLightCS, at the scene's end):
+static const uint kEvMistIn = 30u;        // the frame's spray puffs (32 bytes each: eye-space centre, sigma; optical depth,
+                                          // brightness)
+static const uint kEvMistOut = 31u;       // their records for the composite (rt_lighting.hlsl kMistHeader)
 // g_engine_info.y in the clear pass: what the frame has of each kind.
 static const uint kClearHasGlass = 1u;    // the water window's glass (clear_trace)
 static const uint kClearHasSolids = 2u;   // clear solids in the scene (solid_front)
@@ -80,7 +85,7 @@ static const uint kEngineBounceCache = 131072u; // GALAXY_RT_ENGINE_BOUNCES (def
 static const uint kEngineWaterLight = 524288u;  // last frame's water (kEvWaterScene, kEvWaterPositions) shades light
 static const uint kEngineReference = 262144u;   // GALAXY_RT_ENGINE_REFERENCE: the converged reference accumulates
                                                  // (g_engine_params: x its buffer's view, y paths so far, z bounces)
-static const uint kEngineNoAntiLag = 1048576u;   // GALAXY_RT_ENGINE_ANTILAG=0: the diffuse history without its anti-lag
+static const uint kEngineNoAntiLag = 1048576u;   // GALAXY_RT_ENGINE_ANTILAG=0: the histories without their anti-lag
 static const uint kEngineNoLightHistory = 2097152u;  // GALAXY_RT_ENGINE_LIGHT_HISTORY=0: no temporal light reuse
 static const uint kEngineNoBoiling = 8388608u;   // GALAXY_RT_ENGINE_BOILING=0: no boiling filter
 static const uint kEngineMotion = 16777216u;     // the raster's motion this frame (kEvMotion)
@@ -95,6 +100,11 @@ static const uint kEngineClearSolidLeft = 4194304u;  // GALAXY_RT_ENGINE_CLEAR=1
 
 // The water draws' clear records (kEvClearDraws, word per draw: roughness in bits 0-15, flags above).
 static const uint kClearGlass = 1u << 16u;   // the engine's: glass or crystal (not mirror glass, not a metal coat)
+// Ice (the table's `ice`: Freezeflame's rink): a thick sheet, its index of refraction in bits 18-31 ((n - 1) x 4096;
+// 0: ice's own, 1.31). It reflects at its one face's Fresnel (its far face lies deep under it), not as a thin wall.
+static const uint kClearIce = 1u << 17u;
+static const uint kClearIorShift = 18u;
+static const float kIceIor = 1.31f;
 
 // G-buffer material flags (word 3 bits 8-15).
 static const uint kGbEmitter = 1u;
@@ -102,6 +112,11 @@ static const uint kGbCard = 2u;
 static const uint kGbDelit = 4u;
 static const uint kGbClear = 8u;    // a clear surface (crystal, glass, gems: kClearClass)
 static const uint kGbGlow = 16u;    // a faintly glowing material (the table's intensity below 1): lit, its glow added
+static const uint kGbClearLit = 32u;   // with kGbClear, ice: its clear look shaded by the traced sun's shadow
+// g_draws word 6 (SceneRayTracer kDrawTableIce): ice (the table's `ice`): clear as glass (its own look as the game draws
+// it, a traced reflection), yet shaded by the traced sun's shadow, so what stands on it still casts one (the owner's
+// choice: polished, clear, shadowed).
+static const uint kDrawTableIce = 4096u;
 
 // A clear surface's reflectance at normal incidence: a dense crystal's (refractive index about 1.8, ((n - 1) /
 // (n + 1))^2 = 0.08; window glass 0.04, diamond 0.17). The game's crystals are cut gems, not panes.
@@ -119,6 +134,13 @@ float shown_emission(float intensity)
 {
     return intensity < 1.0f ? intensity : min(intensity, kEmitterShown);
 }
+// The specular history's record per pixel (kEvHistSpecular): rgb, history length (halves); the diffuse history's fast
+// luminance (float: its anti-lag); the specular's fast luminance and the reflection's tracking distance (halves); the
+// specular luminance's first two moments (floats); how it was reprojected (kSpecVirtual); a spare.
+static const uint kSpecHistoryBytes = 32u;
+static const uint kSpecVirtual = 1u;   // by the reflection's virtual image (else the surface's motion)
+static const float kSpecHistoryMost = 32.0f;
+
 // A new direct or specular sample is a firefly past this many times its brightest neighbour's (EngineTemporalCS).
 static const float kFireflyRatio = 2.0f;
 // The share of the backdrop's colour (its chroma about its luminance) in the light it sends onto surfaces. A painted
@@ -174,6 +196,34 @@ uint4 gb_word0(GSurface s)
     return uint4(pack_normal(s.n), pack_normal(s.ng), a.r | (a.g << 8u) | (a.b << 16u) |
                  (uint(round(saturate(s.roughness) * 255.0f)) << 24u),
                  uint(round(saturate(s.metallic) * 255.0f)) | (s.flags << 8u) | (min(s.draw, 0xFFFFu) << 16u));
+}
+
+// What the neighbour taps read of a pixel (gb_guide; the a-trous reads 25 a pixel an iteration): the G-buffer record's
+// eye depth, shading normal (pack_normal), roughness and flags, copied bit for bit into 12 bytes after the records.
+struct GGuide {
+    bool valid;
+    float z;
+    float3 n;
+    float roughness;
+    uint flags;
+};
+
+uint gb_guide_at(uint pixel)
+{
+    return g_target_size.x * g_target_size.y * 32u + pixel * 12u;
+}
+
+GGuide gb_guide(uint view, uint pixel)
+{
+    RWByteAddressBuffer b = ResourceDescriptorHeap[view];
+    const uint3 w = b.Load3(gb_guide_at(pixel));
+    GGuide g;
+    g.valid = w.x != 0u;
+    g.z = asfloat(w.x);
+    g.n = unpack_normal(w.y);
+    g.roughness = float(w.z & 0xFFu) / 255.0f;
+    g.flags = (w.z >> 8u) & 0xFFu;
+    return g;
 }
 
 GSurface gb_load(uint view, uint pixel, float4 projection, int2 q)
@@ -242,6 +292,94 @@ float gx_fog_share(uint4 fog, float depth)
     return round(f * 256.0f) / 256.0f;
 }
 
+// Whether linear colour `c` is a metal's (1) or paint's (2); 0 too dark to tell (luminance 0.01). Measured metal
+// reflectances are greyish (silver, aluminium, iron, chrome) or warm (copper, gold, brass: hue about 8 to 60 degrees); a
+// strongly teal, blue, green, olive, violet or pure red colour is paint (or a dye coat) over metal: a dielectric.
+uint metal_or_paint(float3 c)
+{
+    if (!(luminance(c) > 0.01f)) {
+        return 0u;
+    }
+    const float peak = max(c.r, max(c.g, c.b));
+    const float saturation = peak > 1e-4f ? 1.0f - min(c.r, min(c.g, c.b)) / peak : 0.0f;
+    const float hue = degrees(atan2(sqrt(3.0f) * (c.g - c.b), 2.0f * c.r - c.g - c.b));
+    const float hue360 = hue < 0.0f ? hue + 360.0f : hue;
+    return saturation > 0.5f && (hue360 < 8.0f || hue360 > 60.0f) ? 2u : 1u;
+}
+
+// The table metals' painted colour per draw (g_engine_paint; ray_tracing_engine.cpp kEnginePaintDraws): each record the
+// area of the draw's triangles whose colour as the game paints it is paint's, then a metal's (EnginePaintCS). A material
+// is metal or paint as a whole. Decided pixel by pixel, a metal whose colour varies over its texture or its vertices'
+// paint (the Dreadnought's tiles: red, blue and yellow vertex paint, pale swirls in their maps) was paint in one texel
+// and a mirror in the next: hard blotches along the texture's own shapes, white where the mirror caught the light,
+// dark where it caught the sky.
+static const uint kPaintRecord = 16u;
+
+// Whether draw `draw` is a table metal (the material table's metalness above zero) the records hold.
+bool paint_draw(uint draw)
+{
+    if (draw >= g_engine_paint.z || draw >= g_draw_count) {
+        return false;
+    }
+    const uint metal = g_draws.Load(draw * kDrawStride + 16u) >> 16u;
+    return metal != 0xFFFFu && metal != 0u;
+}
+
+// Draw `draw`'s verdict over its triangles (x paint's area, y a metal's), false where the frame has none for it.
+bool paint_votes(uint draw, out uint2 votes)
+{
+    votes = uint2(0u, 0u);
+    if (g_engine_paint.x == 0xFFFFFFFFu || g_engine_paint.y == 0u || !paint_draw(draw)) {
+        return false;
+    }
+    const RWByteAddressBuffer records = ResourceDescriptorHeap[g_engine_paint.x];
+    votes = records.Load2(draw * kPaintRecord);
+    return votes.x != 0u || votes.y != 0u;
+}
+
+[numthreads(64, 1, 1)]
+void EnginePaintClearCS(uint3 id : SV_DispatchThreadID)
+{
+    if (g_engine_paint.x == 0xFFFFFFFFu || id.x >= g_engine_paint.z * (kPaintRecord / 4u)) {
+        return;
+    }
+    RWByteAddressBuffer records = ResourceDescriptorHeap[g_engine_paint.x];
+    records.Store(id.x * 4u, 0u);
+}
+
+// Each traced triangle of a table metal votes with its area (eye units squared, in 64ths, at least 1 and at most 32768,
+// so 65536 triangles of a draw fit a word): its draw's TEV output at its centre, its textures filtered over the
+// triangle's own footprint (cone 0) and its environment stage in, in linear light: the colour the game paints there.
+// Triangles the alpha test cuts there and those too dark to tell do not vote.
+[numthreads(256, 1, 1)]
+void EnginePaintCS(uint3 id : SV_DispatchThreadID)
+{
+    if (g_engine_paint.x == 0xFFFFFFFFu || id.x >= g_engine_paint.y) {
+        return;
+    }
+    const uint tri = id.x;
+    const uint flags = g_surfaces.Load(tri * 16u + 12u);
+    const uint draw = flags >> 16u;
+    if (!paint_draw(draw) || draw >= g_tev_info.x || ((flags >> 8u) & 15u) == kClearClass) {
+        return;
+    }
+    bool pass;
+    const float3 c = srgb_to_linear(
+        saturate(tev_evaluate_cone(draw, g_tev_info.x, tri, float2(1.0f / 3.0f, 1.0f / 3.0f), 0u, 0.0f, pass).rgb));
+    const uint verdict = pass ? metal_or_paint(c) : 0u;
+    if (verdict == 0u) {
+        return;
+    }
+    const float3 v0 = asfloat(g_positions.Load3(tri * 36u));
+    const float3 v1 = asfloat(g_positions.Load3(tri * 36u + 12u));
+    const float3 v2 = asfloat(g_positions.Load3(tri * 36u + 24u));
+    const float area = 0.5f * length(cross(v1 - v0, v2 - v0));
+    const uint weight = uint(clamp(area / 64.0f, 1.0f, 32768.0f));
+    RWByteAddressBuffer records = ResourceDescriptorHeap[g_engine_paint.x];
+    uint previous;
+    records.InterlockedAdd(draw * kPaintRecord + (verdict == 2u ? 0u : 4u), weight, previous);
+}
+
 // The full-resolution G-buffer, and the composite's per-pixel normal, de-lighting and fog (g_pixels).
 [numthreads(8, 8, 1)]
 void EngineGBufferCS(uint3 id : SV_DispatchThreadID)
@@ -254,6 +392,8 @@ void EngineGBufferCS(uint3 id : SV_DispatchThreadID)
         g_final[g_sample_size.x * g_sample_size.y + kStarSlots + 4u] = uint4(0u, 0u, 0u, 0u);
         g_final[g_sample_size.x * g_sample_size.y + kStarSlots + 5u] = uint4(0u, 0u, 0u, 0u);
         g_final[g_sample_size.x * g_sample_size.y + kStarSlots + 6u] = uint4(0u, 0u, 0u, 0u);
+        g_final[g_sample_size.x * g_sample_size.y + kStarSlots + 9u] = uint4(0u, 0u, 0u, 0u);
+        g_final[g_sample_size.x * g_sample_size.y + kStarSlots + 10u] = uint4(0u, 0u, 0u, 0u);
     }
     const int2 q = int2(id.xy);
     const uint pixel = id.y * g_target_size.x + id.x;
@@ -280,7 +420,13 @@ void EngineGBufferCS(uint3 id : SV_DispatchThreadID)
         // The share of its environment the material passes (environment-mapped draws): a metal's reflectance.
         float3 reflectance = float3(-1.0f, -1.0f, -1.0f);
         float3 emitted = float3(-1.0f, -1.0f, -1.0f);   // an emitter's colour: its TEV output (below)
-        float3 metal_colour = float3(-1.0f, -1.0f, -1.0f);   // its colour under the environment stage (below)
+        float3 metal_colour = float3(-1.0f, -1.0f, -1.0f);   // its colour as the game paints it, environment and all
+        // GALAXY_RT_PROBE: the metal test's colour and what was decided (bit 0 a metal tested, 1 taken for paint, 2 its
+        // environment stage evaluated, 3 decided by its material's votes).
+        float3 probe_test = float3(-1.0f, -1.0f, -1.0f);
+        uint probe_bits = 0u;
+        // A table metal the material test takes for paint: the reflections give it a clear coat (g_primary's top bit).
+        bool painted_metal = false;
         uint2 probe_table = uint2(0xFFFFFFFFu, 0u);    // GALAXY_RT_PROBE: the draw's emission word, its glowing region
         if (surface.primary.x != 0u) {
             const uint tri = surface.primary.x - 1u;
@@ -302,8 +448,10 @@ void EngineGBufferCS(uint3 id : SV_DispatchThreadID)
             // its TEV's output, so the painted reflection's share of that output is not its share of the pixel, and
             // taking it out would darken what shows through to black. It keeps the game's colour; the traced specular
             // adds its Fresnel reflection.
-            const bool clear = ((draw_flags >> 8u) & 15u) == kClearClass;
+            const bool ice = (g_draws.Load(min(draw, max(g_draw_count, 1u) - 1u) * kDrawStride + 24u) & kDrawTableIce) != 0u;
+            const bool clear = ((draw_flags >> 8u) & 15u) == kClearClass || ice;
             s.flags |= clear ? kGbClear : 0u;
+            s.flags |= ice ? kGbClearLit : 0u;
             if (!clear && draw < g_tev_info.x && (g_tev.Load(draw * kTevRecordBytes) & 0x80u) != 0u) {
                 // The game's painted reflection (environment maps): the traced specular takes its place.
                 bool pass;
@@ -330,7 +478,7 @@ void EngineGBufferCS(uint3 id : SV_DispatchThreadID)
                 reflectance = luminance(bare) > 0.1f
                                   ? hue * max(max(passed.r, max(passed.g, passed.b)), bare_peak)
                                   : passed;
-                metal_colour = bare;
+                metal_colour = full;
             }
             const uint record = min(draw, max(g_draw_count, 1u) - 1u) * kDrawStride;
             const uint2 table = g_draws.Load2(record + 8u);
@@ -387,21 +535,36 @@ void EngineGBufferCS(uint3 id : SV_DispatchThreadID)
         if (emitted.x >= 0.0f) {
             s.albedo = emitted;
         }
-        // A metal of a colour no metal has is paint (or a dye coat) over metal: a dielectric. Measured metal
-        // reflectances are greyish (silver, aluminium, iron, chrome) or warm (copper, gold, brass: hue about 8 to 60
-        // degrees); a strongly teal, blue, green, olive, violet or pure red one reflects as paint does (its colour its
-        // albedo, a clear coat at F0 0.04 over it); as a metal its whole colour would be its environment's. The coat is
-        // a lacquer's (kPaintRoughness): at the metal's own roughness painted blocks show no shine.
+        // A metal of a colour no metal has is paint (or a dye coat) over metal: a dielectric (metal_or_paint). It
+        // reflects as paint does (its colour its albedo, a clear coat at F0 0.04 over it); as a metal its whole colour
+        // would be its environment's. The coat is a lacquer's (kPaintRoughness): at the metal's own roughness painted
+        // blocks show no shine.
         if (s.metallic > 0.0f) {
+            // Its colour as the game paints it, its environment stage included: a coat's hue can live in that stage
+            // and its map (the Sling Pod frames' and the Dreadnought panels' deep blue, near black without the stage,
+            // pale cyan under a white environment) as much as in the material, and the painted whole is what the game
+            // shows. Gold stays gold and chrome grey there: both stay metal. The material decides as a whole, by the
+            // painted area of its triangles (paint_votes); this pixel's own colour only where the frame has no votes.
             const float3 c = metal_colour.x >= 0.0f ? metal_colour : s.albedo;
-            const float peak = max(c.r, max(c.g, c.b));
-            const float saturation = peak > 1e-4f ? 1.0f - min(c.r, min(c.g, c.b)) / peak : 0.0f;
-            const float hue = degrees(atan2(sqrt(3.0f) * (c.g - c.b), 2.0f * c.r - c.g - c.b));
-            const float hue360 = hue < 0.0f ? hue + 360.0f : hue;
-            if (luminance(c) > 0.01f && saturation > 0.5f && (hue360 < 8.0f || hue360 > 60.0f)) {
+            uint2 votes;
+            const bool voted = paint_votes(s.draw, votes);
+            const bool paint = voted ? votes.x > votes.y : metal_or_paint(c) == 2u;
+            probe_test = c;
+            probe_bits |= 1u | (metal_colour.x >= 0.0f ? 4u : 0u) | (voted ? 8u : 0u);
+            if (paint) {
+                probe_bits |= 2u;
+                painted_metal = true;
                 s.metallic = 0.0f;
                 s.roughness = min(s.roughness, kPaintRoughness);
                 reflectance = float3(-1.0f, -1.0f, -1.0f);
+                // Paint's colour is the game's whole colour for it: its environment stage paints the coat's hue (Sling
+                // Pod's blue fences, the Dreadnought's coloured wall tiles), not a reflection the traced one replaces.
+                // Taken out as a metal's, such a panel kept only its dark base under the stage: grey.
+                if (emitted.x < 0.0f) {
+                    own = 1.0f;
+                    const float3 paint = max(color * (delit ? exp(-shading) : 1.0f), 0.0f);
+                    s.albedo = paint / max(max(paint.r, max(paint.g, paint.b)), 1.0f);
+                }
             }
         }
         // A metal's specular colour (its albedo's role for a metal, specular_f0) is what it reflects of its environment
@@ -416,6 +579,10 @@ void EngineGBufferCS(uint3 id : SV_DispatchThreadID)
             const uint base = g_sample_size.x * g_sample_size.y + kStarSlots;
             g_final[base] = uint4(surface.primary.x, s.draw, probe_table.x, s.flags | (probe_table.y << 16u));
             g_final[base + 1u] = uint4(asuint(s.emission), asuint(luminance(color)), asuint(p.z), asuint(own));
+            g_final[base + 11u] = uint4(asuint(s.albedo), asuint(s.metallic));
+            g_final[base + 12u] = uint4(asuint(probe_test), probe_bits);
+            g_final[base + 13u] = uint4(asuint(reflectance), asuint(s.roughness));
+            g_final[base + 14u] = uint4(asuint(color), asuint(metal_colour.x >= 0.0f ? luminance(metal_colour) : -1.0f));
             if ((g_engine_info.x & kEngineReference) == 0u && s.draw != 0xFFFFu) {
                 const float2 region_uv = tev_region_uv(s.draw, g_tev_info.x, surface.primary.x - 1u,
                                                        float2(f16tof32(surface.primary.y), f16tof32(surface.primary.y >> 16u)));
@@ -427,7 +594,9 @@ void EngineGBufferCS(uint3 id : SV_DispatchThreadID)
         w1 = uint4(asuint(p.z), pack_half2(s.emission, s.lift), surface.primary.x, surface.primary.y);
         if ((id.x % g_factor) == 0u && (id.y % g_factor) == 0u && all(id.xy / g_factor < g_sample_size)) {
             const uint sample = (id.y / g_factor) * g_sample_size.x + id.x / g_factor;
-            g_primary[sample] = surface.primary;
+            // The camera ray's triangle + 1, its top bit set for a table metal taken for paint (rt_reflections.hlsl
+            // reads it so its reflection is the paint's clear coat, not the bare metal's mirror; triangles stay below 2^31).
+            g_primary[sample] = uint2(surface.primary.x | (painted_metal ? 0x80000000u : 0u), surface.primary.y);
             g_normal[sample] = pack_normal(surface.n);
         }
     } else if ((id.x % g_factor) == 0u && (id.y % g_factor) == 0u && all(id.xy / g_factor < g_sample_size)) {
@@ -445,6 +614,7 @@ void EngineGBufferCS(uint3 id : SV_DispatchThreadID)
     RWByteAddressBuffer gb = engine_buffer(kEvGBuffer);
     gb.Store4(pixel * 32u, w0);
     gb.Store4(pixel * 32u + 16u, w1);
+    gb.Store3(gb_guide_at(pixel), uint3(w1.x, w0.x, (w0.z >> 24u) | (w0.w & 0xFF00u)));
 }
 
 float3 fresnel_schlick(float3 f0, float cos_theta)
@@ -477,8 +647,44 @@ float smith_g1(float alpha, float nv)
 
 float3 specular_f0(GSurface s)
 {
-    const float dielectric = (s.flags & kGbClear) != 0u ? kClearF0 : 0.04f;
+    float dielectric = (s.flags & kGbClear) != 0u ? kClearF0 : 0.04f;
+    // A table row's index of refraction (`ior<n>`, the draw record's word 11, upper half): its own reflectance at
+    // normal incidence, ((n - 1) / (n + 1))^2 (ice's 1.31: 1.8 %).
+    if (s.draw != 0xFFFFu) {
+        const uint bits = g_draws.Load(min(s.draw, max(g_draw_count, 1u) - 1u) * kDrawStride + 44u) >> 16u;
+        if (bits != 0u) {
+            const float n = 1.0f + float(bits) / 16384.0f;
+            dielectric = ((n - 1.0f) / (n + 1.0f)) * ((n - 1.0f) / (n + 1.0f));
+        }
+    }
     return lerp(dielectric.xxx, s.albedo, s.metallic);
+}
+
+// Rough reflections are not traced. Past this perceptual roughness the GGX lobe spans most of the hemisphere: one ray
+// a pixel meets the sunlit planet one frame and black space the next (the Gateway's turning ring, roughness 0.95: the
+// samples' deviation 3.5 x their mean, the reflection grainy after 30 frames of history and streaked along its turn).
+// Such a lobe gathers what the surface's diffuse light gathers: the filtered light less the sun's (the sun's highlight
+// is the analytic glint) times the split sum's environment BRDF, as Unreal's Lumen takes rough reflections from its
+// diffuse gather past MaxRoughnessToTrace (0.4, fading over 0.1).
+static const float kTracedRoughnessMost = 0.4f;
+static const float kRoughFade = 0.1f;
+
+// How much of a reflection is the diffuse light's (0: traced; 1: none traced).
+float rough_reflection_share(float roughness)
+{
+    return saturate((roughness - kTracedRoughnessMost) / kRoughFade);
+}
+
+// The split sum's environment BRDF, F0 x A + B (Karis 2014, "Physically Based Shading on Mobile": the fit, perceptual
+// roughness).
+float3 env_brdf(float3 f0, float roughness, float nv)
+{
+    const float4 c0 = float4(-1.0f, -0.0275f, -0.572f, 0.022f);
+    const float4 c1 = float4(1.0f, 0.0425f, 1.04f, -0.04f);
+    const float4 r = roughness * c0 + c1;
+    const float a004 = min(r.x * r.x, exp2(-9.28f * nv)) * r.x + r.y;
+    const float2 ab = float2(-1.04f, 1.04f) * a004 + r.zw;
+    return f0 * ab.x + ab.y;
 }
 
 // The GGX lobe's alpha for the sun's highlight: at least the sun's disc (g_sun.w, the tangent of its radius) wide. A
@@ -558,9 +764,9 @@ float3 ggx_vndf(float3 n, float3 v, float alpha, float2 u)
     return f[0] * hl.x + f[1] * hl.y + f[2] * hl.z;
 }
 
-// A shadow ray from `origin` to `target` (stopping `margin` short of it): true when nothing the scene's lights are
-// blocked by lies between.
-bool engine_visible(float3 origin, float3 target, float margin, uint salt)
+// A shadow ray from `origin` to `target` (stopping `margin` short of it): the share of the light that reaches it (0
+// behind a blocker; through clear solids and undecided cards what each lets through, as sun_visibility_by).
+float engine_visibility(float3 origin, float3 target, float margin)
 {
     const float3 to = target - origin;
     const float span = length(to);
@@ -573,6 +779,7 @@ bool engine_visible(float3 origin, float3 target, float margin, uint salt)
         query;
     query.TraceRayInline(g_scene, RAY_FLAG_NONE, 0xFFu, ray);
     uint visits = 0u;
+    float through = 1.0f;
     while (query.Proceed()) {
         if (++visits > kMaxCandidates) {
             query.CommitNonOpaqueTriangleHit();
@@ -582,16 +789,21 @@ bool engine_visible(float3 origin, float3 target, float margin, uint salt)
         const bool late_hit = query.CandidateInstanceID() != 0u;
         const uint hit = late_hit ? 0u : g_surfaces.Load(query.CandidatePrimitiveIndex() * 16u + 12u);
         // A clear solid stops kClearShadow of the light (the lighting without the engine gives its draws no shadow).
-        const bool clear = !late_hit && ((hit >> 8u) & 15u) == kClearClass;
-        if (late_hit ||
-            (clear ? card_hash(query.CandidatePrimitiveIndex(), salt ^ 0x5BD1E995u) < kClearShadow
-                   : (hit & kDrawNoShadow) == 0u &&
-                         card_blocks(query.CandidatePrimitiveIndex(), hit,
-                                     origin + ray.Direction * query.CandidateTriangleRayT(), salt))) {
+        float cover = 1.0f;
+        if (!late_hit) {
+            cover = ((hit >> 8u) & 15u) == kClearClass ? kClearShadow
+                    : (hit & kDrawNoShadow) != 0u
+                        ? 0.0f
+                        : card_cover(query.CandidatePrimitiveIndex(), hit,
+                                     origin + ray.Direction * query.CandidateTriangleRayT());
+        }
+        if (cover >= 1.0f) {
             query.CommitNonOpaqueTriangleHit();
+        } else {
+            through *= 1.0f - cover;
         }
     }
-    return query.CommittedStatus() != COMMITTED_TRIANGLE_HIT;
+    return query.CommittedStatus() == COMMITTED_TRIANGLE_HIT ? 0.0f : through;
 }
 
 // A direction within a disc about the sun's direction of tangent radius `spread` (g_sun.w: the sun's own).
@@ -696,12 +908,17 @@ Hit engine_trace(float3 origin, float3 direction, uint salt)
         }
         const bool late_hit = query.CandidateInstanceID() != 0u;
         const uint hit = late_hit ? 0u : g_surfaces.Load(query.CandidatePrimitiveIndex() * 16u + 12u);
-        // A clear solid the engine traces stops kClearShadow of these rays, as of the light (engine_visible): its
+        // A clear solid the engine traces stops kClearShadow of these rays, as of the light (engine_visibility): its
         // facets turn most of them off the straight path; the rest see what lies behind it.
         if (!late_hit && solid_draw(hit)) {
             if (card_hash(query.CandidatePrimitiveIndex(), salt ^ 0x5BD1E995u) < kClearShadow) {
                 query.CommitNonOpaqueTriangleHit();
             }
+        } else if (!late_hit && (hit & kDrawNoShadow) != 0u) {
+            // What the table says lets light through (its shadow 0: water, translucent wings, decals lying on a
+            // surface) passes these rays as it passes the sun's (engine_visibility): the far side of Bonefin's ocean
+            // sphere, the whole sphere's triangles in one draw, closed the water's inside off from the sky and left
+            // it black.
         } else if (late_hit || card_blocks(query.CandidatePrimitiveIndex(), hit,
                                            origin + direction * query.CandidateTriangleRayT(), salt)) {
             query.CommitNonOpaqueTriangleHit();
@@ -1129,7 +1346,7 @@ float engine_light_target(float3 p, float3 n, LightSample l, out float3 light)
 
 // The lights at `p` (normal `n`; shadow ray from `origin`): `candidates` drawn by engine_light_pick_near, one kept in
 // proportion to its target (resampled importance sampling), its light behind one shadow ray, weighted to stay unbiased.
-float3 engine_light_sample(float3 p, float3 n, float3 origin, uint candidates, inout uint seed, uint salt)
+float3 engine_light_sample(float3 p, float3 n, float3 origin, uint candidates, inout uint seed)
 {
     const float tris = g_tev_info.z != 0u ? max(emit_element(0u).y, 0.0f) : 0.0f;
     const float spheres = spheres_total();
@@ -1156,11 +1373,11 @@ float3 engine_light_sample(float3 p, float3 n, float3 origin, uint candidates, i
             kept_point = l.y;
         }
     }
-    if (!(kept_target > 0.0f) ||
-        !engine_visible(origin, kept_point, 0.5f + 0.001f * length(kept_point - origin), salt)) {
+    if (!(kept_target > 0.0f)) {
         return float3(0.0f, 0.0f, 0.0f);
     }
-    return kept_light * (weight_sum / (float(candidates) * kept_target));
+    const float seen = engine_visibility(origin, kept_point, 0.5f + 0.001f * length(kept_point - origin));
+    return kept_light * (seen * weight_sum / (float(candidates) * kept_target));
 }
 
 // The world's radiance cache (our implementation of path-space filtering, Binder, Fricke and Keller 2019, as NVIDIA's
@@ -1408,12 +1625,13 @@ float3 engine_hit_radiance(Hit h, float3 origin, float3 direction, bool emission
             const float3 l = sun_direction_sample(float2(emit_random(seed), emit_random(seed)));
             const float nl = dot(n, l);
             float blocker;
-            if (nl > 0.0f && sun_visible(start, l, false, salt, blocker)) {
-                m += g_sun_light.rgb * nl * water_through(start, g_sun.xyz);
+            if (nl > 0.0f) {
+                m += g_sun_light.rgb * (nl * sun_visibility(start, l, false, blocker)) *
+                     water_through(start, g_sun.xyz);
             }
         }
         if ((g_engine_info.x & kEngineHitNoLights) == 0u) {
-            m += engine_light_sample(lifted, n, start, 4u, seed, salt + 13u);
+            m += engine_light_sample(lifted, n, start, 4u, seed);
         }
         const float3 d = cosine_direction(n, ng, float2(emit_random(seed), emit_random(seed)));
         if ((g_engine_info.x & kEngineHitNoSky) != 0u) {
@@ -1518,12 +1736,13 @@ float light_target(GSurface s, LightSample l, out float3 light)
     return engine_light_target(s.p, s.n, l, light);
 }
 
-// The sun's shadow (after NVIDIA's SIGMA; our own code). EngineDirectCS traces one ray per pixel to a point of the
-// sun's disc and keeps the penumbra its blocker's distance d makes: 0.5 d tan(radius) in eye units (kShadowLit:
-// nothing in the way; 0: the surface faces away). EngineShadowBlurCS and EngineShadowPostCS filter the visibility over
-// that penumbra as the screen shows it, so a shadow cast from close by stays as sharp as daylight makes it and one cast
-// from far is as soft; EngineShadowStabilizeCS keeps a short history (kShadowHistoryMost frames) clamped to the
-// frame's own neighbourhood, so a moving caster leaves no trail. EngineFinalCS lights the surface by the result. In
+// The sun's shadow (after NVIDIA's SIGMA; our own code). EngineDirectCS traces one ray per pixel to the sun's centre
+// and keeps the penumbra its blocker's distance d makes: 0.5 d tan(radius) in eye units (kShadowLit: nothing in the
+// way; 0: the surface faces away). EngineShadowBlurCS and EngineShadowPostCS spread the visibility over that penumbra
+// as the screen shows it (as percentage-closer soft shadows do), so a shadow cast from close by stays as sharp as
+// daylight makes it and one cast from far is as soft; EngineShadowStabilizeCS keeps a short history
+// (kShadowHistoryMost frames) clamped to the frame's own neighbourhood, so a moving caster leaves no trail and the
+// temporal upscaler's jitter steps no edge. EngineFinalCS lights the surface by the result. In
 // the diffuse light's history (32 frames, unclamped) the sun's shadows took half a second to form and to leave, and
 // its a-trous blurred them to blobs.
 static const float kShadowLit = 65504.0f;        // half's largest
@@ -1534,22 +1753,6 @@ static const float kShadowHistoryMost = 7.0f;    // frames
 static const float kShadowHistoryWeight = 5.0f / 6.0f;  // the history's weight at most (5 frames' accumulation)
 // The fast history of the diffuse light (EngineTemporalCS's anti-lag): frames.
 static const float kFastHistory = 4.0f;
-
-// A pixel's point in the unit square for frame `frame`: interleaved gradient noise (Jimenez 2014) places neighbouring
-// pixels well apart, so the sun's rays in a penumbra average out over a few pixels; each pixel then steps along the R2
-// sequence (Roberts 2018; Wolfe 2019, animating noise with low-discrepancy sequences), so over a few frames its own
-// points cover the square evenly and the short stabilisation (kShadowHistoryMost) settles a still shadow's edge on its
-// mean. A pattern moved at random per frame left the edges flickering at a quarter of their contrast.
-float interleaved_gradient_noise(float2 q)
-{
-    return frac(52.9829189f * frac(dot(q, float2(0.06711056f, 0.00583715f))));
-}
-
-float2 pixel_sample(int2 q, uint frame)
-{
-    const float2 start = float2(interleaved_gradient_noise(float2(q)), interleaved_gradient_noise(float2(q.yx) + 31.0f));
-    return frac(start + float(frame & 1023u) * float2(0.7548776662f, 0.5698402910f));
-}
 
 // Where a ray from surface `s` towards `l` starts (Hanika 2021, "Hacking the Shadow Terminator", gated as Blender
 // Cycles' shadow_ray_offset with its default cutoff): a curved surface drawn in flat triangles, its shading normals
@@ -1573,6 +1776,35 @@ float3 surface_start(GSurface s, float3 l)
 float pixel_world_size(float z)
 {
     return abs(z) * 2.0f / max(abs(g_viewport.z * g_projection.x), 1e-6f);
+}
+
+// Where a shadow ray from pixel `q`'s surface `s` towards `l` starts: the highest start (surface_start) of the surface
+// about the pixel, its 3 x 3 and the four pixels two out, those on its plane and facing as it does, measured along its
+// face normal. A pixel's own start rests on the face its camera ray met and that face's lift, and those differ from
+// pixel to pixel where a curved model is drawn in two layers (Star Reactor's stone floor: three start heights a unit
+// or more apart, scattered pixel by pixel). Under a low sun the rays from neighbouring pixels then passed a blocker's
+// thin parts (Mario's hands and feet, 200 units off) at those heights, so which of them hit was a scatter of single
+// pixels, and every movement of the blocker reshuffled it: a hatch in the shadow that glittered. Rays from one height
+// for the surface about the pixel see what blocks that surface.
+static const int2 kStartNeighbours[12] = {int2(-1, -1), int2(0, -1), int2(1, -1), int2(-1, 0), int2(1, 0), int2(-1, 1),
+                                          int2(0, 1),   int2(1, 1),  int2(-2, 0), int2(2, 0), int2(0, -2), int2(0, 2)};
+
+float3 surface_start_steady(GSurface s, int2 q, float3 l)
+{
+    float height = dot(surface_start(s, l) - s.p, s.ng);
+    const float plane = 4.0f + abs(s.p.z) * 2e-3f;  // a neighbour this far off the pixel's plane is another surface
+    [unroll] for (uint k = 0u; k < 12u; ++k) {
+        const int2 o = q + kStartNeighbours[k];
+        if (any(o < 0) || any(o >= int2(g_target_size))) {
+            continue;
+        }
+        const GSurface n = gb_load(engine_view(kEvGBuffer), uint(o.y) * g_target_size.x + uint(o.x), g_projection, o);
+        if (!n.valid || (n.flags & kGbEmitter) != 0u || dot(n.ng, s.ng) < 0.9f || abs(dot(n.p - s.p, s.ng)) > plane) {
+            continue;
+        }
+        height = max(height, dot(surface_start(n, l) - s.p, s.ng));
+    }
+    return s.p + s.ng * height;
 }
 
 // Where a pixel's surface was in the last frame, for every history (the denoiser's, the sun shadow's, the reservoirs'
@@ -1629,6 +1861,165 @@ float3 engine_unreproject(float3 p)
 float3 engine_unreproject_normal(float3 n)
 {
     return normalize(g_reproject[0].xyz * n.x + g_reproject[1].xyz * n.y + g_reproject[2].xyz * n.z);
+}
+
+// The specular history (EngineTemporalCS; after NVIDIA's ReBLUR, Zhdan, "Fast Denoising with Self-Stabilizing Recurrent
+// Blurs", GTC 2020, and its published NRD shaders; our own code). A reflection moves with what it shows, not with the
+// surface showing it: on the Gateway's turning ring the reflected planet stays still while the gold turns under it, and
+// under a moving camera a mirror's picture moves by its own parallax. Taken where the surface was, the history held
+// another part of the reflection, the clamp to the one-sample neighbours fought it, and the reflection glittered and
+// trailed. Two candidates are taken, where the surface was and where the reflection's virtual image was, each judged by
+// what can be trusted of it, and the one with the longer trusted history kept.
+
+// The tangent of the half-angle of the reflection lobe holding `share` of it at perceptual roughness `roughness`
+// (GGX: a microfacet normal lies within theta of the surface's with probability tan^2 / (alpha^2 + tan^2); with the
+// perceptual roughness in alpha's place, NRD's convention, it spans the reflected lobe, about twice the normals' spread).
+static const float kLobeShare = 0.75f;
+
+float lobe_tan(float roughness, float share)
+{
+    return roughness * sqrt(share / (1.0f - share));
+}
+
+// The share of the way from the normal to the mirror direction at which the GGX lobe peaks (Lagarde and de Rousiers
+// 2014, Moving Frostbite to PBR, listing 22): 1 for a mirror, 0 at roughness 1.
+float dominant_factor(float roughness)
+{
+    const float s = 1.0f - roughness;
+    return s * (sqrt(s) + roughness);
+}
+
+float3 dominant_direction(float3 n, float3 v, float roughness)
+{
+    return normalize(lerp(n, reflect(-v, n), dominant_factor(roughness)));
+}
+
+// The G-buffers' normals carry 16-bit octahedral precision; a smaller angle than this between two of them, or a lobe
+// narrower than it, is the encoding's and the jitter's (radians, 0.5 degrees).
+static const float kNormalTolerance = 0.0087f;
+
+// The surface's curvature about pixel `q` (1 / radius; above 0 convex towards the eye) along the screen direction
+// `along`: the change of the normal to the next pixels across and down over the distance their view rays meet the
+// pixel's tangent plane at, mixed by the direction (NRD's estimate). A neighbour on another surface counts as flat.
+float surface_curvature(GSurface s, int2 q, float2 along)
+{
+    RWByteAddressBuffer gb = engine_buffer(kEvGBuffer);
+    const float2 share = (abs(along) + 1.0f / 256.0f) / (abs(along.x) + abs(along.y) + 2.0f / 256.0f);
+    float3 x = float3(0.0f, 0.0f, 0.0f);
+    float3 n = float3(0.0f, 0.0f, 0.0f);
+    [unroll] for (uint k = 0u; k < 2u; ++k) {
+        const int2 o = min(q + (k == 0u ? int2(1, 0) : int2(0, 1)), int2(g_target_size) - 1);
+        const float3 ray = pixel_direction(g_projection, g_viewport, float2(o) + 0.5f);
+        const float3 on_plane = ray * (dot(s.ng, s.p) / min(dot(s.ng, ray), -1e-4f));
+        const uint op = uint(o.y) * g_target_size.x + uint(o.x);
+        const uint2 guide = gb.Load2(gb_guide_at(op));
+        const float z = asfloat(guide.x);
+        const bool same = z != 0.0f && abs(z - on_plane.z) < 0.02f * abs(s.p.z) + 1.0f && any(o != q);
+        x += (same ? on_plane : s.p) * share[k];
+        n += (same ? unpack_normal(guide.y) : s.n) * share[k];
+    }
+    const float3 edge = x - s.p;
+    const float length2 = dot(edge, edge);
+    return length2 > 1e-8f ? dot(normalize(n) - s.n, edge) / length2 : 0.0f;
+}
+
+// The eye-space point of a reflection's virtual image: from point `p` (normal `n`, towards the eye `v`, perceptual
+// roughness `roughness`) whose reflection meets what it shows `track` away along the lobe's peak, that point mirrored
+// behind the surface, nearer for a convex surface and farther for a concave one by the thin-lens equation of a curved
+// mirror (1 / image + 1 / object = 2 curvature; NRD's GetXvirtual); `image_share`, how far it lies from the surface
+// against the hit (0: on the surface, where the surface's own motion carries it).
+float3 virtual_image(float3 p, float3 n, float3 v, float roughness, float track, float curvature, out float image_share)
+{
+    const float nv = saturate(abs(dot(n, v)));
+    const float f = dominant_factor(roughness);
+    const float3 d = dominant_direction(n, v, roughness);
+    const float object = -track * max(dot(d, n), 1e-3f);
+    float magnification = 1.0f / (2.0f * curvature * object - 1.0f);
+    // Near a convex silhouette, where the image races across the curve, it is held nearer (NRD).
+    magnification /= 1.0f + length(p) * (1.0f - nv) * max(curvature, 0.0f);
+    const float distance = f * track * abs(magnification);
+    image_share = track > 0.0f ? saturate(distance / track) : 0.0f;
+    // Behind the surface (a real image, magnification above 0, in front of it).
+    return p + v * (magnification < 0.0f ? -distance : distance);
+}
+
+// One candidate for the specular history: the last frame's records bilinear about pixel position `a` (continuous, pixel
+// centres at .5) over its taps that show this surface.
+struct SpecHistory {
+    float3 rgb;
+    float len;         // frames
+    float fast;        // luminance over the last kFastHistory frames
+    float track;       // the reflection's tracking distance then
+    float2 moments;    // of luminance
+    float footprint;   // the bilinear weight of the taps kept (1: all four)
+    float3 n;          // their normal, in this frame's eye space
+    float3 p;          // their point, in this frame's eye space
+    float roughness;
+};
+
+// Surface motion's taps (`virtual_motion` false) show the surface where engine_history puts it: its depth and normal
+// there. The virtual image's taps lie on the pixel's tangent plane (their points then, carried into this frame's eye
+// space) and face the same side (ReBLUR's occlusion test; how alike their normals are is the candidate's confidence).
+SpecHistory spec_history(float2 a, GSurface s, History hp, bool virtual_motion)
+{
+    SpecHistory h = (SpecHistory)0;
+    const float2 c = a - 0.5f;
+    const int2 b = int2(floor(c));
+    const float2 f = c - float2(b);
+    RWByteAddressBuffer gb = engine_buffer(kEvGBufferPrev);
+    RWByteAddressBuffer ps = engine_buffer(kEvHistSpecularPrev);
+    const float plane = 0.02f * abs(s.p.z) + 1.0f;
+    float weight = 0.0f;
+    float4 rgb_len = float4(0.0f, 0.0f, 0.0f, 0.0f);
+    [unroll] for (uint k = 0u; k < 4u; ++k) {
+        const int2 o = b + int2(k & 1u, k >> 1u);
+        if (any(o < 0) || any(o >= int2(g_target_size))) {
+            continue;
+        }
+        const uint op = uint(o.y) * g_target_size.x + uint(o.x);
+        const uint4 w0 = gb.Load4(op * 32u);
+        const uint4 w1 = gb.Load4(op * 32u + 16u);
+        if (w1.x == 0u) {
+            continue;
+        }
+        const float z = asfloat(w1.x);
+        const float3 p = engine_unreproject(eye_position(g_history_projection, g_viewport, float2(o) + 0.5f, z));
+        const float3 n = engine_unreproject_normal(unpack_normal(w0.x));
+        if (virtual_motion ? abs(dot(s.ng, p - s.p)) > plane || dot(n, s.n) < 0.0175f
+                           : abs(z - hp.z) > hp.tolerance || dot(unpack_normal(w0.x), hp.n) < hp.facing) {
+            continue;
+        }
+        const float w = ((k & 1u) != 0u ? f.x : 1.0f - f.x) * ((k & 2u) != 0u ? f.y : 1.0f - f.y);
+        const uint4 r0 = ps.Load4(op * kSpecHistoryBytes);
+        const uint4 r1 = ps.Load4(op * kSpecHistoryBytes + 16u);
+        rgb_len += float4(f16tof32(r0.x), f16tof32(r0.x >> 16u), f16tof32(r0.y), f16tof32(r0.y >> 16u)) * w;
+        h.fast += f16tof32(r0.w) * w;
+        h.track += f16tof32(r0.w >> 16u) * w;
+        h.moments += asfloat(r1.xy) * w;
+        h.n += n * w;
+        h.p += p * w;
+        h.roughness += float(w0.z >> 24u) / 255.0f * w;
+        weight += w;
+    }
+    h.footprint = weight;
+    if (weight > 1e-3f) {
+        const float r = 1.0f / weight;
+        h.rgb = rgb_len.rgb * r;
+        h.len = rgb_len.a * r;
+        h.fast *= r;
+        h.track *= r;
+        h.moments *= r;
+        h.n = normalize(h.n);
+        h.p *= r;
+        h.roughness *= r;
+    }
+    return h;
+}
+
+// Whether pixel `pixel`'s specular history was reprojected by the reflection's virtual image (1) or the surface (0).
+float spec_history_virtual(uint pixel)
+{
+    return (engine_buffer(kEvHistSpecular).Load(pixel * kSpecHistoryBytes + 24u) & kSpecVirtual) != 0u ? 1.0f : 0.0f;
 }
 
 // The previous frame's pixel of pixel `q`'s surface (eye-space point `p`, normal `n`), and whether the surface there is
@@ -1696,34 +2087,35 @@ Reservoir direct_reservoir(uint2 id, uint pixel, out float change, out bool surf
         return r;
     }
     uint seed = emit_hash(pixel ^ (g_frame * 0x9E3779B9u));
-    const uint salt = pixel * 32u + g_frame * 0x632BE5ABu;
-    // The sun: one direction in its disc behind a shadow ray, kept as the penumbra its blocker makes (the light itself
-    // is EngineFinalCS's, by the filtered visibility).
+    // The sun: one ray to its centre, kept as the share of its light the way lets through and the penumbra the nearest
+    // blocker makes (the light itself is EngineFinalCS's, by the filtered visibility; the filter spreads it over the
+    // penumbra). Rays to points of the disc, one to four a frame, drew a penumbra as their mean, and under a low sun a
+    // penumbra reaches tens of pixels along the ground (Star Reactor's opening: Mario's hand's, some 25, at 0.47 units
+    // across): over those few rays' mean stayed a glittering hatch no filter or short history evens out. One ray to the
+    // centre draws the same shadow every frame the scene holds still.
     float penumbra = 0.0f;
+    float visibility = 0.0f;
     float depth = 0.0f;
     if (any(g_sun_light.rgb > 0.0f) && dot(s.n, g_sun.xyz) > 0.0f && dot(s.ng, g_sun.xyz) > -0.05f) {
         // Under water the sunlight crosses `depth` of it: attenuated, its disc widened by forward scattering.
-        const float3 start = surface_start(s, g_sun.xyz);
+        const float3 start = surface_start_steady(s, q, g_sun.xyz);
         depth = water_depth_along(start, g_sun.xyz);
         const float spread = depth > 0.0f ? min(g_sun.w + depth * kWaterSpread, kWaterSpreadMost) : g_sun.w;
-        const float2 u = pixel_sample(q, g_frame);
-        const float3 l = sun_direction_spread(u, spread);
         float blocker;
-        penumbra = sun_visible(surface_start(s, l), l, (s.flags & kGbCard) != 0u, salt, blocker)
-                       ? kShadowLit
-                       : clamp(0.5f * blocker * spread, kShadowLeast, 0.5f * kShadowLit);
+        visibility = sun_visibility(start, g_sun.xyz, (s.flags & kGbCard) != 0u, blocker);
+        penumbra = blocker > 0.0f ? clamp(0.5f * blocker * spread, kShadowLeast, 0.5f * kShadowLit) : kShadowLit;
         // GALAXY_RT_PROBE (diagnostics): what stops the sun's centre ray at the probed pixel, in g_final after the
         // light meter's records (SceneRayTracer prints [rt-probe-sun]).
         if (g_probe.z != 0u && all(id == g_probe.xy * g_factor)) {
             float t;
             uint2 who;
-            sun_visible_by(start, g_sun.xyz, (s.flags & kGbCard) != 0u, salt, t, who);
+            sun_visibility_by(start, g_sun.xyz, (s.flags & kGbCard) != 0u, t, who);
             const uint draw = who.x != 0u && who.y == 0u ? g_surfaces.Load((who.x - 1u) * 16u + 12u) >> 16u : 0xFFFFu;
             g_final[g_sample_size.x * g_sample_size.y + kStarSlots + 7u] =
                 uint4(who.x, draw | (who.y << 16u), asuint(t), asuint(depth));
         }
     }
-    direct.Store4(pixel * 16u, uint4(0u, 0u, 0u, pack_half2(penumbra, depth)));
+    direct.Store4(pixel * 16u, uint4(0u, pack_half2(0.0f, visibility), 0u, pack_half2(penumbra, depth)));
     // The lights (emitting triangles, the game's point lights, the star core): candidates from the pixel's light grid
     // cell (engine_light_pick_near).
     const float tris = g_tev_info.z != 0u ? max(emit_element(0u).y, 0.0f) : 0.0f;
@@ -1836,7 +2228,6 @@ void EngineDirectSpatialCS(uint3 id : SV_DispatchThreadID)
         return;
     }
     uint seed = emit_hash(pixel ^ (g_frame * 0x2545F491u) ^ 0xA511E9B3u);
-    const uint salt = pixel * 32u + g_frame * 0x632BE5ABu + 11u;
     // This pixel's reservoir and up to four neighbours' within 30 pixels (at kFootprintLines) on the same surface
     // (normal, depth), combined by the generalized balance heuristic (as the temporal reuse): each sample weighed by its
     // own pixel's count-weighted share of all of their targets for it.
@@ -1866,15 +2257,15 @@ void EngineDirectSpatialCS(uint3 id : SV_DispatchThreadID)
             continue;
         }
         const uint neighbour = uint(o.y) * g_target_size.x + uint(o.x);
-        const GSurface ns = gb_load(engine_view(kEvGBuffer), neighbour, g_projection, o);
+        const GGuide ns = gb_guide(engine_view(kEvGBuffer), neighbour);
         if (!ns.valid || (ns.flags & kGbEmitter) != 0u || dot(ns.n, s.n) < 0.9f ||
-            abs(ns.p.z - s.p.z) > 0.1f * abs(s.p.z)) {
+            abs(ns.z - s.p.z) > 0.1f * abs(s.p.z)) {
             continue;
         }
         Reservoir other = reservoir_load(engine_view(kEvDiTemp), neighbour);
         samples[taken] = other.s;
         const bool lit = other.W > 0.0f && engine_light_at(other.s.ref, other.s.uv, samples[taken]);
-        at_p[taken] = ns.p;
+        at_p[taken] = eye_position(g_projection, g_viewport, float2(o) + 0.5f, ns.z);
         at_n[taken] = ns.n;
         weight_w[taken] = lit ? other.W : 0.0f;
         count[taken] = other.m;
@@ -1904,10 +2295,8 @@ void EngineDirectSpatialCS(uint3 id : SV_DispatchThreadID)
     if (r.W > 0.0f) {
         float3 light;
         light_target(s, r.s, light);
-        const float3 start = surface_start(s, normalize(r.s.y - s.p));
-        if (engine_visible(start, r.s.y, 0.5f + 0.001f * length(r.s.y - start), salt)) {
-            diffuse = light * r.W;
-        }
+        const float3 start = surface_start_steady(s, q, normalize(r.s.y - s.p));
+        diffuse = light * (r.W * engine_visibility(start, r.s.y, 0.5f + 0.001f * length(r.s.y - start)));
     }
     r.shade = luminance(safe_light(diffuse));
     // A light the last frame did not have (a flash, a new fire): its share of the light here is the share of the
@@ -1925,12 +2314,12 @@ void EngineDirectSpatialCS(uint3 id : SV_DispatchThreadID)
 // change and whether its light is new (EngineDirectCS, EngineDirectSpatialCS). A-SVGF filters its gradients before it
 // takes them as the history's weight (one sample a pixel is noise); the mean of the new lights' flags is their share
 // of the light. The histories weigh this frame (1 - change) / length + change: a light that appears, goes or changes
-// shows at once instead of over the history's half second.
-float light_change(int2 q)
+// shows at once instead of over the history's half second. y: the new lights' share alone.
+float2 light_change(int2 q)
 {
     RWByteAddressBuffer direct = engine_buffer(kEvDirect);
     const int spread = int(round(footprint_scale()));
-    float sum = 0.0f;
+    float2 sum = float2(0.0f, 0.0f);
     float n = 0.0f;
     [unroll] for (int j = -2; j <= 2; ++j) {
         [unroll] for (int i = -2; i <= 2; ++i) {
@@ -1939,21 +2328,22 @@ float light_change(int2 q)
                 continue;
             }
             const uint z = direct.Load((uint(o.y) * g_target_size.x + uint(o.x)) * 16u + 8u);
-            sum += max(f16tof32(z), f16tof32(z >> 16u));
+            sum += float2(max(f16tof32(z), f16tof32(z >> 16u)), f16tof32(z >> 16u));
             n += 1.0f;
         }
     }
-    return n > 0.0f ? saturate(sum / n) : 0.0f;
+    return n > 0.0f ? saturate(sum / n) : float2(0.0f, 0.0f);
 }
 
 // A pixel's sun shadow as a stage of its filter reads it: its visibility and penumbra (eye units; kShadowLit, 0: see
-// kShadowLit). Stage 0: the ray's (EngineDirectCS: 1 lit, else 0); 1: the first blur's (kEvAtrousA); 2: the second's
+// kShadowLit). Stage 0: the rays' (EngineDirectCS: their lit share); 1: the first blur's (kEvAtrousA); 2: the second's
 // (kEvAtrousB).
 float shadow_load(uint stage, uint pixel, out float penumbra)
 {
     if (stage == 0u) {
+        const uint2 w = engine_buffer(kEvDirect).Load2(pixel * 16u + 4u).xy;
         penumbra = f16tof32(engine_buffer(kEvDirect).Load(pixel * 16u + 12u));
-        return penumbra >= kShadowLit ? 1.0f : 0.0f;
+        return f16tof32(w.x >> 16u);
     }
     const uint w = engine_buffer(stage == 1u ? kEvAtrousA : kEvAtrousB).Load(pixel * 16u);
     penumbra = f16tof32(w >> 16u);
@@ -1966,13 +2356,53 @@ float shadow_plane_weight(GSurface s, float3 x)
     return saturate(1.0f - abs(dot(s.ng, x - s.p)) / (abs(s.p.z) * 0.02f + 1.0f));
 }
 
-// One blur of the sun's visibility (stage 0: the rays' into kEvAtrousA; 1: the first blur's into kEvAtrousB). A dense
-// 5 x 5 estimates the penumbra about the pixel (its occluded neighbours', the smaller preferred) and filters within the
-// pixel's own; kShadowTaps taps on a disc of the estimate's radius on screen (at most kShadowRadiusMost pixels, narrowed
-// where the surface is seen at a slant, turned per frame) complete it. A tap counts on the pixel's plane and facing the
-// sun, and the less the smaller its penumbra against the estimate (an umbra's rays do not darken a wide penumbra next
-// to it). Where no ray about the pixel is blocked it stays lit; where every one is and the penumbra is within the 5 x 5,
-// in shadow.
+// The sun's penumbra lies on a surface stretched along the sun's track over it: EngineDirectCS keeps its width across
+// the rays (half the blocker's distance times the disc's radius, as SIGMA's), and a beam meeting a surface at incidence
+// i covers 1 / cos i of it along the track (Lambert's projection). Under a low sun a penumbra under a pixel across
+// reaches many pixels along the ground (Star Reactor's opening: 0.47 units across a 0.69-unit pixel, some twenty-five
+// along). SIGMA's world-space kernel stretches along the light's track the same way (its screen-space one does not:
+// "doesn't elongate shadow"). At most kShadowStretchMost.
+//
+// And no penumbra is spread narrower than kShadowLeastWidth pixels' footprint: the screen samples the shadow once a
+// pixel, so a width under one (the real sun's disc 0.27 degrees, a blocker 250 units off: 0.47 units across, on
+// 0.77-unit pixels) is below what it resolves. Two pixels: a hard edge's steps softened by a pixel each side.
+static const float kShadowStretchMost = 16.0f;
+static const float kShadowLeastWidth = 2.0f;
+
+struct ShadowFrame {
+    float3 track;   // the sun's direction over the surface
+    float3 across;  // the surface's other direction
+    float stretch;  // the penumbra's reach along the track over its width
+};
+
+ShadowFrame shadow_frame(GSurface s)
+{
+    ShadowFrame f;
+    const float c = dot(s.ng, g_sun.xyz);
+    f.stretch = 1.0f / max(abs(c), 1.0f / kShadowStretchMost);
+    const float3 along = g_sun.xyz - s.ng * c;
+    const float length_along = length(along);
+    f.track = length_along > 1e-4f ? along / length_along : tangent_frame(s.ng)[0];
+    f.across = cross(s.ng, f.track);
+    return f;
+}
+
+// An offset over the surface (eye units) in penumbras `penumbra` wide: along the track shortened by the stretch.
+float shadow_reach(ShadowFrame f, float3 offset, float penumbra)
+{
+    const float along = dot(offset, f.track) / f.stretch;
+    const float across = dot(offset, f.across);
+    return sqrt(along * along + across * across) / penumbra;
+}
+
+// One blur of the sun's visibility (stage 0: the rays' into kEvAtrousA; 1: the first blur's into kEvAtrousB), over the
+// surface as its penumbra lies on it (shadow_frame). A dense 5 x 5 estimates the penumbra about the pixel (its occluded
+// neighbours', the smaller preferred) and filters within the pixel's own; kShadowTaps taps on the surface, on an
+// ellipse of the estimate along the track and across it (on screen at most kShadowRadiusMost pixels; the second blur's
+// turned from the first's, the same every frame), complete it. A tap counts on the pixel's plane and facing the sun,
+// and the less the smaller its penumbra against the estimate (an umbra's rays do not darken a wide penumbra next to
+// it). Where no ray about the pixel is blocked it stays
+// lit; where every one is and the penumbra is within the 5 x 5, in shadow.
 void shadow_blur(uint2 id, uint stage)
 {
     if (any(id >= g_target_size)) {
@@ -1990,8 +2420,7 @@ void shadow_blur(uint2 id, uint stage)
     }
     RWByteAddressBuffer gb = engine_buffer(kEvGBuffer);
     const float size = pixel_world_size(s.p.z);
-    // Pixels to the centre's penumbra radii (none lit: its whole 5 x 5).
-    const float to_centre = centre_penumbra >= kShadowLit ? 0.0f : size / centre_penumbra;
+    const ShadowFrame frame = shadow_frame(s);
     float result = 0.0f;
     float weight = 0.0f;
     float penumbra = 0.0f;
@@ -2006,11 +2435,18 @@ void shadow_blur(uint2 id, uint stage)
             const float v = shadow_load(stage, op, p);
             float w = 1.0f;
             if (i != 0 || j != 0) {
-                const float z = asfloat(gb.Load(op * 32u + 16u));
-                const float r = length(float2(i, j)) * to_centre;
-                w = z != 0.0f && p != 0.0f
-                        ? exp(-r * r) * shadow_plane_weight(s, eye_position(g_projection, g_viewport, float2(o) + 0.5f, z))
-                        : 0.0f;
+                const float z = asfloat(gb.Load(gb_guide_at(op)));
+                if (z != 0.0f && p != 0.0f) {
+                    const float3 x = eye_position(g_projection, g_viewport, float2(o) + 0.5f, z);
+                    // Within the centre's own penumbra, a pixel at least (none lit: its whole 5 x 5).
+                    const float r =
+                        centre_penumbra >= kShadowLit
+                            ? 0.0f
+                            : shadow_reach(frame, x - s.p, max(centre_penumbra, kShadowLeastWidth * size));
+                    w = exp(-r * r) * shadow_plane_weight(s, x);
+                } else {
+                    w = 0.0f;
+                }
             }
             result += v * w;
             weight += w;
@@ -2029,30 +2465,32 @@ void shadow_blur(uint2 id, uint stage)
         return;
     }
     penumbra /= penumbra_weight;
-    const float radius = min(penumbra / size, kShadowRadiusMost * footprint_scale());
-    if (!lit && radius <= 2.0f) {
+    // The taps' ellipse on the surface: the estimate across the track, its stretch along it, each at most the widest
+    // the screen allows.
+    const float widest = kShadowRadiusMost * footprint_scale() * size;
+    const float across = clamp(penumbra, kShadowLeastWidth * size, widest);
+    const float along = clamp(penumbra * frame.stretch, across, widest);
+    if (!lit && along <= 2.0f * size) {
         dst.Store(pixel * 16u, pack_half2(result, penumbra));
         return;
     }
     // The dense estimate counts as one tap at full weight, as its penumbra.
     weight = 1.0f;
     penumbra_weight = 1.0f;
-    const float slant = abs(dot(s.ng, normalize(-s.p)));
-    float2 skew = lerp(1.0f - abs(s.ng.xy), float2(1.0f, 1.0f), slant);
-    skew *= radius / max(max(skew.x, skew.y), 1e-3f);
-    const float turn = float(g_frame & 255u) * 2.3999632f + float(stage) * 1.3f;
+    const float turn = float(stage) * 1.3f;
     const float estimate = penumbra;
     [unroll] for (uint n = 0u; n < kShadowTaps; ++n) {
         const float r = sqrt((float(n) + 0.5f) / float(kShadowTaps));
         const float a = float(n) * 2.3999632f + turn;
-        const int2 o = q + int2(round(float2(cos(a), sin(a)) * r * skew));
-        if (any(o < 0) || any(o >= int2(g_target_size))) {
+        const float3 at = s.p + (frame.track * (cos(a) * along) + frame.across * (sin(a) * across)) * r;
+        const int2 o = int2(floor(eye_to_pixel(g_projection, g_viewport, at)));
+        if (any(o < 0) || any(o >= int2(g_target_size)) || all(o == q)) {
             continue;
         }
         const uint op = uint(o.y) * g_target_size.x + uint(o.x);
         float p;
         const float v = shadow_load(stage, op, p);
-        const float z = asfloat(gb.Load(op * 32u + 16u));
+        const float z = asfloat(gb.Load(gb_guide_at(op)));
         if (z == 0.0f || p == 0.0f) {
             continue;
         }
@@ -2133,9 +2571,9 @@ void EngineShadowStabilizeCS(uint3 id : SV_DispatchThreadID)
                     continue;
                 }
                 const uint op = uint(o.y) * g_target_size.x + uint(o.x);
-                const uint4 w0 = gb.Load4(op * 32u);
-                const uint w1 = gb.Load(op * 32u + 16u);
-                if (w1 == 0u || abs(asfloat(w1) - hp.z) > hp.tolerance || dot(unpack_normal(w0.x), hp.n) < hp.facing) {
+                const uint2 guide = gb.Load2(gb_guide_at(op));
+                if (guide.x == 0u || abs(asfloat(guide.x) - hp.z) > hp.tolerance ||
+                    dot(unpack_normal(guide.y), hp.n) < hp.facing) {
                     continue;
                 }
                 const float w = ((k & 1u) != 0u ? f.x : 1.0f - f.x) * ((k & 2u) != 0u ? f.y : 1.0f - f.y);
@@ -2295,7 +2733,7 @@ GiReservoir indirect_reservoir(uint2 id, uint index, out bool surface)
                                                                     min(hp.x, half_size.x - 1u));
         // Its radiance is the last frame's: where the light changed it counts as little as the light change leaves it
         // (Remix's validateLightingChange drops such samples outright).
-        previous.m = min(previous.m, 30.0f) * (1.0f - light_change(q));
+        previous.m = min(previous.m, 30.0f) * (1.0f - light_change(q).x);
         if (previous.W > 0.0f) {
             const float t = gi_target(s, previous.x, previous.radiance);
             gi_update(r, previous.x, previous.hn, previous.radiance, t, t * previous.W * previous.m, previous.m, seed);
@@ -2347,7 +2785,6 @@ void EngineIndirectSpatialCS(uint3 id : SV_DispatchThreadID)
         return;
     }
     uint seed = emit_hash(index ^ (g_frame * 0x1B873593u) ^ 0x6A09E667u);
-    const uint salt = index * 32u + g_frame * 0x632BE5ABu + 23u;
     {
         const GiReservoir own = gi_load(engine_view(kEvGiTemp), index);
         const float t = own.W > 0.0f ? gi_target(s, own.x, own.radiance) : 0.0f;
@@ -2366,9 +2803,9 @@ void EngineIndirectSpatialCS(uint3 id : SV_DispatchThreadID)
         }
         const int2 o = gi_pixel(uint2(ho));
         const uint neighbour = uint(o.y) * g_target_size.x + uint(o.x);
-        const GSurface ns = gb_load(engine_view(kEvGBuffer), neighbour, g_projection, o);
+        const GGuide ns = gb_guide(engine_view(kEvGBuffer), neighbour);
         if (!ns.valid || (ns.flags & kGbEmitter) != 0u || dot(ns.n, s.n) < 0.9f ||
-            abs(ns.p.z - s.p.z) > 0.1f * abs(s.p.z)) {
+            abs(ns.z - s.p.z) > 0.1f * abs(s.p.z)) {
             continue;
         }
         const GiReservoir other = gi_load(engine_view(kEvGiTemp), uint(ho.y) * half_size.x + uint(ho.x));
@@ -2379,7 +2816,7 @@ void EngineIndirectSpatialCS(uint3 id : SV_DispatchThreadID)
         // |cos at the sample towards here| / |cos towards there| x (distance there / distance here)^2; a neighbour
         // whose sample's solid angle differs past tenfold is not reused (its weight would be mostly wrong).
         const float3 to_here = s.p - other.x;
-        const float3 to_there = ns.p - other.x;
+        const float3 to_there = eye_position(g_projection, g_viewport, float2(o) + 0.5f, ns.z) - other.x;
         const float d_here = length(to_here);
         const float d_there = length(to_there);
         const float jacobian = d_here > 1e-3f && d_there > 1e-3f
@@ -2396,9 +2833,8 @@ void EngineIndirectSpatialCS(uint3 id : SV_DispatchThreadID)
         }
     }
     r.W = r.target > 0.0f && r.m > 0.0f ? r.w_sum / (r.m * r.target) : 0.0f;
-    if (reused && r.W > 0.0f && length(r.x) < 9.0e4f &&
-        !engine_visible(surface_start(s, normalize(r.x - s.p)), r.x, 0.5f, salt)) {
-        r.W = 0.0f;
+    if (reused && r.W > 0.0f && length(r.x) < 9.0e4f) {
+        r.W *= engine_visibility(surface_start(s, normalize(r.x - s.p)), r.x, 0.5f);
     }
     // m = (1/pi) L cos W (this frame's light only: the history keeps the temporal reservoir).
     float3 m = float3(0.0f, 0.0f, 0.0f);
@@ -2420,7 +2856,8 @@ void EngineSpecularCS(uint3 id : SV_DispatchThreadID)
     const int2 q = int2(id.xy);
     const GSurface s = gb_load(engine_view(kEvGBuffer), pixel, g_projection, q);
     RWByteAddressBuffer out_spec = engine_buffer(kEvSpecular);
-    if (!s.valid || (s.flags & kGbEmitter) != 0u || (g_engine_info.x & kEngineSpecular) == 0u) {
+    if (!s.valid || (s.flags & kGbEmitter) != 0u || (g_engine_info.x & kEngineSpecular) == 0u ||
+        rough_reflection_share(s.roughness) >= 1.0f) {
         out_spec.Store2(pixel * 8u, uint2(0u, 0u));
         return;
     }
@@ -2480,10 +2917,10 @@ float3 gi_upsampled(GSurface s, int2 q)
             continue;
         }
         const int2 at = gi_pixel(uint2(o));
-        const GSurface ns = gb_load(engine_view(kEvGBuffer), uint(at.y) * g_target_size.x + uint(at.x), g_projection, at);
+        const GGuide ns = gb_guide(engine_view(kEvGBuffer), uint(at.y) * g_target_size.x + uint(at.x));
         const float bilinear = ((k & 1u) != 0u ? f.x : 1.0f - f.x) * ((k & 2u) != 0u ? f.y : 1.0f - f.y);
         const float w = (bilinear + 1e-3f) * pow(saturate(dot(ns.n, s.n)), 32.0f) *
-                        exp(-abs(ns.p.z - s.p.z) / (0.02f * abs(s.p.z) + 1.0f));
+                        exp(-abs(ns.z - s.p.z) / (0.02f * abs(s.p.z) + 1.0f));
         sum += float3(f16tof32(v.x), f16tof32(v.x >> 16u), f16tof32(v.y & 0xFFFFu)) * w;
         weight += w;
     }
@@ -2491,14 +2928,14 @@ float3 gi_upsampled(GSurface s, int2 q)
 }
 
 // Temporal accumulation: this frame's diffuse (the lights' direct light and the indirect light; the sun's is
-// EngineFinalCS's) and specular (the traced reflection) onto their reprojected histories (bilinear over the previous
-// pixels on this surface), with the first two moments of luminance for the a-trous's variance. History length at most
-// 32 (diffuse) and 16 (specular); the specular history is clamped to the 3 x 3 neighbourhood's range (ghosting). The
-// diffuse history's anti-lag (after NVIDIA's ReBLUR, our own code): a fast history of its luminance (kFastHistory
-// frames, kept in the specular history's spare word) against the slow one (the first moment); where they part by more
-// than the noise allows (1.5 x the frames' deviation: three of the fast history's), the light changed (a lamp moved, a
-// caster passed) and the history shortens to follow, to kFastHistory frames at most. A 32-frame history alone kept a
-// moving light's pool, and the dark a character leaves in the bounce light, for half a second.
+// EngineFinalCS's) and specular (the traced reflection) onto their reprojected histories, with the first two moments of
+// luminance for the a-trous's variance. The diffuse history (at most 32 frames) is the surface's, bilinear over the
+// previous pixels on this surface; the specular history (at most kSpecHistoryMost) the surface's or the reflection's
+// virtual image's (spec_history). The anti-lag (after NVIDIA's ReBLUR, our own code), for each: a fast history of its
+// luminance (kFastHistory frames) against the slow one (the first moment); where they part by more than the noise
+// allows (1.5 x the frames' deviation: three of the fast history's), the light changed (a lamp moved, a caster passed)
+// and the history shortens to follow, to kFastHistory frames at most. A 32-frame history alone kept a moving light's
+// pool, and the dark a character leaves in the bounce light, for half a second.
 [numthreads(8, 8, 1)]
 void EngineTemporalCS(uint3 id : SV_DispatchThreadID)
 {
@@ -2513,7 +2950,8 @@ void EngineTemporalCS(uint3 id : SV_DispatchThreadID)
     RWByteAddressBuffer out_a = engine_buffer(kEvAtrousA);
     if (!s.valid || (s.flags & kGbEmitter) != 0u) {
         hist_d.Store4(pixel * 16u, uint4(0u, 0u, 0u, 0u));
-        hist_s.Store4(pixel * 16u, uint4(0u, 0u, 0u, 0u));
+        hist_s.Store4(pixel * kSpecHistoryBytes, uint4(0u, 0u, 0u, 0u));
+        hist_s.Store4(pixel * kSpecHistoryBytes + 16u, uint4(0u, 0u, 0u, 0u));
         out_a.Store4(pixel * 16u, uint4(0u, 0u, 0u, 0u));
         return;
     }
@@ -2524,30 +2962,37 @@ void EngineTemporalCS(uint3 id : SV_DispatchThreadID)
     float3 specular = float3(f16tof32(sv.x), f16tof32(sv.x >> 16u), f16tof32(sv.y));
     diffuse = safe_light(diffuse);
     specular = safe_light(specular);
-    // The neighbourhood's specular range (clamping the history), and the brightest of the 8 neighbours' direct light
-    // and specular: a new sample above them is a firefly (one light sample's spike), lowered to them before it enters
-    // the history; otherwise the a-trous's variance spreads it and the history keeps it, growing spikes into blobs.
-    float3 lo = specular;
-    float3 hi = specular;
+    // The brightest of the 8 neighbours' direct light and specular: a new sample above them is a firefly (one light
+    // sample's spike), lowered to them before it enters a history; otherwise the a-trous's variance spreads it and the
+    // history keeps it, growing spikes into blobs. And the 3 x 3's specular luminance moments (a short history's
+    // variance) and its nearest reflection hit, the reflection's tracking distance (NRD's: one sample a pixel scatters
+    // its hits over the lobe; the nearest thing reflected leads the reflection's motion).
     float top_direct = 0.0f;
     float top_specular = 0.0f;
+    float spec_s1 = 0.0f;
+    float spec_s2 = 0.0f;
+    float track = 0.0f;
     [unroll] for (int j = -1; j <= 1; ++j) {
         [unroll] for (int i = -1; i <= 1; ++i) {
             const int2 o = clamp(q + int2(i, j), int2(0, 0), int2(g_target_size) - 1);
             const uint op = uint(o.y) * g_target_size.x + uint(o.x);
             const uint4 ndv = direct.Load4(op * 16u);
             const uint2 nsv = engine_buffer(kEvSpecular).Load2(op * 8u);
-            const float3 ns = safe_light(float3(f16tof32(nsv.x), f16tof32(nsv.x >> 16u), f16tof32(nsv.y)));
-            lo = min(lo, ns);
-            hi = max(hi, ns);
+            const float ls = luminance(safe_light(float3(f16tof32(nsv.x), f16tof32(nsv.x >> 16u), f16tof32(nsv.y))));
+            spec_s1 += ls;
+            spec_s2 += ls * ls;
+            const float t = f16tof32(nsv.y >> 16u);
+            track = t > 0.0f && (track == 0.0f || t < track) ? t : track;
             if (i != 0 || j != 0) {
                 top_direct = max(top_direct, luminance(safe_light(float3(f16tof32(ndv.x), f16tof32(ndv.x >> 16u),
                                                                          f16tof32(ndv.y)))));
-                top_specular = max(top_specular, luminance(ns));
+                top_specular = max(top_specular, ls);
             }
         }
     }
-    if ((g_engine_info.x & kEngineNoFirefly) == 0u) {
+    const bool firefly = (g_engine_info.x & kEngineNoFirefly) == 0u;
+    const bool anti_lag = (g_engine_info.x & kEngineNoAntiLag) == 0u;
+    if (firefly) {
         // Past kFireflyRatio x the brightest neighbour: a small light is found by a few pixels first (4 candidates a
         // frame by power) and spatial reuse spreads it over the next frames. Lowered to the neighbours' level outright,
         // those first finds would never enter the history, and a Luma's or a bulb's light pool would never appear.
@@ -2557,19 +3002,17 @@ void EngineTemporalCS(uint3 id : SV_DispatchThreadID)
         if (l > cap_direct) {
             diffuse -= own_direct * (1.0f - cap_direct / l);
         }
-        const float ls = luminance(specular);
-        const float cap_specular = kFireflyRatio * top_specular;
-        if (ls > cap_specular) {
-            specular *= cap_specular / ls;
-        }
         diffuse = max(diffuse, 0.0f);
     }
     float3 prev_d = float3(0.0f, 0.0f, 0.0f);
-    float3 prev_s = float3(0.0f, 0.0f, 0.0f);
     float2 prev_m = float2(0.0f, 0.0f);
     float prev_fast = 0.0f;
     float len_d = 0.0f;
-    float len_s = 0.0f;
+    float3 prev_s = float3(0.0f, 0.0f, 0.0f);
+    float2 prev_sm = float2(0.0f, 0.0f);
+    float prev_sfast = 0.0f;
+    float prev_len_s = 0.0f;
+    bool virtual_kept = false;
     History hp;
     if ((g_flags & 1u) != 0u && engine_history(q, s.p, s.n, hp)) {
         {
@@ -2581,7 +3024,6 @@ void EngineTemporalCS(uint3 id : SV_DispatchThreadID)
             RWByteAddressBuffer ps = engine_buffer(kEvHistSpecularPrev);
             float weight = 0.0f;
             float4 acc_d = float4(0.0f, 0.0f, 0.0f, 0.0f);
-            float4 acc_s = float4(0.0f, 0.0f, 0.0f, 0.0f);
             float2 acc_m = float2(0.0f, 0.0f);
             float acc_fast = 0.0f;
             [unroll] for (uint k = 0u; k < 4u; ++k) {
@@ -2598,33 +3040,106 @@ void EngineTemporalCS(uint3 id : SV_DispatchThreadID)
                 }
                 const float w = ((k & 1u) != 0u ? f.x : 1.0f - f.x) * ((k & 2u) != 0u ? f.y : 1.0f - f.y);
                 const uint4 hd = pd.Load4(op * 16u);
-                const uint4 hs = ps.Load4(op * 16u);
                 acc_d += float4(f16tof32(hd.x), f16tof32(hd.x >> 16u), f16tof32(hd.y), f16tof32(hd.y >> 16u)) * w;
-                acc_s += float4(f16tof32(hs.x), f16tof32(hs.x >> 16u), f16tof32(hs.y), f16tof32(hs.y >> 16u)) * w;
                 acc_m += asfloat(hd.zw) * w;
-                acc_fast += asfloat(hs.z) * w;
+                acc_fast += asfloat(ps.Load(op * kSpecHistoryBytes + 8u)) * w;
                 weight += w;
             }
             if (weight > 1e-3f) {
                 prev_d = acc_d.rgb / weight;
                 len_d = acc_d.a / weight;
-                prev_s = acc_s.rgb / weight;
-                len_s = acc_s.a / weight;
                 prev_m = acc_m / weight;
                 prev_fast = acc_fast / weight;
             }
         }
+        // The specular history's two candidates (spec_history).
+        const float r = s.roughness;
+        const float3 v = normalize(-s.p);
+        const float nv = saturate(abs(dot(s.n, v)));
+        const float2 here = float2(q) + 0.5f;
+        // Where the camera alone takes the surface; the surface's own motion is the rest (pixels).
+        const float2 camera_at = eye_to_pixel(g_history_projection, g_viewport, transform(g_reproject, s.p));
+        const float2 moved = hp.a - camera_at;
+        // The hit's distance against the picture's size at the surface (NRD's hit distance factor: under 1, the
+        // reflected thing is near the surface and its reflection moves with it).
+        const float hit_factor = saturate(track / (pixel_world_size(s.p.z) * float(min(g_target_size.x, g_target_size.y))));
+        const float3 eye_then = engine_unreproject(float3(0.0f, 0.0f, 0.0f));
+        // Surface motion: it holds this reflection while the lobe's peak, from the surface's point and normal then
+        // towards the eye then, turned less than the lobe's half-angle, narrower at a grazing view and as the history
+        // grows, wider where the hit is near (NRD's surface confidence; the peak's turn, where NRD takes the camera's
+        // parallax alone, also counts the surface's own turning).
+        const SpecHistory sh = spec_history(hp.a, s, hp, false);
+        float conf_s = 0.0f;
+        if (sh.footprint > 1e-3f) {
+            const float3 d_then = dominant_direction(sh.n, normalize(eye_then - sh.p), r);
+            const float turned = acos(saturate(dot(dominant_direction(s.n, v, r), d_then)));
+            const float allowed =
+                max(atan(lobe_tan(r, kLobeShare) * lerp(nv, 1.0f, r) / (1.0f + sh.len) / max(hit_factor, 1e-3f)),
+                    kNormalTolerance);
+            conf_s = pow(saturate(1.0f - turned / allowed), 4.0f);
+            // A rough reflection is the surface's light.
+            conf_s = lerp(conf_s, 1.0f, saturate((r - 0.8f) / 0.1f));
+        }
+        // The reflection's virtual image where it was: carried by the camera, and by the surface's own motion as far as
+        // the image lies on the surface (NRD).
+        SpecHistory vh = (SpecHistory)0;
+        float conf_v = 0.0f;
+        const float curvature = surface_curvature(s, q, camera_at - here);
+        float image_share;
+        const float3 image = virtual_image(s.p, s.n, v, r, track, curvature, image_share);
+        const float3 image_then = transform(g_reproject, image);
+        if (image_then.z < -g_near) {
+            const float2 va = eye_to_pixel(g_history_projection, g_viewport, image_then) + moved * (1.0f - image_share);
+            vh = spec_history(va, s, hp, true);
+            if (vh.footprint > 1e-3f) {
+                // Its normal within the lobe's half-angle of this one (the lobe narrowing as the history grows; a curved
+                // surface bends by its curvature over the way the image moved) and its roughness alike; under a pixel's
+                // move both are the jitter's (NRD).
+                const float travelled = length(va - here);
+                const float jitter = smoothstep(0.0f, 1.0f, travelled);
+                const float lobe = atan(lobe_tan(r, kLobeShare / (1.0f + vh.len)));
+                const float bend =
+                    atan(2.0f * pixel_world_size(s.p.z) * abs(curvature) * max(travelled / max(nv, 0.01f), 1.0f));
+                const float turned = acos(saturate(dot(vh.n, s.n)));
+                const float w_normal = lerp(1.0f, saturate(1.0f - turned / (lobe + bend + kNormalTolerance)), jitter);
+                const float w_rough =
+                    lerp(1.0f, saturate(1.0f - abs(vh.roughness - r) / (r * r * 0.99f + 0.01f)), jitter);
+                // And it showed the same thing: its own virtual image (its point and normal then, towards the eye then,
+                // its tracking distance then) is this one, within half the lobe's spread at the hit and two pixels
+                // there. A thing that moved with the surface (a star bit on the turning ring) or past it shows
+                // elsewhere then, and the history there holds another picture (our own test: a still camera leaves
+                // NRD's parallax test blind to it).
+                float unused;
+                const float3 image_was = virtual_image(vh.p, vh.n, normalize(eye_then - vh.p), vh.roughness, vh.track,
+                                                       curvature, unused);
+                const float spread = 0.5f * min(track, vh.track) * lobe_tan(r, kLobeShare) +
+                                     2.0f * pixel_world_size(min(image.z, -g_near));
+                const float w_image = saturate(1.0f - distance(image, image_was) / spread);
+                conf_v = w_normal * w_rough * w_image;
+            }
+        }
+        // Each candidate's history as far as it is trusted (a history half off the surface counts for less, NRD's
+        // footprint quality), and the reflection's kept where its history is at least as long and the picture moved
+        // at all (NRD's virtual history amount, one or the other).
+        const float len_sm = min(sh.len * lerp(sqrt(sh.footprint), 1.0f, 1.0f / (1.0f + sh.len)), kSpecHistoryMost * conf_s);
+        const float len_vm = min(vh.len * lerp(sqrt(vh.footprint), 1.0f, 1.0f / (1.0f + vh.len)), kSpecHistoryMost * conf_v);
+        const float amount = saturate(1.0f + (len_vm - len_sm) / (1.0f + 0.5f * max(len_vm, len_sm))) *
+                             saturate(length(hp.a - here) / 0.25f);
+        virtual_kept = vh.footprint > 1e-3f && amount >= 0.5f;
+        prev_s = virtual_kept ? vh.rgb : sh.rgb;
+        prev_sm = virtual_kept ? vh.moments : sh.moments;
+        prev_sfast = virtual_kept ? vh.fast : sh.fast;
+        prev_len_s = virtual_kept ? len_vm : len_sm;
     }
     len_d = min(len_d + 1.0f, 32.0f);
-    len_s = min(len_s + 1.0f, 16.0f);
-    // Where the light changed, this frame weighs (1 - change) / length + change (A-SVGF).
-    const float change = light_change(q);
-    len_d = 1.0f / ((1.0f - change) / len_d + change);
-    len_s = 1.0f / ((1.0f - change) / len_s + change);
-    prev_s = clamp(prev_s, lo, hi);
+    // Where the light changed, this frame weighs (1 - change) / length + change (A-SVGF). A reflection takes only the
+    // share of new lights: a light that changes or moves is its anti-lag's to follow, its reflection changing as its
+    // own (by the diffuse light's change the reflections about the turning ring's star bits kept one frame or two).
+    const float2 change = light_change(q);
+    len_d = 1.0f / ((1.0f - change.x) / len_d + change.x);
     const float ld = luminance(diffuse);
     const float fast = lerp(prev_fast, ld, 1.0f / min(len_d, kFastHistory));
-    if (len_d > kFastHistory && (g_engine_info.x & kEngineNoAntiLag) == 0u) {
+    if (len_d > kFastHistory && anti_lag) {
         const float slow = prev_m.x;
         const float allowed = 1.5f * sqrt(max(prev_m.y - slow * slow, 0.0f)) + 0.02f * max(fast, slow) + 1e-4f;
         const float lag = abs(fast - slow);
@@ -2635,18 +3150,62 @@ void EngineTemporalCS(uint3 id : SV_DispatchThreadID)
     const float alpha_d = 1.0f / len_d;
     diffuse = lerp(prev_d, diffuse, alpha_d);
     float2 moments = lerp(prev_m, float2(ld, ld * ld), alpha_d);
+    // Without a history the neighbours are the only measure of a firefly; with one, the history is (below).
+    if (firefly && prev_len_s < 1.0f) {
+        const float ls = luminance(specular);
+        const float cap_specular = kFireflyRatio * top_specular;
+        if (ls > cap_specular) {
+            specular *= cap_specular / ls;
+        }
+    }
+    float len_s = min(prev_len_s + 1.0f, kSpecHistoryMost);
+    len_s = 1.0f / ((1.0f - change.y) / len_s + change.y);
+    const float ls = luminance(specular);
+    const float fast_s = lerp(prev_sfast, ls, 1.0f / min(len_s, kFastHistory));
+    if (len_s > kFastHistory && anti_lag) {
+        const float slow = prev_sm.x;
+        const float allowed = 1.5f * sqrt(max(prev_sm.y - slow * slow, 0.0f)) + 0.02f * max(fast_s, slow) + 1e-4f;
+        const float lag = abs(fast_s - slow);
+        if (lag > allowed) {
+            len_s = max(len_s * (allowed / lag) * (allowed / lag), kFastHistory);
+        }
+    }
+    const float3 history_s = prev_s;
     specular = lerp(prev_s, specular, 1.0f / len_s);
+    const float2 moments_s = lerp(prev_sm, float2(ls, ls * ls), 1.0f / len_s);
+    if (firefly && prev_len_s >= 1.0f) {
+        // The result at most (2 + 38 / (N + 1)) x its history's luminance, the more firmly the longer the history (NRD's
+        // firefly suppressor): one sample's spike off a small bright light enters a converged reflection slowly.
+        const float most = luminance(history_s) * (2.0f + 38.0f / (prev_len_s + 1.0f));
+        const float l = luminance(specular);
+        if (l > most) {
+            specular *= lerp(1.0f, most / l, 3.0f * prev_len_s / (1.0f + 3.0f * prev_len_s));
+        }
+    }
     // Variance from the moments; a short history takes the spatial neighbourhood's instead (SVGF).
     float variance = max(moments.y - moments.x * moments.x, 0.0f);
     if (len_d < 4.0f) {
+        // The spatial variance of the signal filtered, the lights' direct light and the bounce's (outdoors nearly all
+        // of it: the sun's own light joins in EngineFinalCS), over the 3 x 3 of the bounce's own samples. By the direct
+        // light alone a disocclusion's one-sample bounce noise (the ground a running character uncovers) read as none,
+        // and the a-trous's edge-stopping kept its speckle.
+        RWByteAddressBuffer gi = engine_buffer(kEvGiOut);
+        const uint2 half_size = g_engine_size.zw;
+        const int step = int(gi_step());
         float s1 = 0.0f;
         float s2 = 0.0f;
         float n = 0.0f;
         [unroll] for (int j = -1; j <= 1; ++j) {
             [unroll] for (int i = -1; i <= 1; ++i) {
-                const int2 o = clamp(q + int2(i, j), int2(0, 0), int2(g_target_size) - 1);
+                const int2 o = clamp(q + int2(i, j) * step, int2(0, 0), int2(g_target_size) - 1);
                 const uint4 ndv = direct.Load4((uint(o.y) * g_target_size.x + uint(o.x)) * 16u);
-                const float l = luminance(float3(f16tof32(ndv.x), f16tof32(ndv.x >> 16u), f16tof32(ndv.y)));
+                float3 c = float3(f16tof32(ndv.x), f16tof32(ndv.x >> 16u), f16tof32(ndv.y));
+                const int2 h = min(o / step, int2(half_size) - 1);
+                const uint2 v = gi.Load2((uint(h.y) * half_size.x + uint(h.x)) * 8u);
+                if ((v.y >> 31u) != 0u) {
+                    c += float3(f16tof32(v.x), f16tof32(v.x >> 16u), f16tof32(v.y & 0xFFFFu));
+                }
+                const float l = luminance(safe_light(c));
                 s1 += l;
                 s2 += l * l;
                 n += 1.0f;
@@ -2655,9 +3214,19 @@ void EngineTemporalCS(uint3 id : SV_DispatchThreadID)
         s1 /= n;
         variance = max(s2 / n - s1 * s1, variance) * (4.0f / len_d);
     }
-    const float variance_s = max(luminance(hi - lo) * luminance(hi - lo) * 0.25f, 1e-6f);
+    // The specular's: the samples' variance over the history's frames, the noise left in it (the a-trous then blurs a
+    // converged reflection no further than its noise; by the samples' variance alone it blurred every reflection as if
+    // it were one frame's).
+    float variance_s = max(moments_s.y - moments_s.x * moments_s.x, 0.0f);
+    if (len_s < 4.0f) {
+        const float m1 = spec_s1 / 9.0f;
+        variance_s = max(spec_s2 / 9.0f - m1 * m1, variance_s) * (4.0f / len_s);
+    }
+    variance_s = max(variance_s / len_s, 1e-8f);
     hist_d.Store4(pixel * 16u, uint4(pack_half2(diffuse.r, diffuse.g), pack_half2(diffuse.b, len_d), asuint(moments)));
-    hist_s.Store4(pixel * 16u, uint4(pack_half2(specular.r, specular.g), pack_half2(specular.b, len_s), asuint(fast), 0u));
+    hist_s.Store4(pixel * kSpecHistoryBytes, uint4(pack_half2(specular.r, specular.g), pack_half2(specular.b, len_s),
+                                                   asuint(fast), pack_half2(fast_s, min(track, 6.0e4f))));
+    hist_s.Store4(pixel * kSpecHistoryBytes + 16u, uint4(asuint(moments_s), virtual_kept ? kSpecVirtual : 0u, 0u));
     out_a.Store4(pixel * 16u, uint4(pack_half2(diffuse.r, diffuse.g), pack_half2(diffuse.b, variance),
                                     pack_half2(specular.r, specular.g), pack_half2(specular.b, variance_s)));
 }
@@ -2668,17 +3237,17 @@ float depth_gradient(int2 q, float z)
     RWByteAddressBuffer gb = engine_buffer(kEvGBuffer);
     const int2 qx = min(q + int2(1, 0), int2(g_target_size) - 1);
     const int2 qy = min(q + int2(0, 1), int2(g_target_size) - 1);
-    const float zx = asfloat(gb.Load((uint(qx.y) * g_target_size.x + uint(qx.x)) * 32u + 16u));
-    const float zy = asfloat(gb.Load((uint(qy.y) * g_target_size.x + uint(qy.x)) * 32u + 16u));
+    const float zx = asfloat(gb.Load(gb_guide_at(uint(qx.y) * g_target_size.x + uint(qx.x))));
+    const float zy = asfloat(gb.Load(gb_guide_at(uint(qy.y) * g_target_size.x + uint(qy.x))));
     const float limit = abs(z) * 0.05f + 1.0f;
     const float gx = zx != 0.0f && abs(zx - z) < limit ? abs(zx - z) : 0.0f;
     const float gy = zy != 0.0f && abs(zy - z) < limit ? abs(zy - z) : 0.0f;
     return max(gx, gy);
 }
 
-// One a-trous iteration (step g_engine_info.y; 5 x 5 B3 spline): weights by the depth plane, the normal (n.n^64), and
-// luminance against the variance (sigma 4 x its square root); the variance filtered with the squared weights. The
-// first iteration's result becomes the history (SVGF).
+// One a-trous iteration (step g_engine_info.y; 5 x 5 B3 spline): weights by the depth plane, the normal, and luminance
+// against the variance (sigma 4 x its square root); the variance filtered with the squared weights. The first
+// iteration's result becomes the history (SVGF).
 [numthreads(8, 8, 1)]
 void EngineAtrousCS(uint3 id : SV_DispatchThreadID)
 {
@@ -2712,14 +3281,19 @@ void EngineAtrousCS(uint3 id : SV_DispatchThreadID)
     float4 sum_s = float4(0.0f, 0.0f, 0.0f, 0.0f);
     float wd_sum = 0.0f;
     float ws_sum = 0.0f;
-    float spec_power = lerp(128.0f, 8.0f, s.roughness);
     // A short diffuse history (a moving character, a disocclusion) borrows from neighbours of less like normals: n.n^2
     // at one frame to n.n^64 from eight. A fixed n.n^64 (or ^8) leaves a moving character's raw indirect noise.
     const float history = f16tof32(engine_buffer(kEvHistDiffuse).Load(pixel * 16u + 4u) >> 16u);
     const float normal_power = lerp(2.0f, 64.0f, saturate((history - 1.0f) / 7.0f));
-    // A reflection spreads no wider than its lobe: a polished surface's (one ray along a near-mirror direction, a sharp
-    // image whose hit lighting alone is noisy) keeps to its pixel, the full filter from roughness 0.3.
-    const float spec_spread = saturate((s.roughness - 0.05f) / 0.25f);
+    // A reflection blurs over its lobe's footprint on screen and no wider (ReBLUR's weights, our own code): the lobe
+    // spreads the reflected thing's distance (the tracking distance, EngineTemporalCS) x its half-angle's tangent about
+    // the virtual image, which the eye sees past the surface; across normals within the lobe's half-angle and like
+    // roughness. Spread by roughness alone (none under 0.05, the whole filter from 0.3), a polished surface kept its
+    // one-sample noise and a glossy one blurred its reflection past its lobe.
+    const float track = f16tof32(engine_buffer(kEvHistSpecular).Load(pixel * kSpecHistoryBytes + 12u) >> 16u);
+    const float spec_tan = track * lobe_tan(s.roughness, kLobeShare) / (length(s.p) + track);
+    const float spec_radius = spec_tan * abs(s.p.z) / pixel_world_size(s.p.z);
+    const float spec_lobe = max(atan(lobe_tan(s.roughness, kLobeShare)), kNormalTolerance);
     [unroll] for (int j = -2; j <= 2; ++j) {
         [unroll] for (int i = -2; i <= 2; ++i) {
             const int2 o = q + int2(i, j) * int(step);
@@ -2727,7 +3301,7 @@ void EngineAtrousCS(uint3 id : SV_DispatchThreadID)
                 continue;
             }
             const uint op = uint(o.y) * g_target_size.x + uint(o.x);
-            const GSurface ns = gb_load(engine_view(kEvGBuffer), op, g_projection, o);
+            const GGuide ns = gb_guide(engine_view(kEvGBuffer), op);
             if (!ns.valid || (ns.flags & kGbEmitter) != 0u) {
                 continue;
             }
@@ -2735,12 +3309,14 @@ void EngineAtrousCS(uint3 id : SV_DispatchThreadID)
             const float3 nd = float3(f16tof32(nc.x), f16tof32(nc.x >> 16u), f16tof32(nc.y));
             const float3 nsp = float3(f16tof32(nc.z), f16tof32(nc.z >> 16u), f16tof32(nc.w));
             const float h = kernel[abs(i)] * kernel[abs(j)];
-            const float wz = exp(-abs(ns.p.z - s.p.z) / (z_grad * length(float2(i, j)) * float(step) + 1.0f));
+            const float wz = exp(-abs(ns.z - s.p.z) / (z_grad * length(float2(i, j)) * float(step) + 1.0f));
             const float nn = saturate(dot(ns.n, s.n));
             const float wn = pow(nn, normal_power);
             const float wd = h * wz * wn * exp(-abs(luminance(nd) - ld) / sigma_d);
-            const float ws = h * wz * pow(nn, spec_power) * exp(-abs(luminance(nsp) - ls) / sigma_s) *
-                             exp(-abs(ns.roughness - s.roughness) * 8.0f) * (i == 0 && j == 0 ? 1.0f : spec_spread);
+            const float away = length(float2(i, j)) * float(step);
+            const float ws = h * wz * saturate(1.0f - acos(nn) / spec_lobe) * exp(-abs(luminance(nsp) - ls) / sigma_s) *
+                             saturate(1.0f - abs(ns.roughness - s.roughness) / (s.roughness * s.roughness * 0.99f + 0.01f)) *
+                             exp(-away * away / max(spec_radius * spec_radius, 1e-6f));
             sum_d += float4(nd, f16tof32(nc.y >> 16u) * wd) * float4(wd, wd, wd, wd);
             sum_s += float4(nsp, f16tof32(nc.w >> 16u) * ws) * float4(ws, ws, ws, ws);
             wd_sum += wd;
@@ -2757,6 +3333,9 @@ void EngineAtrousCS(uint3 id : SV_DispatchThreadID)
         RWByteAddressBuffer hist_d = engine_buffer(kEvHistDiffuse);
         const uint4 hd = hist_d.Load4(pixel * 16u);
         hist_d.Store4(pixel * 16u, uint4(pack_half2(fd.r, fd.g), (hd.y & 0xFFFF0000u) | f32tof16(fd.b), hd.z, hd.w));
+        RWByteAddressBuffer hist_s = engine_buffer(kEvHistSpecular);
+        const uint hs = hist_s.Load(pixel * kSpecHistoryBytes + 4u);
+        hist_s.Store2(pixel * kSpecHistoryBytes, uint2(pack_half2(fs.r, fs.g), (hs & 0xFFFF0000u) | f32tof16(fs.b)));
     }
 }
 
@@ -2767,7 +3346,10 @@ void EngineAtrousCS(uint3 id : SV_DispatchThreadID)
 float3 clear_hit_radiance(Hit h, float3 origin, float3 direction)
 {
     if (!h.surface) {
-        return h.late ? float3(0.0f, 0.0f, 0.0f) : physical_sky(direction);
+        // A surface drawn after the trace (the late geometry, no material in the scene's records: Freezeflame's ice
+        // floor, drawn after the game's screen capture): seen, it is a grey one facing the ray under the open sky,
+        // never black (as such it blacked out the crystals over it).
+        return h.late ? 0.5f * sky_light_colour(physical_sky_irradiance(-direction)) : physical_sky(direction);
     }
     float3 albedo = float3(0.5f, 0.5f, 0.5f);
     float3 emission = float3(0.0f, 0.0f, 0.0f);
@@ -2865,7 +3447,7 @@ ClearHit clear_trace(float3 dir, float t_min, float t_max)
 // highlight behind a shadow ray; out: the wall's transmittance. Only the front wall traces a ray: the far wall's
 // reflection looks into what the glass holds (an hourglass's sand: hundreds of cards a ray, past the GPU's watchdog),
 // for a reflection the front wall dims.
-float3 clear_wall(ClearHit h, float3 dir, uint pixel, uint layer, out float transmit)
+float3 clear_wall(ClearHit h, float3 dir, uint pixel, uint layer, out float transmit, out bool ice)
 {
     const ByteAddressBuffer positions = ResourceDescriptorHeap[engine_view(kEvWaterPositions)];
     const ByteAddressBuffer surfaces = ResourceDescriptorHeap[engine_view(kEvWaterSurfaces)];
@@ -2896,7 +3478,9 @@ float3 clear_wall(ClearHit h, float3 dir, uint pixel, uint layer, out float tran
     const float roughness = (word & 0xFFFFu) == 0xFFFFu ? 0.02f : max(float(word & 0xFFFFu) / 65534.0f, 0.02f);
     const float alpha = roughness * roughness;
     const float nv = max(dot(n, v), 1e-4f);
-    transmit = glass_wall(nv).y;
+    ice = (word & kClearIce) != 0u;
+    const float ice_ior = (word >> kClearIorShift) != 0u ? 1.0f + float(word >> kClearIorShift) / 4096.0f : kIceIor;
+    transmit = ice ? 1.0f - fresnel_dielectric(nv, ice_ior) : glass_wall(nv).y;
     const float3 x = dir * h.t;
     const float3 start = x + ng * (0.2f + abs(x.z) * 4e-4f);
     uint seed = emit_hash(pixel ^ (g_frame * 0x5BD1E995u) ^ (layer * 0x9E3779B9u));
@@ -2912,20 +3496,19 @@ float3 clear_wall(ClearHit h, float3 dir, uint pixel, uint layer, out float tran
                                     ? (hit.surface ? float3(0.1f, 0.1f, 0.1f) : float3(1.0f, 1.0f, 1.0f))
                                     : safe_light(clear_hit_radiance(hit, start, l));
         const float g2_over_g1 = smith_visibility(alpha, nl, nv) * 4.0f * nl * nv / max(smith_g1(alpha, nv), 1e-4f);
-        reflected = incoming * (glass_wall(dot(v, m)).x * g2_over_g1);
+        reflected = incoming * ((ice ? fresnel_dielectric(dot(v, m), ice_ior) : glass_wall(dot(v, m)).x) * g2_over_g1);
     }
     // The sun's highlight, its lobe at least the disc wide.
     if (any(g_sun_light.rgb > 0.0f) && (g_engine_info.x & kEngineClearNoSun) == 0u) {
         const float3 ls = g_sun.xyz;
         const float nls = dot(n, ls);
         float blocker;
-        if (nls > 0.0f && dot(ng, ls) > 0.0f && sun_visible(start, sun_direction_sample(float2(emit_random(seed),
-                                                                                          emit_random(seed))),
-                                                             false, salt + 9u, blocker)) {
+        if (nls > 0.0f && dot(ng, ls) > 0.0f) {
             const float3 hs = normalize(v + ls);
             const float a = sun_alpha(alpha);
-            reflected += g_sun_light.rgb * (glass_wall(dot(v, hs)).x * ggx_d(a, dot(n, hs)) *
-                                            smith_visibility(a, nls, nv) * nls * kPi);
+            reflected += g_sun_light.rgb * ((ice ? fresnel_dielectric(dot(v, hs), ice_ior) : glass_wall(dot(v, hs)).x) *
+                                            ggx_d(a, dot(n, hs)) * smith_visibility(a, nls, nv) * nls * kPi *
+                                            sun_visibility(start, ls, false, blocker));
         }
     }
     return safe_light(reflected);
@@ -3005,8 +3588,34 @@ Hit solid_trace(float3 origin, float3 direction, bool solids, uint salt, out boo
     return h;
 }
 
+// The water window's surfaces (kEvWaterScene, the clear pass's own: this frame's water, ice and glass drawn after the
+// trace) along a clear solid's ray, nearer than its hit `h`: what it meets there, a surface the picture shows as the
+// game drew it (as late geometry). Freezeflame's rink has its top only there; rays leaving a crystal on it passed
+// through it to its underside and showed that, dark. `solid` clears.
+void meet_water_window(float3 origin, float3 direction, inout Hit h, inout bool solid)
+{
+    const RaytracingAccelerationStructure water = ResourceDescriptorHeap[engine_view(kEvWaterScene)];
+    RayDesc ray;
+    ray.Origin = origin;
+    ray.Direction = direction;
+    ray.TMin = 0.0f;
+    ray.TMax = h.t;
+    RayQuery<RAY_FLAG_FORCE_OPAQUE | RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES> query;
+    query.TraceRayInline(water, RAY_FLAG_NONE, 0xFFu, ray);
+    query.Proceed();
+    if (query.CommittedStatus() == COMMITTED_TRIANGLE_HIT) {
+        h.t = query.CommittedRayT();
+        h.late = true;
+        h.surface = false;
+        h.tri = 0u;
+        h.b = float2(0.0f, 0.0f);
+        solid = false;
+    }
+}
+
 // The nearest clear solid's face along the camera ray between `t_min` and `t_max` (the raster's depth: what the
-// picture shows in front of it hides it).
+// picture shows in front of it hides it), where its draw's alpha test passes (a waterfall's splash cloud is cut out of
+// its sheet's mesh).
 ClearHit solid_front(float3 dir, float t_min, float t_max)
 {
     ClearHit h;
@@ -3030,7 +3639,9 @@ ClearHit solid_front(float3 dir, float t_min, float t_max)
             query.Abort();
             break;
         }
-        if (solid_draw(g_surfaces.Load(query.CandidatePrimitiveIndex() * 16u + 12u))) {
+        const uint flags = g_surfaces.Load(query.CandidatePrimitiveIndex() * 16u + 12u);
+        if (solid_draw(flags) &&
+            alpha_test(query.CandidatePrimitiveIndex(), flags, dir * query.CandidateTriangleRayT()) != 0) {
             query.CommitNonOpaqueTriangleHit();
         }
     }
@@ -3090,10 +3701,8 @@ float3 solid_seen(Hit h, float3 origin, float3 direction)
 // pixel of the backdrop), or -1 where the picture does not show it.
 int2 solid_picture(Hit h, float3 origin, float3 direction)
 {
-    if (h.late) {
-        return int2(-1, -1);
-    }
-    const float3 x = origin + direction * (h.surface ? h.t : 1.0e5f);
+    const bool met = h.surface || h.late;
+    const float3 x = origin + direction * (met ? h.t : 1.0e5f);
     if (x.z >= -g_near) {
         return int2(-1, -1);
     }
@@ -3102,8 +3711,15 @@ int2 solid_picture(Hit h, float3 origin, float3 direction)
         return int2(-1, -1);
     }
     const float depth = g_efb_depth.Load(int3(int2(q), 0));
-    if (!h.surface) {
+    if (!met) {
         return far_plane(g_depth, depth) ? int2(q) : int2(-1, -1);
+    }
+    // A surface drawn after the trace shows as the game drew it over what the EFB's depth holds behind it, unless
+    // something nearer stands in front of it there.
+    if (h.late) {
+        return far_plane(g_depth, depth) || depth_to_eye_z(g_depth, depth) <= x.z + 0.01f * abs(x.z) + 2.0f
+                   ? int2(q)
+                   : int2(-1, -1);
     }
     if (far_plane(g_depth, depth)) {
         return int2(-1, -1);
@@ -3185,7 +3801,8 @@ ClearLight clear_solid(ClearHit h, float3 dir, uint pixel)
         const float nl = dot(n, l);
         if (nl > 0.0f && dot(ng, l) > 0.0f) {
             bool solid;
-            const Hit hit = solid_trace(start, l, false, salt, solid);
+            Hit hit = solid_trace(start, l, false, salt, solid);
+            meet_water_window(start, l, hit, solid);
             const float3 incoming = (g_engine_info.x & kEngineClearNoShade) != 0u
                                         ? (hit.surface ? float3(0.1f, 0.1f, 0.1f) : float3(1.0f, 1.0f, 1.0f))
                                         : safe_light(solid_seen(hit, start, l));
@@ -3198,13 +3815,12 @@ ClearLight clear_solid(ClearHit h, float3 dir, uint pixel)
         const float3 ls = g_sun.xyz;
         const float nls = dot(n, ls);
         float blocker;
-        if (nls > 0.0f && dot(ng, ls) > 0.0f &&
-            sun_visible(start, sun_direction_sample(float2(emit_random(seed), emit_random(seed))), false, salt + 9u,
-                        blocker)) {
+        if (nls > 0.0f && dot(ng, ls) > 0.0f) {
             const float3 hs = normalize(v + ls);
             const float a = sun_alpha(alpha);
             o.r += g_sun_light.rgb * (fresnel_dielectric(dot(v, hs), ior) * ggx_d(a, dot(n, hs)) *
-                                      smith_visibility(a, nls, nv) * nls * kPi);
+                                      smith_visibility(a, nls, nv) * nls * kPi *
+                                      sun_visibility(start, ls, false, blocker));
         }
     }
     // Inside: refracted at the front face, followed along its internally reflected path; each far face passes its
@@ -3226,7 +3842,8 @@ ClearLight clear_solid(ClearHit h, float3 dir, uint pixel)
     [loop] for (uint k = 0u; k < kSolidSegments && max(throughput.r, max(throughput.g, throughput.b)) >= kSolidLeast;
                 ++k) {
         bool solid;
-        const Hit inner = solid_trace(p, d, true, salt + 3u + 7u * k, solid);
+        Hit inner = solid_trace(p, d, true, salt + 3u + 7u * k, solid);
+        meet_water_window(p, d, inner, solid);
         throughput *= exp(-sigma * min(inner.t, 1.0e5f));
         if (!solid) {
             // What lies inside it (a coin, a star) or, out of an open mesh, beyond it: all of its light.
@@ -3246,7 +3863,8 @@ ClearLight clear_solid(ClearHit h, float3 dir, uint pixel)
                 const float3 l = normalize(leaving);
                 const float3 q = y - fg * out_lift;
                 bool passed;
-                const Hit outer = solid_trace(q, l, false, salt + 5u + 7u * k, passed);
+                Hit outer = solid_trace(q, l, false, salt + 5u + 7u * k, passed);
+                meet_water_window(q, l, outer, passed);
                 solid_share(inside, throughput * (1.0f - fresnel), outer, q, l, picture, sent);
             }
         }
@@ -3268,8 +3886,340 @@ ClearLight clear_solid(ClearHit h, float3 dir, uint pixel)
     return o;
 }
 
+// Falling water the clear pass traces (g_draws word 6 with kDrawTableSolid: a `traced solid` waterfall, the game's
+// opaque sheet hidden so the frame shows what lies behind it; its sheet's thickness, eye units, in the word's high half).
+static const uint kDrawTableFall = 2048u;
+// A fall's share of its painted white water drawn (word 6 bits 13-15: 1 + sixths; 0 all of it): the table's `white<n>`,
+// `unpainted` (clear water throughout, its look the light its rippled sheet reflects and passes).
+static const uint kDrawTableWhiteShift = 13u;
+// Its sheet's thickness without one in its row (the water's tint over it): 5 cm.
+static const float kFallThickness = 5.0f;
+// Pure water's absorption per eye unit (about a centimetre) at 650, 550 and 450 nm: 0.34, 0.0565 and 0.0092 per metre
+// (Pope and Fry 1997): over half a metre of sheet it passes 84, 97 and 100 %, the clear water's blue-green.
+static const float3 kWaterAbsorption = float3(0.0034f, 0.000565f, 0.000092f);
+// Its surface: water is smooth at small scales (capillary ripples and spray left, roughness 0.1); its sheet is
+// corrugated at large ones (fall_ripple). Water's reflections at 1.2 x Fresnel (rt_reflections.hlsl
+// kWaterReflectionGain: the owner's choice, 26 October 2026).
+static const float kFallRoughness = 0.1f;
+static const float kFallReflectionGain = 1.2f;
+// A falling sheet's corrugations: ropes and ridges the flow draws out of its instabilities, a few tens of centimetres
+// apart across it and several times as long along it (the across and along wavelengths, eye units), running down it at
+// the speed a fall reaches after a few metres (sqrt(2 g h): 10 m/s at 5 m, 17 units a frame at 60 Hz); slopes about
+// 0.25 RMS (14 degrees) in all. Each wave fades out where a pixel of the game's 640-wide picture spans more than a
+// quarter of it (no glitter at any internal resolution).
+static const float4 kFallRippleAcross = float4(30.0f, 47.0f, 71.0f, 110.0f);
+static const float4 kFallRippleAlong = float4(190.0f, 260.0f, 420.0f, 640.0f);
+static const float4 kFallRippleSlope = float4(0.24f, 0.2f, 0.14f, 0.1f);
+static const float kFallRippleSpeed = 17.0f;
+// White water is a scattering layer lit from both sides: its front reflects the light on it at its painted brightness
+// (the art paints white water's reflectance), and what reaches its back diffuses through it (a backlit fall glows):
+// two-stream conservative scattering (Kubelka-Munk) passes 1 / (1 + x) of it, x = (1 - g) tau / 2. Aerated falling
+// water, about 10 % of air in 1 mm bubbles (scattering 1.5 x void fraction / radius, kFoamScatter per eye unit), its
+// layer at most kFoamLayer deep; bubbles in water scatter forward, g about 0.8. A dense 20 cm sheet: tau 30, x 3, so
+// 0.25 passed (kFoamBack); thin or sparse white water (a fall's streaks, its share of the colour) passes more.
+static const float kFoamScatter = 1.5f;
+static const float kFoamLayer = 20.0f;
+static const float kFoamForward = 0.8f;
+static const float kFoamBack = 0.25f;
+
+// The share of the light on its back a white water layer passes: `white` its share of the sheet, `depth` the sheet's
+// thickness (eye units).
+float foam_back(float white, float depth)
+{
+    const float tau = kFoamScatter * saturate(white) * min(depth, kFoamLayer);
+    return 1.0f / (1.0f + 0.5f * (1.0f - kFoamForward) * tau);
+}
+// The clear water's own frosting where the table names none: the share of its light the bubbles in it scatter, white
+// (the owner's choice, build rt25: 0.36; about 1 % of air in millimetre bubbles through a sheet of a few centimetres).
+static const float kFallAeration = 0.36f;
+
+// The light white water at eye-space `x` (face normal `ng`, shading normal `n`, both towards the camera) gives off as a
+// white surface would show it (m): the sun on the side it reaches, behind that side's own shadow ray, and the open sky
+// on both sides, its front's whole, its back's `back` (foam_back).
+float3 foam_light(float3 x, float3 ng, float3 n, float back)
+{
+    float3 m = sky_light_colour(physical_sky_irradiance(n) + back * physical_sky_irradiance(-n));
+    const float nl = dot(n, g_sun.xyz);
+    if (any(g_sun_light.rgb > 0.0f) && abs(nl) > 0.0f) {
+        const float side = nl > 0.0f ? 1.0f : -1.0f;
+        float blocker;
+        m += g_sun_light.rgb * (abs(nl) * (nl > 0.0f ? 1.0f : back) *
+                                sun_visibility(x + ng * (side * (0.2f + abs(x.z) * 4e-4f)), g_sun.xyz, false, blocker));
+    }
+    return m;
+}
+
+bool fall_draw(uint tri)
+{
+    const uint draw = min(g_surfaces.Load(tri * 16u + 12u) >> 16u, max(g_draw_count, 1u) - 1u);
+    return (g_draws.Load(draw * kDrawStride + 24u) & kDrawTableFall) != 0u;
+}
+
+// A thin sheet of water (n 1.333) at the cosine `c`: what it reflects, the incoherent sum of its two faces' R = 2F / (1 +
+// F), and passes, T = (1 - F) / (1 + F) (glass_wall's Stokes sums).
+float2 water_wall(float c)
+{
+    const float f = fresnel_dielectric(c, 1.333f);
+    return float2(2.0f * f / (1.0f + f), (1.0f - f) / (1.0f + f));
+}
+
+// The shading normal of a traced fall at eye-space `x`, its sheet's normal `n` bent by its corrugations (kFallRipple*):
+// in world space, fixed to the fall, its flow straight down the sheet (world -y, as rt_reflections.hlsl water_detail);
+// a sheet lying flat has none.
+float3 fall_ripple(float3 x, float3 n)
+{
+    const float3 wn = engine_world_normal(n);
+    const float3 down = float3(0.0f, -1.0f, 0.0f) + wn * wn.y;
+    if (dot(down, down) < 0.04f) {
+        return n;
+    }
+    const float3 along = normalize(down);
+    const float3 across = cross(along, wn);
+    const float3 wp = engine_world_point(x);
+    const float u = dot(wp, across);
+    const float w = dot(wp, along) - kFallRippleSpeed * float(g_frame);
+    const float native = max(g_viewport.z / 640.0f, 1.0f);
+    const float footprint = pixel_world_size(x.z) * native / max(abs(dot(n, normalize(x))), 0.1f);
+    const float4 ku = 6.2831853f / kFallRippleAcross;
+    const float4 kw = 6.2831853f / kFallRippleAlong;
+    // Each wave's phase offset and slant (the ropes twist a little), and its fade by footprint.
+    const float4 phase = ku * u + kw * w + float4(0.0f, 1.7f, 4.1f, 2.6f) + float4(0.11f, -0.07f, 0.05f, -0.13f) * kw * u;
+    const float4 fade = saturate(2.0f - 4.0f * footprint / kFallRippleAcross);
+    const float4 c = cos(phase) * kFallRippleSlope * fade;
+    // The slopes of the height sum(a sin(phase)) across and along it (a ku the slope amplitude across).
+    const float2 s = float2(dot(c, float4(1.0f, 1.0f, 1.0f, 1.0f)), dot(c, kw / ku));
+    const float3 bent = normalize(wn - s.x * across - s.y * along);
+    return normalize(rotate3(g_to_eye, bent));
+}
+
+// The share of each wave's fold limit a fall's refraction may take (four waves add).
+static const float kFallFoldShare = 0.35f;
+
+// The direction (eye space) a camera ray `dir` through a fall at eye-space `x` (its sheet's normal `n`) leaves it, the
+// surface it then meets `behind` units past the sheet. The sheet is a thin prism: its faces are corrugated alike
+// (fall_ripple's waves) at their own phases, the back's another, so its thickness slopes by their slopes' difference
+// and bends what passes by (n - 1) times that (water's 1.333). A wave of length lambda bending by a moves the picture
+// behind by a (D L / (D + L)) over a sheet distance D from the camera; past lambda (D + L) / (2 pi D L) the shift
+// outruns the wave and the picture folds over itself (a scramble the eye sees as blur, a pixel's one sample as
+// noise), so each wave takes at most kFallFoldShare of that.
+float3 fall_through(float3 x, float3 n, float3 dir, float behind)
+{
+    const float3 wn = engine_world_normal(n);
+    const float3 down = float3(0.0f, -1.0f, 0.0f) + wn * wn.y;
+    if (dot(down, down) < 0.04f || behind <= 0.0f) {
+        return dir;
+    }
+    const float3 along = normalize(down);
+    const float3 across = cross(along, wn);
+    const float3 wp = engine_world_point(x);
+    const float u = dot(wp, across);
+    const float w = dot(wp, along) - kFallRippleSpeed * float(g_frame);
+    const float4 ku = 6.2831853f / kFallRippleAcross;
+    const float4 kw = 6.2831853f / kFallRippleAlong;
+    const float4 slant = float4(0.11f, -0.07f, 0.05f, -0.13f) * kw * u;
+    const float4 front = ku * u + kw * w + float4(0.0f, 1.7f, 4.1f, 2.6f) + slant;
+    const float4 back = ku * u + kw * w + float4(2.9f, 5.3f, 0.8f, 4.4f) + slant;
+    // The thickness's slope across per wave (amplitude at most twice a face's), and along (kw / ku of it).
+    const float4 thick = (cos(front) - cos(back)) * kFallRippleSlope;
+    const float d = max(length(x), 1.0f);
+    const float fold = (d + behind) / (6.2831853f * d * behind) * kFallFoldShare;
+    const float4 bend = 0.333f * 2.0f * kFallRippleSlope;
+    const float4 keep_across = min(kFallRippleAcross * fold / bend, 1.0f);
+    const float4 keep_along = min(kFallRippleAlong * fold / (bend * kw / ku), 1.0f);
+    const float a = 0.333f * dot(thick, keep_across);
+    const float b = 0.333f * dot(thick * (kw / ku), keep_along);
+    return normalize(dir + rotate3(g_to_eye, a * across + b * along));
+}
+
+// The share of white water in a fall's painted colour `c` (linear): the art paints foam white and clear water in its
+// own colour `hue` (linear; white where the table names none), so `c` lies between the two: how far towards white.
+// Without a colour, its whiteness (its least channel over its greatest).
+float fall_foam(float3 c, float3 hue)
+{
+    const float3 d = 1.0f - hue;
+    if (dot(d, d) > 1e-3f) {
+        return saturate(dot(c - hue, d) / dot(d, d));
+    }
+    const float hi = max(c.r, max(c.g, c.b));
+    return hi > 1e-6f ? min(c.r, min(c.g, c.b)) / hi : 1.0f;
+}
+
+// A fall draw's aeration (g_draws word 2 bits 4-7: 1 + 14ths of it; 0: kFallAeration).
+float fall_aeration(uint draw)
+{
+    const uint v = (g_draws.Load(min(draw, max(g_draw_count, 1u) - 1u) * kDrawStride + 8u) >> 4u) & 15u;
+    return v != 0u ? float(v - 1u) / 14.0f : kFallAeration;
+}
+
+// The share of a fall draw's painted white water drawn (the table's `white<n>`; `unpainted` 0).
+float fall_white(uint draw)
+{
+    const uint v = (g_draws.Load(min(draw, max(g_draw_count, 1u) - 1u) * kDrawStride + 24u) >> kDrawTableWhiteShift) & 7u;
+    return v != 0u ? float(v - 1u) / 6.0f : 1.0f;
+}
+
+// A fall draw's clear water colour as its table row paints it (g_draws word 2's colour, linear; white: none).
+float3 fall_hue(uint draw)
+{
+    const uint word = g_draws.Load(min(draw, max(g_draw_count, 1u) - 1u) * kDrawStride + 8u);
+    return srgb_to_linear(float3((word >> 24u) & 0xFFu, (word >> 16u) & 0xFFu, (word >> 8u) & 0xFFu) / 255.0f);
+}
+
+// Falling water at eye-space `x` (face normal `ng`, shading normal `n`, towards the camera ray `dir`), its colour as
+// the art paints it `albedo` (linear), the art's clear water colour `hue`, its thickness along its normal, its aeration
+// and the share of its painted white drawn (fall_white). White water, a dense foam of bubbles and drops, is its painted
+// share (fall_foam) times that, a layer lit from both
+// sides (foam_light) in the painted white (the colour less the clear water's share of the hue). The rest is clear
+// water: the bubbles in it scatter its aeration, white, lit as the white water; it reflects off its corrugated sheet
+// (fall_ripple, the sun's glints) and passes what lies behind it at the sheet's T through its thickness (pure water's
+// absorption: a slight blue-green in a thick column). With `picture` (the clear pass's traced falls: the game's draw
+// hidden, the picture behind the fall) what it passes is refracted (fall_through): along the bent ray the distance the
+// camera's ray went past the sheet to the surface the picture shows there (screen-space refraction), the picture's
+// pixel there (ClearLight.source) unless that pixel shows something in front of the sheet.
+ClearLight fall_water(float3 x, float3 ng, float3 n, float3 albedo, float3 hue, float depth, float aeration, float painted,
+                      float3 dir, uint pixel, bool picture)
+{
+    ClearLight o;
+    o.r = float3(0.0f, 0.0f, 0.0f);
+    o.t = float3(0.0f, 0.0f, 0.0f);
+    o.source = int2(-1, -1);
+    const float3 v = -dir;
+    const float nv = max(dot(n, v), 1e-4f);
+    const float3 start = x + ng * (0.2f + abs(x.z) * 4e-4f);
+    uint seed = emit_hash(pixel ^ (g_frame * 0x5BD1E995u) ^ 0x6C8E9CF5u);
+    const uint salt = pixel * 32u + g_frame * 0x632BE5ABu + 43u;
+    // GALAXY_RT_ENGINE_VIEW=7 (albedo): its own colour as the art paints it.
+    if (((g_engine_info.x & kEngineView) >> 4u) == 7u) {
+        o.r = albedo / max(physical_exposure(), 1e-6f);
+        return o;
+    }
+    const float white = painted * fall_foam(albedo, hue);
+    // The white water's colour: white at the painted brightness (bubbles scatter every colour alike).
+    const float bright = max(albedo.r, max(albedo.g, albedo.b));
+    // The white water's light (the sheet casts no shadow: none on itself), and its bubbles' in the clear water.
+    const float3 m = foam_light(x, ng, n, foam_back(white, depth));
+    o.r = (white * bright + (1.0f - white) * aeration) * m;
+    // The clear water's reflection off its corrugated surface (fall_ripple): a visible normal, its mirror direction,
+    // the light along it; weight R(v.m) G2 / G1.
+    float3 nr = fall_ripple(x, n);
+    if (dot(nr, v) < 0.02f) {
+        nr = n;
+    }
+    const float nv_r = max(dot(nr, v), 1e-4f);
+    const float nl_sun = dot(nr, g_sun.xyz);
+    const float alpha = kFallRoughness * kFallRoughness;
+    float3 reflected = float3(0.0f, 0.0f, 0.0f);
+    if ((g_engine_info.x & kEngineClearNoRay) == 0u) {
+        const float3 mh = ggx_vndf(nr, v, alpha, float2(emit_random(seed), emit_random(seed)));
+        const float3 l = reflect(-v, mh);
+        const float nl = dot(nr, l);
+        if (nl > 0.0f && dot(ng, l) > 0.0f) {
+            bool solid;
+            const Hit hit = solid_trace(start, l, false, salt, solid);
+            const float g2_over_g1 =
+                smith_visibility(alpha, nl, nv_r) * 4.0f * nl * nv_r / max(smith_g1(alpha, nv_r), 1e-4f);
+            reflected += safe_light(solid_seen(hit, start, l)) * (water_wall(dot(v, mh)).x * g2_over_g1);
+        }
+    }
+    if (any(g_sun_light.rgb > 0.0f) && (g_engine_info.x & kEngineClearNoSun) == 0u && nl_sun > 0.0f &&
+        dot(ng, g_sun.xyz) > 0.0f) {
+        float blocker;
+        const float3 hs = normalize(v + g_sun.xyz);
+        const float a = sun_alpha(alpha);
+        reflected += g_sun_light.rgb * (water_wall(dot(v, hs)).x * ggx_d(a, dot(nr, hs)) *
+                                        smith_visibility(a, nl_sun, nv_r) * nl_sun * kPi *
+                                        sun_visibility(start, g_sun.xyz, false, blocker));
+    }
+    o.r += reflected * (kFallReflectionGain * (1.0f - white));
+    // What lies behind, through the sheet.
+    o.t = (1.0f - white) * (1.0f - aeration) * water_wall(nv).y * exp(-kWaterAbsorption * depth / max(nv, 0.2f));
+    if (picture && any(o.t > 0.0f) && (g_engine_info.x & kEngineClearNoRay) == 0u) {
+        const int2 at = int2(pixel % g_target_size.x, pixel / g_target_size.x);
+        const float seen = g_efb_depth.Load(int3(at, 0));
+        const float3 past = far_plane(g_depth, seen) ? x + dir * 1.0e5f
+                                                     : eye_position(g_projection, g_viewport, float2(at) + 0.5f,
+                                                                    depth_to_eye_z(g_depth, seen));
+        const float behind = length(past - x);
+        const float3 landed = x + fall_through(x, n, dir, behind) * behind;
+        if (landed.z < -g_near) {
+            const float2 s = eye_to_pixel(g_projection, g_viewport, landed);
+            if (inside(g_viewport, s) && all(s >= 0.0f) && all(s < float2(g_target_size))) {
+                const float there = g_efb_depth.Load(int3(int2(s), 0));
+                if (far_plane(g_depth, there) || depth_to_eye_z(g_depth, there) < x.z) {
+                    o.source = int2(s);
+                }
+            }
+        }
+    }
+    return o;
+}
+
+// A fall's thickness: its draw's (g_draws word 6, high half; eye units), else kFallThickness.
+float fall_thickness(uint draw)
+{
+    const float reach = float(g_draws.Load(min(draw, max(g_draw_count, 1u) - 1u) * kDrawStride + 24u) >> 16u);
+    return reach > 0.0f ? reach : kFallThickness;
+}
+
+// A traced fall (a `traced solid` waterfall at `h`, the game's draw hidden): its colour the draw's TEV at the hit.
+ClearLight clear_fall(ClearHit h, float3 dir, uint pixel)
+{
+    float3 x;
+    float3 ng;
+    float3 n;
+    solid_face(h.tri, h.b, dir, x, ng, n);
+    float3 albedo;
+    float3 emission;
+    reference_material_cone(h.tri, h.b, tev_cone(h.tri, dir, pixel_world_size(x.z)), albedo, emission);
+    const uint draw = g_surfaces.Load(h.tri * 16u + 12u) >> 16u;
+    return fall_water(x, ng, n, albedo, fall_hue(draw), fall_thickness(draw), fall_aeration(draw), fall_white(draw), dir,
+                      pixel, true);
+}
+
+// What a camera ray `dir` from `origin` meets past falling water: the scene's surfaces, the falls' own faces skipped (a
+// column of water is a closed box: its back faces are not what lies behind it), lit as the clear pass lights its hits.
+float3 behind_fall(float3 origin, float3 dir, uint salt)
+{
+    RayDesc ray;
+    ray.Origin = origin;
+    ray.Direction = dir;
+    ray.TMin = 0.0f;
+    ray.TMax = 1.0e6f;
+    RayQuery<RAY_FLAG_FORCE_NON_OPAQUE | RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES> query;
+    query.TraceRayInline(g_scene, RAY_FLAG_NONE, kSceneMask, ray);
+    uint visits = 0u;
+    while (query.Proceed()) {
+        if (++visits > kMaxCandidates) {
+            query.CommitNonOpaqueTriangleHit();
+            query.Abort();
+            break;
+        }
+        const uint flags = g_surfaces.Load(query.CandidatePrimitiveIndex() * 16u + 12u);
+        if (fall_draw(query.CandidatePrimitiveIndex()) || solid_draw(flags)) {
+            continue;
+        }
+        if (card_blocks(query.CandidatePrimitiveIndex(), flags, origin + dir * query.CandidateTriangleRayT(), salt)) {
+            query.CommitNonOpaqueTriangleHit();
+        }
+    }
+    Hit h;
+    h.surface = false;
+    h.late = false;
+    h.t = 1.0e6f;
+    h.tri = 0u;
+    h.b = float2(0.0f, 0.0f);
+    if (query.CommittedStatus() == COMMITTED_TRIANGLE_HIT) {
+        h.t = query.CommittedRayT();
+        h.surface = length(origin + dir * h.t) <= g_ambient.w;
+        h.tri = query.CommittedPrimitiveIndex();
+        h.b = query.CommittedTriangleBarycentrics();
+    }
+    return safe_light(clear_hit_radiance(h, origin, dir));
+}
+
 // Per pixel: the camera ray's first clear surface in front of the scene behind it, and a second behind that (the far
-// wall of a capsule or a bottle, seen through the first), or a clear solid traced through (clear_solid). Their
+// wall of a capsule or a bottle, seen through the first), or a clear solid traced through (clear_solid), or a traced
+// fall (clear_fall). Their
 // reflections at the camera's exposure and the light they pass, for the composite (rt_lighting.hlsl
 // ClearCompositePS: the picture behind, or the picture a solid refracts, times T plus R).
 [numthreads(8, 8, 1)]
@@ -3300,7 +4250,12 @@ void EngineClearCS(uint3 id : SV_DispatchThreadID)
         if ((front.hit || solid.hit) && (g_engine_info.x & kEngineClearFind) != 0u) {
             result = uint4(pack_half2(0.0f, 0.5f), pack_half2(0.5f, 0.5f), 0u, 1u);
         } else if (!front.hit && solid.hit) {
-            const ClearLight light = clear_solid(solid, dir, pixel);
+            ClearLight light;
+            if (fall_draw(solid.tri)) {
+                light = clear_fall(solid, dir, pixel);
+            } else {
+                light = clear_solid(solid, dir, pixel);
+            }
             float3 r = min(light.r * physical_exposure(), 6.0e4f);
             float3 t = light.t;
             // GALAXY_RT_ENGINE_VIEW=5: the clear surfaces found, magenta.
@@ -3315,24 +4270,43 @@ void EngineClearCS(uint3 id : SV_DispatchThreadID)
                            0u);
         } else if (front.hit) {
             float t1;
-            float3 r = clear_wall(front, dir, pixel, 0u, t1);
-            float t = t1;
-            const ClearHit back = clear_trace(dir, front.t + max(0.5f, front.t * 1e-3f),
-                                              (g_engine_info.x & kEngineClearNoBack) != 0u ? 0.0f : t_max);
-            if (back.hit) {
-                float t2;
-                r += t1 * clear_wall(back, dir, pixel, 1u, t2);
-                t *= t2;
+            bool ice;
+            float3 r = clear_wall(front, dir, pixel, 0u, t1, ice);
+            float3 t = t1.xxx;
+            int2 source = int2(-1, -1);
+            if (solid.hit) {
+                // A clear solid behind the glass (a crystal sunk into Freezeflame's ice, its draw hidden: the picture
+                // shows the ice over nothing there): its light through the glass, the picture it refracts at its
+                // source.
+                ClearLight light;
+                if (fall_draw(solid.tri)) {
+                    light = clear_fall(solid, dir, pixel);
+                } else {
+                    light = clear_solid(solid, dir, pixel);
+                }
+                r += t1 * light.r;
+                t = t1 * light.t;
+                source = light.source;
+            } else {
+                const ClearHit back = clear_trace(dir, front.t + max(0.5f, front.t * 1e-3f),
+                                                  (g_engine_info.x & kEngineClearNoBack) != 0u ? 0.0f : t_max);
+                if (back.hit) {
+                    float t2;
+                    bool back_ice;
+                    r += t1 * clear_wall(back, dir, pixel, 1u, t2, back_ice);
+                    t *= t2;
+                }
             }
             r = min(r * physical_exposure(), 6.0e4f);
             // GALAXY_RT_ENGINE_VIEW=5: the clear surfaces found, magenta.
             if (((g_engine_info.x & kEngineView) >> 4u) == 5u) {
                 r = float3(4.0f, 0.0f, 4.0f);
-                t = 0.0f;
+                t = float3(0.0f, 0.0f, 0.0f);
             }
             const float z = (dir * front.t).z;
-            result = uint4(pack_half2(r.r, r.g), pack_half2(r.b, t), asuint(z), 1u);
-            behind = uint4(pack_half2(t, t), 0xFFFFFFFFu, 0u, 0u);
+            result = uint4(pack_half2(r.r, r.g), pack_half2(r.b, t.r), asuint(z), 1u);
+            behind = uint4(pack_half2(t.g, t.b), source.x >= 0 ? uint(source.x) | (uint(source.y) << 16u) : 0xFFFFFFFFu,
+                           0u, 0u);
         } else if (((g_engine_info.x & kEngineView) >> 4u) == 5u) {
             // ... and where none was found within the scene's depth, a green veil (the pass and its composite ran).
             result = uint4(pack_half2(0.0f, 0.15f), pack_half2(0.0f, 1.0f), asuint(-t_max), 1u);
@@ -3340,6 +4314,159 @@ void EngineClearCS(uint3 id : SV_DispatchThreadID)
     }
     engine_buffer(kEvClear).Store4(pixel * 32u, result);
     engine_buffer(kEvClear).Store4(pixel * 32u + 16u, behind);
+}
+
+// The waterfall mist (the table's `mist` effects: the spray clouds at the falls' feet). The game draws its spray as
+// painted cloud sprites; under the engine each sprite is a puff of water drops instead, a Gaussian cloud in the
+// sprite's place, of its size and optical depth (GxBackend::note_rt_mist), which MistCompositePS (rt_lighting.hlsl)
+// integrates along the camera's rays. Each puff's light, once a frame (g_engine_info.y puffs): the share of the sun it
+// sees (kMistSunRays shadow rays from points spread over it, fixed so a still puff's light is still; through the scene's
+// clear solids, the traced falls: water, not rock), the mist's optical
+// depth between it and the sun (every puff's Gaussian column along the ray from its centre; its own half), and the
+// light reaching it from every direction (kMistAroundRays fixed directions: the sky's radiance where a ray leaves the
+// scene, else the surface it meets lit as the clear pass lights its hits, clear_hit_radiance: the radiance cache's
+// cells come and go between frames, and the mist's colour swung with them), at the camera's exposure; every ray's
+// hash salt the ray's own (a puff's index changes as sprites come and go). And the water under it (g_engine_info.w:
+// the water window's acceleration structure this frame): the height of its surface below the puff, which the mist
+// lies over.
+// (kMistMost: rt_lighting.hlsl, the composite's bound too.)
+static const uint kMistSunRays = 32u;
+static const uint kMistAroundRays = 32u;
+
+// The sun at a point of the mist: the scene's sun shadow (sun_visibility_by's reach, cards and late geometry), the
+// clear surfaces passed (the traced falls are water, glass lets light through). A shadow ray over the whole scene
+// (rt54's solid_trace) took far planets in the sun's direction for blockers and left the mist the light around it
+// alone: grey.
+bool mist_sun_visible(float3 origin, uint salt)
+{
+    RayDesc ray;
+    ray.Origin = origin;
+    ray.Direction = g_sun.xyz;
+    ray.TMin = 0.0f;
+    ray.TMax = g_sun_reach;
+    RayQuery<RAY_FLAG_FORCE_NON_OPAQUE | RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES> query;
+    query.TraceRayInline(g_scene, RAY_FLAG_NONE, 0xFFu, ray);
+    uint visits = 0u;
+    while (query.Proceed()) {
+        if (++visits > kMaxCandidates) {
+            query.CommitNonOpaqueTriangleHit();
+            query.Abort();
+            break;
+        }
+        if (query.CandidateInstanceID() != 0u) {
+            query.CommitNonOpaqueTriangleHit();
+            continue;
+        }
+        const uint flags = g_surfaces.Load(query.CandidatePrimitiveIndex() * 16u + 12u);
+        if (solid_draw(flags) || ((flags >> 8u) & 15u) == kClearClass || (flags & kDrawNoShadow) != 0u) {
+            continue;
+        }
+        if (card_blocks(query.CandidatePrimitiveIndex(), flags, origin + g_sun.xyz * query.CandidateTriangleRayT(), salt)) {
+            query.CommitNonOpaqueTriangleHit();
+        }
+    }
+    return query.CommittedStatus() != COMMITTED_TRIANGLE_HIT;
+}
+
+// Direction `k` of `n` spread evenly over the sphere (the Fibonacci lattice).
+float3 mist_direction(uint k, uint n)
+{
+    const float z = 1.0f - (2.0f * float(k) + 1.0f) / float(n);
+    const float r = sqrt(max(1.0f - z * z, 0.0f));
+    const float a = 2.39996323f * float(k);
+    return float3(r * cos(a), r * sin(a), z);
+}
+
+[numthreads(64, 1, 1)]
+void MistLightCS(uint3 id : SV_DispatchThreadID)
+{
+    const uint count = min(g_engine_info.y, kMistMost);
+    RWByteAddressBuffer records = engine_buffer(kEvMistOut);
+    const float3 up = normalize(g_up.xyz);
+    if (id.x == 0u) {
+        records.Store4(0u, uint4(count, g_frame, 0u, 0u));
+        [unroll] for (uint r = 0u; r < 3u; ++r) {
+            records.Store4(16u + 16u * r, asuint(g_to_eye[r]));
+        }
+        records.Store4(64u, asuint(float4(eye_direction_to_world(up), 0.0f)));
+        records.Store4(80u, asuint(float4(up, 0.0f)));
+    }
+    if (id.x >= count) {
+        return;
+    }
+    ByteAddressBuffer puffs = ResourceDescriptorHeap[engine_view(kEvMistIn)];
+    const float4 own = asfloat(puffs.Load4(id.x * 32u));
+    const float own_depth = asfloat(puffs.Load(id.x * 32u + 16u));
+    const float own_white = asfloat(puffs.Load(id.x * 32u + 20u));
+    const float3 c = own.xyz;
+    const float sigma = own.w;
+    const uint salt = 101u;
+    float3 sun = float3(0.0f, 0.0f, 0.0f);
+    float towards = 0.0f;
+    if (any(g_sun_light.rgb > 0.0f)) {
+        // Points over the puff at half and one and a half widths from its centre (where a Gaussian cloud's drops are).
+        uint seen = 0u;
+        [loop] for (uint k = 0u; k < kMistSunRays; ++k) {
+            const float3 from = c + mist_direction(k, kMistSunRays) * (sigma * ((k & 1u) != 0u ? 1.5f : 0.5f));
+            if (mist_sun_visible(from, salt + k * 13u)) {
+                ++seen;
+            }
+        }
+        sun = g_sun_light.rgb * (float(seen) / float(kMistSunRays));
+        [loop] for (uint j = 0u; j < count; ++j) {
+            const float4 other = asfloat(puffs.Load4(j * 32u));
+            const float other_depth = asfloat(puffs.Load(j * 32u + 16u));
+            const float3 v = other.xyz - c;
+            const float t = dot(v, g_sun.xyz);
+            const float b2 = max(dot(v, v) - t * t, 0.0f);
+            towards += other_depth * exp(-0.5f * b2 / (other.w * other.w)) * mist_phi(t / other.w);
+        }
+    }
+    // The light from above the puff: its rays into the upper half (the lake under it is dark; the cloud's lit face is the
+    // one the sky sees).
+    float3 around = float3(0.0f, 0.0f, 0.0f);
+    float above = 0.0f;
+    [loop] for (uint k = 0u; k < kMistAroundRays; ++k) {
+        const float3 d = mist_direction(k, kMistAroundRays);
+        if (dot(d, up) <= 0.0f) {
+            continue;
+        }
+        above += 1.0f;
+        bool solid;
+        const Hit h = solid_trace(c, d, false, salt + 997u + k * 17u, solid);
+        if (!h.surface) {
+            if (!h.late) {
+                around += sky_light_colour(physical_sky(d));
+            }
+        } else {
+            around += clear_hit_radiance(h, c, d);
+        }
+    }
+    around /= max(above, 1.0f);
+    // The water's surface under the puff (the nearest of the water window's surfaces down from three widths above its
+    // centre to three below): none, -1e30.
+    float below = -1.0e30f;
+    if ((g_engine_info.w & 1u) != 0u) {
+        const RaytracingAccelerationStructure water = ResourceDescriptorHeap[engine_view(kEvWaterScene)];
+        RayDesc ray;
+        ray.Origin = c + up * (3.0f * sigma);
+        ray.Direction = -up;
+        ray.TMin = 0.0f;
+        ray.TMax = 6.0f * sigma;
+        RayQuery<RAY_FLAG_FORCE_OPAQUE | RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES> query;
+        query.TraceRayInline(water, RAY_FLAG_NONE, 0xFFu, ray);
+        query.Proceed();
+        if (query.CommittedStatus() == COMMITTED_TRIANGLE_HIT) {
+            below = dot(ray.Origin + ray.Direction * query.CommittedRayT(), up);
+        }
+    }
+    const float exposure = physical_exposure();
+    sun = min(safe_light(sun) * exposure, 6.0e4f);
+    around = min(safe_light(around) * exposure, 6.0e4f);
+    const uint at = (kMistHeader + 3u * id.x) * 16u;
+    records.Store4(at, asuint(own));
+    records.Store4(at + 16u, uint4(asuint(own_depth), asuint(towards), asuint(below), asuint(own_white)));
+    records.Store4(at + 32u, uint4(pack_half2(sun.r, sun.g), pack_half2(sun.b, around.r), pack_half2(around.g, around.b), 0u));
 }
 
 // The converged reference (GALAXY_RT_ENGINE_REFERENCE): the engine's diffuse light (m) at a surface as one unbiased
@@ -3361,11 +4488,12 @@ float3 reference_path(float3 p, float3 n, float3 ng, bool card, inout uint seed,
             const float3 l = sun_direction_sample(float2(emit_random(seed), emit_random(seed)));
             const float nl = dot(n, l);
             float blocker;
-            if (nl > 0.0f && dot(ng, l) > -0.05f && sun_visible(start, l, card && bounce == 0u, at, blocker)) {
-                m += g_sun_light.rgb * nl * water_through(start, g_sun.xyz);
+            if (nl > 0.0f && dot(ng, l) > -0.05f) {
+                m += g_sun_light.rgb * (nl * sun_visibility(start, l, card && bounce == 0u, blocker)) *
+                     water_through(start, g_sun.xyz);
             }
         }
-        m += engine_light_sample(p, n, start, 8u, seed, at + 13u);
+        m += engine_light_sample(p, n, start, 8u, seed);
         total += throughput * safe_light(m);
         const float3 d = cosine_direction(n, ng, float2(emit_random(seed), emit_random(seed)));
         const Hit h = engine_trace(start, d, at + 7u);
@@ -3427,6 +4555,107 @@ void EngineReferenceCS(uint3 id : SV_DispatchThreadID)
     sums.Store4(pixel * 16u, asuint(sum));
 }
 
+// Falling water (RtDraw.flags bit 13, kRtDrawWaterfall) among last frame's water surfaces (kEngineWaterLight).
+static const uint kWaterfallFlag = 8192u;
+// The water surfaces' class (bits 8-11 of their draw flags; RtSurfaceClass::Water).
+static const uint kWaterClass = 4u;
+// How far behind a waterfall's sheet a surface still stands for the light at the sheet: 3 metres.
+static const float kFallBehind = 300.0f;
+
+// The light at the water in front of pixel `q` along its camera ray, not behind `limit` (eye units along the ray: the
+// surface the pixel shows, or the sky; a fall pours down its cliff within a few units of it): `open`, what a white
+// surface facing up at the water would show in the open air (the sky, the sun by its shadow ray: the light of the
+// effects over the water, whose surface behind is the floor under it), and at falling water `fall`, what a white
+// surface there would show. White water is a dense foam of bubbles and drops that scatters the light reaching it as a
+// diffuse surface does, its colour the game's texture (the waterfall's translucent draws, and the spray before it, take
+// this light, LightTexturePS). The falls: the game's translucent ones (last frame's water, kWaterfallFlag, through
+// g_reproject: the sheets stand still). Its opaque sheets the clear pass traces (kDrawTableFall) join the scene only
+// after the frame's lighting: before them the light texture keeps the light of the surface behind. Lit from both sides
+// as a scattering layer (foam_light; the water casts no shadow, so it never shades itself); where the surface the pixel
+// shows lies within kFallBehind of the sheet and faces the same way, its filtered light (`behind`: sky, bounce and
+// lights) stands for the sky's on the sheet's front.
+void water_light(int2 q, float limit, bool has_behind, float3 behind_n, float3 behind, uint salt, out uint open_word,
+                 out uint fall_word)
+{
+    open_word = 0u;
+    fall_word = 0u;
+    const float3 dir = normalize(pixel_direction(g_projection, g_viewport, float2(q) + 0.5f));
+    const float reach = limit + max(0.002f * limit, 2.0f);
+    float t = reach;
+    float3 n = float3(0.0f, 0.0f, 0.0f);
+    bool fall = false;
+    if ((g_engine_info.x & kEngineWaterLight) != 0u) {
+        const RaytracingAccelerationStructure water = ResourceDescriptorHeap[engine_view(kEvWaterScene)];
+        const ByteAddressBuffer positions = ResourceDescriptorHeap[engine_view(kEvWaterPositions)];
+        const ByteAddressBuffer surfaces = ResourceDescriptorHeap[engine_view(kEvWaterSurfaces)];
+        RayDesc ray;
+        ray.Origin = transform(g_reproject, float3(0.0f, 0.0f, 0.0f));
+        ray.Direction = normalize(rotate3(g_reproject, dir));
+        ray.TMin = g_near;
+        ray.TMax = t;
+        // The nearest water or falling water (not glass, crystal or metal coats).
+        RayQuery<RAY_FLAG_FORCE_NON_OPAQUE | RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES> query;
+        query.TraceRayInline(water, RAY_FLAG_NONE, 0xFFu, ray);
+        while (query.Proceed()) {
+            const uint flags = surfaces.Load(query.CandidatePrimitiveIndex() * 16u + 12u);
+            if ((flags & kWaterfallFlag) != 0u || ((flags >> 8u) & 15u) == kWaterClass) {
+                query.CommitNonOpaqueTriangleHit();
+            }
+        }
+        if (query.CommittedStatus() == COMMITTED_TRIANGLE_HIT) {
+            const uint tri = query.CommittedPrimitiveIndex();
+            fall = (surfaces.Load(tri * 16u + 12u) & kWaterfallFlag) != 0u;
+            const float2 b = query.CommittedTriangleBarycentrics();
+            const float3 v0 = asfloat(positions.Load3(tri * 36u));
+            const float3 v1 = asfloat(positions.Load3(tri * 36u + 12u));
+            const float3 v2 = asfloat(positions.Load3(tri * 36u + 24u));
+            const uint4 record = surfaces.Load4(tri * 16u);
+            float3 face = cross(v1 - v0, v2 - v0);
+            if (record.x != 0u && record.y != 0u && record.z != 0u) {
+                const float3 w = float3(1.0f - b.x - b.y, b.x, b.y);
+                const float3 smooth = unpack_vertex_normal(record.x) * w.x + unpack_vertex_normal(record.y) * w.y +
+                                      unpack_vertex_normal(record.z) * w.z;
+                face = dot(smooth, smooth) > 1e-6f ? smooth : face;
+            }
+            if (dot(face, face) > 1e-24f) {
+                n = engine_unreproject_normal(normalize(face));
+                t = query.CommittedRayT();
+            }
+        }
+    }
+    if (!(t < reach) || !(dot(n, n) > 0.5f)) {
+        return;
+    }
+    n = dot(n, dir) > 0.0f ? -n : n;
+    const float3 hit = dir * t;
+    // The open air at the water: a white surface facing the player's up there (on a fall, a pool's at its height).
+    {
+        const float3 up = dot(g_up.xyz, g_up.xyz) > 0.5f ? normalize(g_up.xyz) : (dot(n, n) > 0.5f ? n : -dir);
+        float3 open = sky_light_colour(physical_sky_irradiance(up));
+        const float nl = dot(up, g_sun.xyz);
+        float blocker;
+        if (any(g_sun_light.rgb > 0.0f) && nl > 0.0f) {
+            open += g_sun_light.rgb * (nl * sun_visibility(hit + up * (0.5f + abs(hit.z) * 4e-4f), g_sun.xyz, false,
+                                                           blocker));
+        }
+        open_word = max(pack_r11g11b10(min(safe_light(open * physical_exposure()), kMaxPhysicalLight)), 1u);
+    }
+    if (!fall) {
+        return;
+    }
+    float3 light = foam_light(hit, n, n, kFoamBack);
+    const bool near_behind = has_behind && limit - t <= kFallBehind && dot(behind_n, n) > 0.5f;
+    if (near_behind) {
+        light += behind - sky_light_colour(physical_sky_irradiance(n));
+    }
+    // GALAXY_RT_PROBE (diagnostics): the sheet at the probed pixel (SceneRayTracer prints [rt-probe-fall]).
+    if (g_probe.z != 0u && all(q == int2(g_probe.xy * g_factor))) {
+        g_final[g_sample_size.x * g_sample_size.y + kStarSlots + 8u] =
+            uint4(pack_r11g11b10(light), asuint(t), asuint(dot(n, g_sun.xyz)), (near_behind ? 1u : 0u) | 2u);
+    }
+    fall_word = max(pack_r11g11b10(min(safe_light(max(light, 0.0f) * physical_exposure()), kMaxPhysicalLight)), 1u);
+}
+
 // The slot's result at the camera's exposure (the composite and the sub-frames read it), and the samples' export in
 // the lighting's own result format (light texture for translucent draws, the eye's adaptation, the reflections).
 [numthreads(8, 8, 1)]
@@ -3444,6 +4673,9 @@ void EngineFinalCS(uint3 id : SV_DispatchThreadID)
     // The whole diffuse light reaching the surface for the samples' readers (the eye's adaptation, the light texture of
     // the translucent draws, the water's reflections), whatever the view and the surface's metalness.
     float3 whole = float3(0.0f, 0.0f, 0.0f);
+    // The surface's light less the sun's (filtered: its sky, bounce and lights), for falling water in front of it.
+    float3 unsunned = float3(0.0f, 0.0f, 0.0f);
+    bool lit_surface = false;
     float z = 0.0f;
     // GALAXY_RT_ENGINE_REFERENCE: the pixel's diffuse light (m) against the reference's (luminance: reference, engine,
     // absolute difference, 1), on the ordinary non-metal surfaces.
@@ -3461,6 +4693,12 @@ void EngineFinalCS(uint3 id : SV_DispatchThreadID)
     float meter_moved = 0.0f;
     // And the diffuse history's length there (frames: 1 where the surface's history was lost).
     float meter_history = 0.0f;
+    // And the specular history's length, the share of it reprojected by the reflection's motion (EngineTemporalCS), and
+    // the light change the histories take (light_change), 1.
+    float4 meter_spec = float4(0.0f, 0.0f, 0.0f, 0.0f);
+    // And the specular samples' relative deviation over the history (its moments), the a-trous's reflection radius
+    // (pixels: the lobe's footprint about the virtual image) and the perceptual roughness, 1.
+    float4 meter_spec_noise = float4(0.0f, 0.0f, 0.0f, 0.0f);
     if (s.valid) {
         z = s.p.z;
         if ((s.flags & kGbEmitter) != 0u) {
@@ -3475,10 +4713,20 @@ void EngineFinalCS(uint3 id : SV_DispatchThreadID)
             // through it), passed at 1 - F; lighting it again at its own surface would darken it to black. Its
             // reflection is the traced specular's.
             const uint4 a = engine_buffer((g_engine_info.w & 1u) == 0u ? kEvAtrousA : kEvAtrousB).Load4(pixel * 16u);
+            const float visible = f16tof32(engine_buffer(kEvShadow).Load(pixel * 4u));
             float3 sun_glint;
-            sun_light(s, pixel, f16tof32(engine_buffer(kEvShadow).Load(pixel * 4u)), sun_glint);
+            const float3 sun_seen = sun_light(s, pixel, visible, sun_glint);
             // View 3 (the traced specular alone): its reflection without what shows through.
-            diffuse = ((g_engine_info.x & kEngineView) >> 4u) == 3u ? float3(0.0f, 0.0f, 0.0f) : (1.0f - kClearF0).xxx;
+            diffuse = ((g_engine_info.x & kEngineView) >> 4u) == 3u ? float3(0.0f, 0.0f, 0.0f)
+                                                                     : (1.0f - specular_f0(s).x).xxx;
+            if ((s.flags & kGbClearLit) != 0u) {
+                // Ice: its look as the game drew it, darkened where the traced sun is shadowed, by its light there over
+                // its light in the full sun (the sky's and the bounce's kept): a shadow lands on it as on any surface.
+                const float3 unsunned = float3(f16tof32(a.x), f16tof32(a.x >> 16u), f16tof32(a.y));
+                float3 unused;
+                const float3 sun_full = sun_light(s, pixel, 1.0f, unused);
+                diffuse *= saturate((unsunned + sun_seen) / max(unsunned + sun_full, 1e-4f));
+            }
             specular = (float3(f16tof32(a.z), f16tof32(a.z >> 16u), f16tof32(a.w)) + sun_glint) * exposure;
             whole = diffuse;
         } else {
@@ -3490,8 +4738,17 @@ void EngineFinalCS(uint3 id : SV_DispatchThreadID)
             const float visible = f16tof32(engine_buffer(kEvShadow).Load(pixel * 4u));
             float3 sun_glint;
             const float3 sun = sun_light(s, pixel, view == 1u || view == 4u ? ray : visible, sun_glint);
-            diffuse = float3(f16tof32(a.x), f16tof32(a.x >> 16u), f16tof32(a.y)) + sun;
-            specular = float3(f16tof32(a.z), f16tof32(a.z >> 16u), f16tof32(a.w)) + sun_glint;
+            unsunned = float3(f16tof32(a.x), f16tof32(a.x >> 16u), f16tof32(a.y));
+            lit_surface = true;
+            diffuse = unsunned + sun;
+            specular = float3(f16tof32(a.z), f16tof32(a.z >> 16u), f16tof32(a.w));
+            const float rough = rough_reflection_share(s.roughness);
+            if (rough > 0.0f) {
+                specular = lerp(specular,
+                                unsunned * env_brdf(specular_f0(s), s.roughness, saturate(dot(s.n, normalize(-s.p)))),
+                                rough);
+            }
+            specular += sun_glint;
             whole = diffuse * exposure;
             if (g_probe.w != 0u) {
                 const float2 centre = float2(g_probe.w & 0xFFFu, (g_probe.w >> 12u) & 0xFFFu);
@@ -3502,6 +4759,16 @@ void EngineFinalCS(uint3 id : SV_DispatchThreadID)
                                    luminance(diffuse), luminance(sun), 1.0f);
                     meter_split = float2(luminance(gi_upsampled(s, q)), luminance(diffuse - sun));
                     meter_history = f16tof32(engine_buffer(kEvHistDiffuse).Load(pixel * 16u + 4u) >> 16u);
+                    meter_spec = float4(f16tof32(engine_buffer(kEvHistSpecular).Load(pixel * kSpecHistoryBytes + 4u) >> 16u),
+                                        spec_history_virtual(pixel), light_change(q).x, 1.0f);
+                    {
+                        const float2 ms = asfloat(engine_buffer(kEvHistSpecular).Load2(pixel * kSpecHistoryBytes + 16u));
+                        const float track = f16tof32(engine_buffer(kEvHistSpecular).Load(pixel * kSpecHistoryBytes + 12u) >> 16u);
+                        const float spec_tan = track * lobe_tan(s.roughness, kLobeShare) / (length(s.p) + track);
+                        meter_spec_noise = float4(min(sqrt(max(ms.y - ms.x * ms.x, 0.0f)) / max(ms.x, 1e-4f), 50.0f),
+                                                  min(spec_tan * abs(s.p.z) / pixel_world_size(s.p.z), 1000.0f),
+                                                  s.roughness, 1.0f);
+                    }
                     if ((g_engine_info.x & kEngineMotion) != 0u) {
                         const Texture2D<float2> motion = ResourceDescriptorHeap[engine_view(kEvMotion)];
                         const float2 d = float2(q) + 0.5f + motion.Load(int3(q, 0)) + g_motion_jitter -
@@ -3526,6 +4793,25 @@ void EngineFinalCS(uint3 id : SV_DispatchThreadID)
                         diffuse = reference;
                     }
                 }
+            }
+            // A fall the frame shows (kDrawTableFall without kDrawTableSolid: the game's draw kept, its pattern only
+            // the raster's indirect warp draws): water over what lies behind it, traced through (fall_water, its colour
+            // the game's own painted one), in place of the surface's lit colour; the translucent layers the game draws
+            // over it land on it. The light texture there carries the white water's light.
+            const uint draw_word =
+                s.draw != 0xFFFFu ? g_draws.Load(min(s.draw, max(g_draw_count, 1u) - 1u) * kDrawStride + 24u) : 0u;
+            if ((draw_word & kDrawTableFall) != 0u && (draw_word & kDrawTableSolid) == 0u && view != 7u) {
+                const Texture2D<float4> picture = ResourceDescriptorHeap[engine_view(kEvPicture)];
+                const float3 painted = srgb_to_linear(saturate(picture.Load(int3(q, 0)).rgb));
+                const float3 dir = normalize(s.p);
+                const uint salt = pixel * 32u + g_frame * 0x632BE5ABu + 47u;
+                const ClearLight light =
+                    fall_water(s.p, s.ng, s.n, painted, fall_hue(s.draw), fall_thickness(s.draw),
+                               fall_aeration(s.draw), fall_white(s.draw), dir, pixel, false);
+                const float3 past = behind_fall(s.p + dir * (1.0f + abs(s.p.z) * 1e-3f), dir, salt);
+                diffuse = float3(0.0f, 0.0f, 0.0f);
+                specular = light.r + past * light.t;
+                whole = foam_light(s.p, s.ng, s.n, kFoamBack) * exposure;
             }
             if (view == 1u || view == 2u || view == 4u) {
                 const uint4 dv = engine_buffer(kEvDirect).Load4(pixel * 16u);
@@ -3555,12 +4841,12 @@ void EngineFinalCS(uint3 id : SV_DispatchThreadID)
                 diffuse = float3(0.0f, 0.0f, 0.0f);
                 specular = srgb_to_linear(shown) / max(exposure, 1e-6f);
             }
-            // Views 11 to 13: the sun's shadow, unlit (the filtered visibility, its ray's, the penumbra's radius on
-            // screen over kShadowRadiusMost; facing away black).
+            // Views 11 to 13: the sun's shadow, unlit (the filtered visibility, its ray's, the penumbra's reach along
+            // the sun's track on screen over kShadowRadiusMost; facing away black).
             if (view >= 11u && view <= 13u) {
-                const float radius = penumbra > 0.0f && penumbra < kShadowLit
-                                         ? min(penumbra / pixel_world_size(s.p.z), kShadowRadiusMost) / kShadowRadiusMost
-                                         : 0.0f;
+                const float reach = penumbra * shadow_frame(s).stretch / pixel_world_size(s.p.z);
+                const float radius =
+                    penumbra > 0.0f && penumbra < kShadowLit ? min(reach, kShadowRadiusMost) / kShadowRadiusMost : 0.0f;
                 diffuse = float3(0.0f, 0.0f, 0.0f);
                 specular = (view == 11u ? visible : view == 12u ? ray : radius).xxx * (0.5f / max(exposure, 1e-6f));
             }
@@ -3604,6 +4890,8 @@ void EngineFinalCS(uint3 id : SV_DispatchThreadID)
         const float4 moving = WaveActiveSum(meter_motion);
         const float moved = WaveActiveSum(meter_moved);
         const float history = WaveActiveSum(meter_history);
+        const float4 spec = WaveActiveSum(meter_spec);
+        const float4 spec_noise = WaveActiveSum(meter_spec_noise);
         if (WaveIsFirstLane() && total.w > 0.0f) {
             const uint at = g_sample_size.x * g_sample_size.y + kStarSlots + 4u;
             InterlockedAdd(g_final[at].x, uint(round(total.x * 256.0f)));
@@ -3620,6 +4908,18 @@ void EngineFinalCS(uint3 id : SV_DispatchThreadID)
                 InterlockedAdd(g_final[at + 2u].y, asuint(int(round(moving.y * 256.0f))));
                 InterlockedAdd(g_final[at + 2u].z, uint(round(moving.z * 256.0f)));
                 InterlockedAdd(g_final[at + 2u].w, uint(moving.w));
+            }
+            if (spec.w > 0.0f) {
+                InterlockedAdd(g_final[at + 5u].x, uint(round(spec.x * 16.0f)));
+                InterlockedAdd(g_final[at + 5u].y, uint(round(spec.y * 256.0f)));
+                InterlockedAdd(g_final[at + 5u].z, uint(round(spec.z * 256.0f)));
+                InterlockedAdd(g_final[at + 5u].w, uint(spec.w));
+            }
+            if (spec_noise.w > 0.0f) {
+                InterlockedAdd(g_final[at + 6u].x, uint(round(spec_noise.x * 256.0f)));
+                InterlockedAdd(g_final[at + 6u].y, uint(round(spec_noise.y * 16.0f)));
+                InterlockedAdd(g_final[at + 6u].z, uint(round(spec_noise.z * 1024.0f)));
+                InterlockedAdd(g_final[at + 6u].w, uint(spec_noise.w));
             }
         }
     }
@@ -3644,7 +4944,18 @@ void EngineFinalCS(uint3 id : SV_DispatchThreadID)
         if (all(sp < g_sample_size)) {
             const uint sample = sp.y * g_sample_size.x + sp.x;
             const float3 m = min(safe_light(whole), kMaxPhysicalLight);
+            // Falling water in front: its own light for the light texture (0: none).
+            if (g_probe.z != 0u && all(q == int2(g_probe.xy * g_factor))) {
+                g_final[g_sample_size.x * g_sample_size.y + kStarSlots + 8u] = uint4(0u, 0u, 0u, 0u);
+            }
+            uint open_word;
+            uint fall_word;
+            water_light(q, s.valid ? length(s.p) : 1.0e5f, lit_surface, s.n, unsunned,
+                        pixel * 32u + g_frame * 0x632BE5ABu + 5u, open_word, fall_word);
             g_final[sample] = uint4(pack_half2(m.r, m.g), f32tof16(m.b) | (f32tof16(1.0f) << 16u), asuint(z), 0u);
+            // The light at the water in front of the sample, after the probe's records (LightTexturePS).
+            g_final[g_sample_size.x * g_sample_size.y + kStarSlots + kProbeRecords + sample] =
+                uint4(fall_word, open_word, 0u, 0u);
             g_z[sample] = z;
         }
     }

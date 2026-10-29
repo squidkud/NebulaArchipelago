@@ -59,8 +59,11 @@ struct RtEngineConstants {
     std::uint32_t info[4];     // flags, a-trous step, slot, a-trous parity
     float params[4];
     float water[4];            // the camera in water (x: 1), its depth (y, eye units): rt_lighting.hlsl water_medium
+    // The table metals' colour as the game paints them, per draw (rt_engine.hlsl EnginePaintCS): the buffer's view
+    // (~0: none), the traced scene's triangles, the draws the buffer holds.
+    std::uint32_t paint[4];
 };
-static_assert(sizeof(RtEngineConstants) == 192u);
+static_assert(sizeof(RtEngineConstants) == 208u);
 
 class SceneRayTracer {
 public:
@@ -78,7 +81,24 @@ public:
     bool initialize(ID3D12Device* device, std::uint64_t timestamp_frequency, bool validate,
                     DXGI_FORMAT scene_format, DXGI_FORMAT display_format);
     void shutdown() noexcept;
+    // A tracer started on a worker takes over from `from` (RendererD3D12::reconcile_ray_tracing): the inputs the
+    // renderer and the game set whether or not a tracer runs (its views, the stage's sun, the scene's up, camera and
+    // lights), which a restart keeps (shutdown leaves them).
+    void adopt_inputs(const SceneRayTracer& from) noexcept;
+    // The buffers the first traced frames at this EFB size would otherwise make on the render thread (the engine's,
+    // about 2 GB at 4x; the lighting's; the slots' pixel records and clear passes; the water pass's): made by the
+    // starting worker, so neither the frame that takes the tracer over nor the first stage allocates them. A later
+    // size is made where it is first traced.
+    void prepare_buffers(std::uint32_t width, std::uint32_t height);
+    // Whether prepare_buffers made them for this size.
+    [[nodiscard]] bool prepared_for(std::uint32_t width, std::uint32_t height) const noexcept {
+        return prepared_width_ == width && prepared_height_ == height;
+    }
     [[nodiscard]] bool ready() const noexcept { return ready_; }
+    // Every pipeline it has was made: the lighting's, the engine's and the reflections' (rt_prepare.h's complete start).
+    [[nodiscard]] bool complete() const noexcept {
+        return ready_ && lighting_enabled_ && engine_ready_ && reflections_.ready();
+    }
     // The quality it started with (config rt_quality: 0 medium, 1 high, 2 low).
     [[nodiscard]] unsigned quality() const noexcept { return quality_; }
 
@@ -210,8 +230,12 @@ public:
     void composite(ID3D12GraphicsCommandList* list, D3D12_CPU_DESCRIPTOR_HANDLE target,
                    D3D12_GPU_DESCRIPTOR_HANDLE depth_srv, D3D12_GPU_DESCRIPTOR_HANDLE color_srv, std::uint32_t width,
                    std::uint32_t height, int slot, bool reproject, unsigned efb_scale);
-    // Before a sub-frame's replay: its camera (world to eye at t), for the composites it runs.
-    void write_reprojection(ID3D12GraphicsCommandList* list, const std::array<float, 12>& camera_t);
+    // Before a sub-frame's replay: its camera (world to eye at t) and the view its depth is drawn with (`own_view`:
+    // projection with the jitter in and depth terms, as scene_depth_view gives a traced frame's; null: the traced
+    // frame's), for the composites it runs: they rebuild its points with its own view and take them to the traced frame
+    // with the slot's.
+    void write_reprojection(ID3D12GraphicsCommandList* list, const std::array<float, 12>& camera_t,
+                            const RtView* own_view);
     // At the scene's end: its finished picture (EFB colour and depth, NON_PIXEL_SHADER_RESOURCE, two
     // consecutive SRVs at `color_depth_table` in the bound heap) becomes the light the next frame's rays
     // read where they hit, and the glows drawn since the trace become lights (their eye-space triangles,
@@ -231,18 +255,36 @@ public:
     // The camera (ray_tracing_camera.cpp, rt_camera.hlsl). camera_widen: the RGBA8 EFB's picture (`picture_table`:
     // its colour view first, PIXEL_SHADER_RESOURCE) into the HDR scene EFB (`target`) as it is. camera_finish: the
     // HDR scene EFB's light (`picture_table`, NON_PIXEL and PIXEL_SHADER_RESOURCE) through bloom and the tone curve
-    // into the RGBA8 EFB (`target`); without physical light the picture as it is, clamped.
+    // into the RGBA8 EFB (`target`); without physical light the picture as it is, clamped. `slot` is the light slot of
+    // the frame the picture shows (-1: none, not traced), whose light and sun the camera takes: a sub-frame replays a
+    // frame the tracer has moved past. `subframe`: the sun's shafts turn into the sub-frame's camera (write_reprojection).
     [[nodiscard]] bool camera_ready() const noexcept { return camera_pso_ && camera_widen_pso_; }
     // The ray tracing engine (ray_tracing_engine.cpp, rt_engine.hlsl), active under physical, textured lighting.
     // composite_clear: the engine's clear surfaces (rt_engine.hlsl EngineClearCS) of `slot` over the picture
-    // (`scene_srv`: its copy at the water's trace), with the water's composite. set_engine_picture: the EFB colour
-    // the next trace reads (NON_PIXEL_SHADER_RESOURCE during it; the renderer transitions it).
+    // (`scene_srv`: its copy at the water's trace; `layer_srv`: the effects layer over it, colour and transmittance),
+    // with the water's composite. set_engine_picture: the EFB colour the next trace reads (NON_PIXEL_SHADER_RESOURCE
+    // during it; the renderer transitions it).
     void composite_clear(ID3D12GraphicsCommandList* list, D3D12_CPU_DESCRIPTOR_HANDLE target,
                          D3D12_GPU_DESCRIPTOR_HANDLE depth_srv, std::uint32_t width, std::uint32_t height, unsigned slot,
-                         bool reproject, D3D12_GPU_DESCRIPTOR_HANDLE scene_srv);
+                         bool reproject, D3D12_GPU_DESCRIPTOR_HANDLE scene_srv,
+                         D3D12_GPU_DESCRIPTOR_HANDLE layer_srv = {});
     [[nodiscard]] bool engine_active() const noexcept {
         return engine_ready_ && physical_active_ && lighting_active() && light_textured_;
     }
+    // The waterfall mist (rt_engine.hlsl MistLightCS, rt_lighting.hlsl MistCompositePS): the table's `mist` effects'
+    // sprites are puffs of drops while the scene's water window is open (mist_open; GALAXY_RT_MIST=0: the sprites as
+    // the game draws them). note_mist: one puff, its eye-space centre, width (sigma), optical depth through its centre
+    // and brightness (its row's colour, white 1). mist_slot: the light slot whose puffs the water's trace lit this frame (-1: none). composite_mist: them over
+    // the picture (`scene_srv`: its copy after the water's composites; `layer_srv`: the effects layer).
+    [[nodiscard]] bool mist_open() const noexcept {
+        return mist_wanted_ && water_open_ && engine_active() && surface_reflections_active() && engine_mist_pso_ &&
+               mist_composite_pso_;
+    }
+    void note_mist(const float centre[3], float sigma, float depth, float white);
+    [[nodiscard]] int mist_slot() const noexcept { return mist_slot_; }
+    void composite_mist(ID3D12GraphicsCommandList* list, D3D12_CPU_DESCRIPTOR_HANDLE target,
+                        D3D12_GPU_DESCRIPTOR_HANDLE depth_srv, std::uint32_t width, std::uint32_t height, unsigned slot,
+                        bool reproject, D3D12_GPU_DESCRIPTOR_HANDLE scene_srv, D3D12_GPU_DESCRIPTOR_HANDLE layer_srv);
     // The engine traces the clear surfaces (its clear pass runs with the water window's trace: the table's `traced`
     // glass and solids).
     [[nodiscard]] bool engine_clear_active() const noexcept {
@@ -255,7 +297,8 @@ public:
     bool camera_widen(ID3D12GraphicsCommandList* list, D3D12_GPU_DESCRIPTOR_HANDLE picture_table,
                       D3D12_CPU_DESCRIPTOR_HANDLE target, std::uint32_t width, std::uint32_t height);
     bool camera_finish(ID3D12GraphicsCommandList* list, D3D12_GPU_DESCRIPTOR_HANDLE picture_table,
-                       D3D12_CPU_DESCRIPTOR_HANDLE target, std::uint32_t width, std::uint32_t height);
+                       D3D12_CPU_DESCRIPTOR_HANDLE target, std::uint32_t width, std::uint32_t height, int slot,
+                       bool subframe);
     // Transforms the water draws noted since the last flush (before a render chunk's list closes,
     // as flush_geometry).
     void flush_water(ID3D12GraphicsCommandList* list, const RtSources& sources, Allocate allocate,
@@ -276,11 +319,12 @@ public:
     // Blends the water reflections of `slot` into the EFB colour `target` at the depth `depth_srv`
     // holds (PIXEL_SHADER_RESOURCE); `reproject` as composite(). Leaves its own root signature and
     // pipeline bound.
-    // `scene_srv`: the frame with the game's water drawn (a copy), which the water composite low-passes.
+    // `scene_srv`: the frame with the game's water drawn (a copy), which the water composite low-passes;
+    // `layer_srv`: the effects layer drawn over the water and the clear surfaces (colour and transmittance; 0: none).
     void composite_water(ID3D12GraphicsCommandList* list, D3D12_CPU_DESCRIPTOR_HANDLE target,
                          D3D12_GPU_DESCRIPTOR_HANDLE depth_srv, std::uint32_t width, std::uint32_t height, int slot,
                          bool reproject, D3D12_GPU_DESCRIPTOR_HANDLE scene_srv = {},
-                         D3D12_GPU_DESCRIPTOR_HANDLE opaque_srv = {});
+                         D3D12_GPU_DESCRIPTOR_HANDLE opaque_srv = {}, D3D12_GPU_DESCRIPTOR_HANDLE layer_srv = {});
     // After the composite (same views): the picture before the translucent phases; with `game_srv`
     // (the composite's source: the game's own opaque picture) the exposure's measurement.
     void snapshot_glow_base(ID3D12GraphicsCommandList* list, D3D12_GPU_DESCRIPTOR_HANDLE color_depth_table,
@@ -364,8 +408,12 @@ private:
         kPassEngineDenoise,     // temporal accumulation and the four a-trous iterations
         kPassEngineFinal,
         kPassEngineClear,       // the glass pass at the water's trace (outside the lighting)
-        kPassCount
+        kPassEngineMist,        // the mist's light at the water's trace (outside the lighting)
+        kPassMistComposite,     // the mist over the picture
+        kPassEngineKernel,      // GALAXY_RT_PASS_TIMING=2: the engine's dispatches in their order (kEngineKernels)
+        kPassCount = kPassEngineKernel + 24
     };
+    static constexpr unsigned kEngineKernels = kPassCount - kPassEngineKernel;
     struct PassEntry {
         std::uint64_t frame = 0;
         std::uint32_t pass = 0;
@@ -423,6 +471,14 @@ private:
     // (engine_bind_); `depth_table`: the EFB depth's view. False: none this scene.
     bool trace_engine_clear(ID3D12GraphicsCommandList* list, Allocate allocate, void* allocate_context,
                             D3D12_GPU_DESCRIPTOR_HANDLE depth_table, unsigned slot);
+    // The lighting's root as the engine's trace of slot engine_bind_.slot bound it, with the constants at `constants` (a
+    // copy of engine_bind_'s): for the passes at the scene's end (the clear pass, the mist's light).
+    void bind_engine_end(ID3D12GraphicsCommandList* list, D3D12_GPU_VIRTUAL_ADDRESS constants,
+                         D3D12_GPU_DESCRIPTOR_HANDLE depth_table);
+    // The mist's light (rt_engine.hlsl MistLightCS) at the water's trace: this frame's puffs into the light slot's
+    // records; sets mist_slot_. `water`: the water window's acceleration structure holds this frame's water.
+    void trace_mist(ID3D12GraphicsCommandList* list, Allocate allocate, void* allocate_context,
+                    D3D12_GPU_DESCRIPTOR_HANDLE depth_table, bool water);
     // A view of an acceleration structure in the scene's descriptor block.
     std::uint32_t tlas_view(D3D12_GPU_VIRTUAL_ADDRESS tlas);
     std::uint32_t buffer_uav(ID3D12Resource* resource, std::uint64_t bytes);
@@ -488,6 +544,8 @@ private:
     Microsoft::WRL::ComPtr<ID3D12Resource> pass_readback_;
     std::array<PassEntry, kPassEntries> pass_entries_{};
     unsigned next_pass_entry_ = 0;
+    bool kernel_timing_ = false;
+    std::array<const wchar_t*, kEngineKernels> kernel_names_{};
     std::vector<Retired> retired_;
     // GALAXY_RT_DUMP=<scene serial>: that scene's per-pixel validation is written as PPM
     // images to GALAXY_RT_DUMP_DIR (class, raster depth, traced depth).
@@ -645,6 +703,7 @@ private:
         std::array<float, 3> sun_visible{};  // towards the sun the sky shows (eye space): the shafts' centre
         std::array<float, 3> sun_light{};  // its light
         bool sun_shown = false;            // the sky shows it (the game's BrightSun, or the sun its sky map holds)
+        bool physical = false;             // traced in the stage's light units (physical_active_ then)
         bool pixels = false;               // light_pixels_ holds its per-pixel normals (physical)
         std::array<float, 4> water{};      // the camera in water (1), its depth (RtEngineConstants::water)
         std::array<float, 3> water_sky{};  // the stage's full light it scatters (the lighting's full_light)
@@ -742,7 +801,7 @@ private:
     bool engine_specular_ = true;   // GALAXY_RT_ENGINE_SPECULAR
     bool engine_points_ = true;     // GALAXY_RT_ENGINE_POINTS: the game's point lights and the star core
     bool engine_bounces_ = true;    // GALAXY_RT_ENGINE_BOUNCES: indirect hits take their cached light (every bounce)
-    bool engine_anti_lag_ = true;   // GALAXY_RT_ENGINE_ANTILAG: the diffuse history's anti-lag
+    bool engine_anti_lag_ = true;   // GALAXY_RT_ENGINE_ANTILAG: the histories' anti-lag
     bool engine_light_history_ = true;   // GALAXY_RT_ENGINE_LIGHT_HISTORY=0: no temporal light reuse
     bool engine_clear_wanted_ = true;  // GALAXY_RT_ENGINE_CLEAR: the clear-surface pass
     bool surface_reflections_ = true;  // RenderConfig::rt_reflections (surface_reflections_active)
@@ -761,6 +820,12 @@ private:
     Microsoft::WRL::ComPtr<ID3D12PipelineState> engine_gbuffer_pso_;
     Microsoft::WRL::ComPtr<ID3D12PipelineState> engine_direct_pso_;
     Microsoft::WRL::ComPtr<ID3D12PipelineState> engine_direct_spatial_pso_;
+    // The table metals' painted colour per draw (rt_engine.hlsl EnginePaintClearCS, EnginePaintCS: kEnginePaintDraws
+    // records of 16 bytes), so each material is metal or paint as a whole.
+    Microsoft::WRL::ComPtr<ID3D12PipelineState> engine_paint_clear_pso_;
+    Microsoft::WRL::ComPtr<ID3D12PipelineState> engine_paint_pso_;
+    Microsoft::WRL::ComPtr<ID3D12Resource> engine_paint_;
+    std::uint32_t engine_paint_triangles_ = 0;   // this trace's triangles for EnginePaintCS (0: not run)
     // The light grid (rt_engine.hlsl EngineLightGridCS: kGridCells^3 cells x kGridSlots slots x 8 bytes).
     Microsoft::WRL::ComPtr<ID3D12PipelineState> engine_light_grid_pso_;
     Microsoft::WRL::ComPtr<ID3D12Resource> engine_light_grid_;
@@ -811,6 +876,19 @@ private:
     std::array<Microsoft::WRL::ComPtr<ID3D12Resource>, 4> engine_clear_;
     std::array<D3D12_RESOURCE_STATES, 4> engine_clear_state_{};
     std::array<bool, 4> engine_clear_valid_{};
+    // The waterfall mist: GALAXY_RT_MIST; its pipelines; this frame's puffs (8 floats each: eye-space centre, sigma,
+    // optical depth; rt_engine.hlsl kEvMistIn); per light slot their records for the composite (rt_lighting.hlsl
+    // kMistHeader + 3 a puff, uint4); the slot lit this frame.
+    static constexpr std::uint32_t kMistMost = 512u;   // rt_engine.hlsl kMistMost
+    static constexpr std::uint32_t kMistHeader = 6u;   // rt_lighting.hlsl kMistHeader
+    bool mist_wanted_ = true;
+    std::uint32_t mist_view_ = 0u;   // GALAXY_RT_MIST_VIEW: 1 no cut at the water, 2 the water found under the puffs
+    Microsoft::WRL::ComPtr<ID3D12PipelineState> engine_mist_pso_;
+    Microsoft::WRL::ComPtr<ID3D12PipelineState> mist_composite_pso_;
+    std::vector<float> mist_puffs_;
+    std::array<Microsoft::WRL::ComPtr<ID3D12Resource>, 4> mist_records_;
+    std::array<D3D12_RESOURCE_STATES, 4> mist_records_state_{};
+    int mist_slot_ = -1;
     // The slot's water was traced (trace_water; a frame of clear solids alone traces none, and composites none).
     std::array<bool, 4> water_traced_{};
     // The lighting's constants and bindings of the trace the engine ran (slot), for the clear pass at the scene's end.
@@ -844,6 +922,8 @@ private:
     std::uint64_t camera_texels_ = 0;
     float camera_bloom_ = 0.04f;
     std::uint32_t camera_tone_ = 0;
+    std::uint32_t prepared_width_ = 0;   // prepare_buffers' EFB size
+    std::uint32_t prepared_height_ = 0;
     Microsoft::WRL::ComPtr<ID3D12PipelineState> glow_emit_pso_;
     Microsoft::WRL::ComPtr<ID3D12PipelineState> glow_emitter_pso_;
     // Physical: this scene's glow draws that are table light sources (GlowEmitterCS): first glow triangle, count, first
@@ -933,10 +1013,9 @@ private:
     // kStarSlots balls and the stars' colour over time (rt_lighting.hlsl kStarColour), each with the frame it was
     // taken (+1; 0: free) and whether the colour was copied.
     static constexpr unsigned kBallReadbacks = 4u;
-    // After the balls and the colour: the pixel probe's two records (GALAXY_RT_PROBE: rt_engine.hlsl EngineGBufferCS),
-    // the engine reference's comparison (rt_engine.hlsl EngineFinalCS) and a spare.
-    // The probe's records (GALAXY_RT_PROBE: 0, 1, 3, 7), the reference's comparison (2), the light meter's sums (4 to 6).
-    static constexpr unsigned kProbeRecords = 8u;
+    // After the balls and the colour: the probe's records (GALAXY_RT_PROBE: 0, 1, 3, 7, 8, and its surface's material
+    // 11 to 14), the engine reference's comparison (2), the light meter's sums (4 to 6; the specular history's, 9).
+    static constexpr unsigned kProbeRecords = 15u;
     static constexpr unsigned kBallReadbackBytes = kStarSlots * 16u + 16u + kProbeRecords * 16u;
     // GALAXY_RT_PROBE=x,y (diagnostics): an EFB pixel whose sample reports, once a second, the draw the camera sees and
     // what stops the sun's centre ray from it (draw record, material table entry, distance, instance).
@@ -1277,6 +1356,8 @@ private:
         std::uint64_t glow_draws = 0;
         std::uint64_t glow_triangles = 0;
         std::uint64_t late_triangles = 0;
+        std::uint64_t water_triangles = 0;
+        std::uint64_t water_dropped = 0;   // water draws past kWaterMaxTriangles
         std::array<double, kPassCount> pass_ms{};
         std::array<std::uint64_t, kPassCount> passes{};
         std::uint64_t passes_dropped = 0;

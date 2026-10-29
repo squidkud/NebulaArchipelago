@@ -271,11 +271,12 @@ bool Context::initialize(bool prefer_integrated, bool validation, std::vector<co
     enabled.dualSrcBlend = available.dualSrcBlend;
     enabled.logicOp = available.logicOp;
     enabled.geometryShader = available.geometryShader;
-    // Curved surfaces: the vertex stage's 18 interpolant locations into the hull stage, 16 segments an edge.
+    // Curved surfaces: the vertex stage's 19 interpolant locations into the hull stage, 16 segments an edge.
     const VkPhysicalDeviceLimits& limits = properties_.limits;
-    tessellation_shader_ = available.tessellationShader == VK_TRUE && limits.maxTessellationGenerationLevel >= 16u &&
-                           limits.maxVertexOutputComponents >= 72u &&
-                           limits.maxTessellationControlPerVertexInputComponents >= 72u &&
+    tessellation_shader_ = !quirks_.no_tessellation && available.tessellationShader == VK_TRUE &&
+                           limits.maxTessellationGenerationLevel >= 16u &&
+                           limits.maxVertexOutputComponents >= 76u &&
+                           limits.maxTessellationControlPerVertexInputComponents >= 76u &&
                            limits.maxTessellationEvaluationOutputComponents >= 64u;
     enabled.tessellationShader = tessellation_shader_ ? VK_TRUE : VK_FALSE;
     enabled.samplerAnisotropy = available.samplerAnisotropy;
@@ -283,12 +284,14 @@ bool Context::initialize(bool prefer_integrated, bool validation, std::vector<co
     enabled.depthClamp = available.depthClamp;
     enabled.independentBlend = available.independentBlend;
     enabled.shaderImageGatherExtended = available.shaderImageGatherExtended;
+    enabled.pipelineStatisticsQuery = available.pipelineStatisticsQuery;
     dual_source_blend_ = available.dualSrcBlend == VK_TRUE;
     logic_op_ = available.logicOp == VK_TRUE;
     geometry_shader_ = available.geometryShader == VK_TRUE;
     sampler_anisotropy_ = available.samplerAnisotropy == VK_TRUE;
     bc_textures_ = available.textureCompressionBC == VK_TRUE;
     gather_extended_ = available.shaderImageGatherExtended == VK_TRUE;
+    pipeline_statistics_ = available.pipelineStatisticsQuery == VK_TRUE;
 
     const float priority = 1.0f;
     VkDeviceQueueCreateInfo queue_info{VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
@@ -368,6 +371,27 @@ bool Context::initialize(bool prefer_integrated, bool validation, std::vector<co
                  "anisotropy=%d display-timing=%d\n",
                  dual_source_blend_, logic_op_, geometry_shader_, depth_clamp_, depth_clip_enable_, bc_textures_,
                  sampler_anisotropy_, display_timing_);
+    // The memory BufferPlace chooses from: each heap's size (L: device-local), each type's heap and flags (L device
+    // local, V host visible, C coherent, $ cached).
+    {
+        VkPhysicalDeviceMemoryProperties memory{};
+        vkGetPhysicalDeviceMemoryProperties(physical_, &memory);
+        std::string text;
+        for (std::uint32_t i = 0; i < memory.memoryHeapCount; ++i) {
+            const VkMemoryHeap& heap = memory.memoryHeaps[i];
+            text += " heap" + std::to_string(i) + '=' + std::to_string(heap.size >> 20u) + "MB" +
+                    ((heap.flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) != 0u ? "L" : "");
+        }
+        for (std::uint32_t i = 0; i < memory.memoryTypeCount; ++i) {
+            const VkMemoryPropertyFlags flags = memory.memoryTypes[i].propertyFlags;
+            text += " type" + std::to_string(i) + "=h" + std::to_string(memory.memoryTypes[i].heapIndex) + ':' +
+                    ((flags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) != 0u ? "L" : "") +
+                    ((flags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) != 0u ? "V" : "") +
+                    ((flags & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT) != 0u ? "C" : "") +
+                    ((flags & VK_MEMORY_PROPERTY_HOST_CACHED_BIT) != 0u ? "$" : "");
+        }
+        std::fprintf(stderr, "[vulkan] memory:%s\n", text.c_str());
+    }
     return true;
 }
 
@@ -622,6 +646,25 @@ std::shared_ptr<Texture> Context::create_texture(std::uint32_t width, std::uint3
     return texture;
 }
 
+bool Context::grey_view(Texture& texture) const {
+    VkImageViewCreateInfo view_info{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+    view_info.image = texture.image;
+    view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    view_info.format = VK_FORMAT_R8_UNORM;
+    view_info.components = {VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_R,
+                            VK_COMPONENT_SWIZZLE_R};
+    view_info.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, texture.levels, 0, 1};
+    VkImageView view = VK_NULL_HANDLE;
+    if (vkCreateImageView(device_, &view_info, nullptr, &view) != VK_SUCCESS) {
+        return false;
+    }
+    if (texture.view != VK_NULL_HANDLE) {
+        vkDestroyImageView(device_, texture.view, nullptr);
+    }
+    texture.view = view;
+    return true;
+}
+
 bool Context::device_memory_budget(std::uint64_t& usage, std::uint64_t& budget) const noexcept {
     usage = budget = 0u;
     if (allocator_ == nullptr) {
@@ -641,18 +684,22 @@ bool Context::device_memory_budget(std::uint64_t& usage, std::uint64_t& budget) 
     return budget != 0u;
 }
 
-MappedBuffer Context::create_mapped_buffer(std::uint64_t size, VkBufferUsageFlags usage, const char* name) {
+MappedBuffer Context::create_mapped_buffer(std::uint64_t size, VkBufferUsageFlags usage, const char* name,
+                                           BufferPlace place) {
     MappedBuffer out;
     VkBufferCreateInfo buffer_info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
     buffer_info.size = size;
     buffer_info.usage = usage;
     buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-    // Host memory the GPU reads across the bus, as D3D12's upload heap: written once, read once per frame. Coherent:
-    // the shared ring code never flushes (every Vulkan device has a host-visible coherent type).
+    // Mapped memory is coherent: the shared ring code never flushes (every Vulkan device has a host-visible coherent
+    // type). With sequential writes, preferring the device picks device memory that is also host-visible where there
+    // is some, else host memory.
     VmaAllocationCreateInfo alloc_info{};
-    alloc_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST;
-    alloc_info.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
-    alloc_info.requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+    alloc_info.usage = place == BufferPlace::Host ? VMA_MEMORY_USAGE_AUTO_PREFER_HOST : VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+    if (place != BufferPlace::Device) {
+        alloc_info.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
+        alloc_info.requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+    }
     VmaAllocationInfo allocated{};
     if (vmaCreateBuffer(allocator_, &buffer_info, &alloc_info, &out.buffer, &out.allocation, &allocated) != VK_SUCCESS) {
         return {};
@@ -665,8 +712,9 @@ MappedBuffer Context::create_mapped_buffer(std::uint64_t size, VkBufferUsageFlag
     return out;
 }
 
-std::shared_ptr<Buffer> Context::create_buffer(std::uint64_t size, VkBufferUsageFlags usage, const char* name) {
-    MappedBuffer made = create_mapped_buffer(size, usage, name);
+std::shared_ptr<Buffer> Context::create_buffer(std::uint64_t size, VkBufferUsageFlags usage, const char* name,
+                                               BufferPlace place) {
+    MappedBuffer made = create_mapped_buffer(size, usage, name, place);
     if (made.buffer == VK_NULL_HANDLE) {
         return {};
     }

@@ -1,7 +1,7 @@
 #include "JSystem/J3DGraphBase/J3DShapeDraw.hpp"
+#include "JSystem/J3DGraphBase/J3DNativeShape.hpp"
 #include "JSystem/JKernel/JKRHeap.hpp"
 #include <cstring>
-#include <revolution/gx/GXDispList.h>
 #include <stdint.h>
 
 // Display lists are big-endian (GX reads them as the file has them).
@@ -64,7 +64,6 @@ void J3DShapeDraw::addTexMtxIndexInDL(u32 stride, u32 attrOffs, u32 valueBase) {
 
     mDisplayListSize = realSize;
     mDisplayList = newDLStart;
-    DCStoreRange(newDLStart, mDisplayListSize);
 }
 
 J3DShapeDraw::J3DShapeDraw(const u8* displayList, u32 displayListSize) {
@@ -73,7 +72,7 @@ J3DShapeDraw::J3DShapeDraw(const u8* displayList, u32 displayListSize) {
 }
 
 void J3DShapeDraw::draw() const {
-    GXCallDisplayList(mDisplayList, mDisplayListSize);
+    J3DNativeShape::draw(this);
 }
 
 J3DShapeDraw::~J3DShapeDraw() {

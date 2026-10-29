@@ -48,6 +48,18 @@ int4 gx_u8(int4 v) { return v & int4(255,255,255,255); }
 int2 gx_bit0(int2 v) { return v & 1; }
 #endif
 
+// A clear ice or crystal draw's tint under physical light (GxBackend: ztex_params.w between -1 and 0 the share it loses;
+// rt_materials.h kRtIceTintKept): a colour of its art (an 8-bit sRGB value over 255) with that share of its chroma taken,
+// its luminance kept (linear light, Rec. 709). Its rasterized colours take it, and the texels of its maps that are
+// textures (alpha_refs.z bits 8-15; not the screen captures it shows through it); GxBackend clears its registers.
+float3 gx_tint_cleared(float3 c, float share)
+{
+    float3 l = saturate(c);
+    l = l <= 0.04045 ? l / 12.92 : pow((l + 0.055) / 1.055, 2.4);
+    l = lerp(l, dot(l, float3(0.2126, 0.7152, 0.0722)).xxx, share);
+    return l <= 0.0031308 ? l * 12.92 : 1.055 * pow(l, 1.0 / 2.4) - 0.055;
+}
+
 struct PSIn {
     float4   pos      : SV_Position;
     float4   col0     : COLOR0;
@@ -196,7 +208,13 @@ uint stage_ind_cmd(uint stage) {
     return v[stage & 3u];
 }
 
-#if UBER_EXPORT_DEPTH && UBER_DUAL_SRC
+#if UBER_LAYER && UBER_EXPORT_DEPTH
+struct PSOut { float4 color : SV_Target0; float reactive : SV_Target1; float4 layer : SV_Target2;
+               float4 trans : SV_Target3; float depth : SV_Depth; };
+#elif UBER_LAYER
+struct PSOut { float4 color : SV_Target0; float reactive : SV_Target1; float4 layer : SV_Target2;
+               float4 trans : SV_Target3; };
+#elif UBER_EXPORT_DEPTH && UBER_DUAL_SRC
 struct PSOut { float4 color : SV_Target0; float4 color1 : SV_Target1; float depth : SV_Depth; };
 #elif UBER_EXPORT_DEPTH
 struct PSOut { float4 color : SV_Target0; float depth : SV_Depth; };
@@ -225,6 +243,14 @@ PSOut main(PSIn pin) {
     float3 uvs[8];
     [unroll] for (uint u = 0u; u < 8u; ++u) {
         uvs[u] = pin.uv[u];
+    }
+
+    // A clear ice or crystal draw's tint (gx_tint_cleared): its rasterized colours here, its textures' texels per stage.
+    const bool tinted = ztex_params.w < 0.0 && ztex_params.w > -1.0;
+    const uint tinted_maps = tinted ? (asuint(alpha_refs.z) >> 8u) & 0xFFu : 0u;
+    if (tinted) {
+        pin.col0.rgb = gx_tint_cleared(pin.col0.rgb, -ztex_params.w);
+        pin.col1.rgb = gx_tint_cleared(pin.col1.rgb, -ztex_params.w);
     }
 
     int4 tev_prev_i = int4(round(tev_regs[0] * 255.0));
@@ -405,6 +431,9 @@ PSOut main(PSIn pin) {
             float4 tex_sample = sample_map(texmap, sample_uv);
             last_raw_tex_i = int4(round(saturate(tex_sample) * 255.0));
             tex_color_i = swizzle(last_raw_tex_i, tex_swz);
+            if (((tinted_maps >> texmap) & 1u) != 0u) {
+                tex_color_i.rgb = int3(round(gx_tint_cleared(float3(tex_color_i.rgb) / 255.0, -ztex_params.w) * 255.0));
+            }
         } else if (key_texgens != 0u) {
             tex_color_i = int4(255,255,255,255);
         } else {
@@ -663,10 +692,33 @@ PSOut main(PSIn pin) {
         if ((output_flags & 0x40u) != 0u && ztex_params.w > 0.0) {
             uint lit_w, lit_h;
             tex[7].GetDimensions(lit_w, lit_h);
-            const int2 lit_at = min(int2(pin.pos.xy * ztex_params.w), int2(lit_w, lit_h) - 1);
+            // The light texture's thirds (rt_lighting.hlsl LightTexturePS): water and glass (tex_dims[7].w 2) the
+            // surface behind's light, falling water (1-1.5) its own, the rest (the effects) the open air's over water.
+            const uint lit_third = lit_w / 3u;
+            int2 lit_at = min(int2(pin.pos.xy * ztex_params.w), int2(lit_third, lit_h) - 1);
+            lit_at.x += int(lit_third * (tex_dims[7].w >= 1.5 ? 0u : tex_dims[7].w >= 1.0 ? 2u : 1u));
             const float3 light = max(tex[7].Load(int3(lit_at, 0)).rgb, 0.0);
             lin *= (output_flags & 0x80u) != 0u ? min(light, 1.15) : light;
-        } else if (ztex_params.w < 0.0) {
+            // Falling water (tex_dims[7].w 1 + 0.4 x its aeration; xyz the art's clear water colour): white water drawn
+            // as painted, the clear share clear but for its bubbles' white (ShaderGenerator's lit translucent).
+            if (abs(tex_dims[7].w - 1.0) < 0.5) {
+                const float3 fall_c = frag.rgb <= 0.04045 ? frag.rgb / 12.92 : pow((frag.rgb + 0.055) / 1.055, 2.4);
+                const float3 fall_s = saturate(tex_dims[7].xyz);
+                const float3 fall_h = fall_s <= 0.04045 ? fall_s / 12.92 : pow((fall_s + 0.055) / 1.055, 2.4);
+                const float3 fall_d = 1.0 - fall_h;
+                const float fall_hi = max(fall_c.r, max(fall_c.g, fall_c.b));
+                const float fall_foam = dot(fall_d, fall_d) > 1e-3
+                                            ? saturate(dot(fall_c - fall_h, fall_d) / dot(fall_d, fall_d))
+                                            : (fall_hi > 1e-6 ? min(fall_c.r, min(fall_c.g, fall_c.b)) / fall_hi : 1.0);
+                const float fall_haze = saturate((tex_dims[7].w - 1.0) / 0.4);
+                const float fall_keep = fall_foam + (1.0 - fall_foam) * fall_haze;
+                if (fall_keep > 1e-4) {
+                    lin = (fall_foam * lin + (1.0 - fall_foam) * fall_haze * light) / fall_keep;
+                }
+                efb_color.a = uint(round(float(efb_color.a) * fall_keep));
+                tev_alpha *= fall_keep;
+            }
+        } else if (ztex_params.w <= -1.0) {
             // A light source the table shows in its own colour (`recolour`: RGB8 + 1, negated) keeps its peak, not its
             // luminance: a blue glow's luminance is a fifth of its peak.
             const uint code = uint(-ztex_params.w) - 1u;
@@ -681,11 +733,21 @@ PSOut main(PSIn pin) {
         uint dst_alpha6 = uint(round(saturate(alpha_refs.w) * 255.0)) >> 2;
         frag.a = float(dst_alpha6) / 63.0;
     } else {
+#if UBER_LAYER
+        // A reactive draw blends single-source at the TEV's 8-bit alpha (ShaderGenerator's reactive variant).
+        frag.a = float(efb_color.a) / 255.0;
+#else
         frag.a = float(efb_color.a >> 2) / 63.0;
+#endif
     }
 
     PSOut o;
     o.color = frag;
+#if UBER_LAYER
+    o.reactive = (output_flags & 0x40u) != 0u && tex_dims[7].w > 1.5 ? 0.0 : min(saturate(frag.a), 0.9);
+    o.layer = frag;
+    o.trans = frag;
+#endif
 #if UBER_DUAL_SRC
     o.color1 = float4(0.0, 0.0, 0.0, tev_alpha);
 #endif

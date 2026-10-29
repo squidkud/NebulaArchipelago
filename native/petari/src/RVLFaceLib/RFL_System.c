@@ -41,19 +41,18 @@ RFLErrcode RFLInitResAsync(void* workBuffer, void* resBuffer, u32 resSize, BOOL 
     RFLErrcode errcode;
     u32 wholesize;
 
-    if (resBuffer == NULL) {
+    if (resBuffer == NULL || !RFLiCookResource(resBuffer, resSize)) {
         return RFLErrcode_Fatal;
     }
 
     if (RFLiGetManager() == NULL) {
-        OSRegisterVersion(__RFLVersion);
 
         wholesize = useDeluxTex ? RFL_DELUXE_WORK_SIZE : RFL_WORK_SIZE;
         memset(workBuffer, 0, wholesize);
 
         sRFLManager = (RFLiManager*)workBuffer;
         sRFLLastErrCode = RFLErrcode_NotAvailable;
-        sRFLLastReason = NAND_RESULT_OK;
+        sRFLLastReason = 0;
         sRFLiFileBrokenType = RFLiFileBrokenType_DBNotFound;
         sRFLManager->workBuffer = (u8*)workBuffer + sizeof(RFLiManager);
 
@@ -82,11 +81,7 @@ RFLErrcode RFLInitResAsync(void* workBuffer, void* resBuffer, u32 resSize, BOOL 
         RFLSetIconDrawDoneCallback(NULL);
         RFLSetModelDrawDoneCallback(NULL);
         RFLiSetWorking(FALSE);
-        RFLiInitDatabase(RFLiGetManager()->systemHeap);
         RFLiInitLoader();
-        RFLiInitCtrlBuf(RFLiGetManager()->systemHeap);
-        RFLiInitHiddenDatabase();
-        RFLiInitAccessInfo(RFLiGetManager()->systemHeap);
         RFLiSetCoordinateData(&scCoordinate);
 
         if (resBuffer != NULL) {
@@ -127,8 +122,6 @@ void RFLExit(void) {
         RFLFreeCachedResource();
     }
 
-    RFLiExitAccessInfo();
-
     MEMDestroyExpHeap(RFLiGetManager()->tmpHeap);
     MEMDestroyExpHeap(RFLiGetManager()->systemHeap);
     MEMDestroyExpHeap(RFLiGetManager()->rootHeap);
@@ -136,21 +129,10 @@ void RFLExit(void) {
     sRFLManager = NULL;
 }
 
-static void bootloadDB2Res_(void) {
-    RFLiLoadResourceHeaderAsync();
-
-    switch (RFLWaitAsync()) {
-    case RFLErrcode_Loadfail:
-    case RFLErrcode_Success:
-    case RFLErrcode_Busy:
-        break;
-    default:
-        RFLExit();
-    }
-}
-
+// The Miis are the host's; booting reads the parts archive's header.
 static RFLErrcode RFLiBootLoadAsync(void) {
-    return RFLiBootLoadDatabaseAsync(bootloadDB2Res_);
+    RFLiStartWorking();
+    return RFLiLoadResourceHeaderAsync();
 }
 
 BOOL RFLAvailable(void) {
@@ -173,16 +155,45 @@ void RFLiFree(void* block) {
     MEMFreeToExpHeap(RFLiGetManager()->tmpHeap, block);
 }
 
-RFLiDBManager* RFLiGetDBManager(void) {
-    return !RFLAvailable() ? NULL : &RFLiGetManager()->dbMgr;
-}
-
-RFLiHDBManager* RFLiGetHDBManager(void) {
-    return !RFLAvailable() ? NULL : &RFLiGetManager()->hdbMgr;
-}
-
 RFLiLoader* RFLiGetLoader(void) {
     return !RFLAvailable() ? NULL : &RFLiGetManager()->loader;
+}
+
+// The library's asynchronous status: busy while it works, then the result and its reason.
+BOOL RFLiIsWorking(void) {
+    return RFLiGetWorking();
+}
+
+void RFLiStartWorking(void) {
+    BOOL enabled = OSDisableInterrupts();
+
+    RFLiSetWorking(TRUE);
+    RFLiGetManager()->lastErrCode = RFLErrcode_Busy;
+
+    OSRestoreInterrupts(enabled);
+}
+
+void RFLiEndWorkingReason(RFLErrcode err, s32 reason) {
+    BOOL enabled;
+
+    switch (RFLiGetManager()->lastErrCode) {
+    case RFLErrcode_Busy:
+    case RFLErrcode_Success:
+        enabled = OSDisableInterrupts();
+
+        RFLiSetWorking(FALSE);
+        RFLiGetManager()->lastErrCode = err;
+        RFLiGetManager()->lastReason = reason;
+
+        OSRestoreInterrupts(enabled);
+        break;
+    default:
+        break;
+    }
+}
+
+void RFLiEndWorking(RFLErrcode err) {
+    RFLiEndWorkingReason(err, 0);
 }
 
 BOOL RFLiGetWorking(void) {
@@ -230,14 +241,6 @@ static RFLErrcode RFLWaitAsync(void) {
     } while (status == RFLErrcode_Busy);
 
     return status;
-}
-
-RFLiAccessInfo* RFLiGetAccInfo(RFLiFileType type) {
-    return !RFLAvailable() ? NULL : &RFLiGetManager()->info[type];
-}
-
-RFLiCtrlBufManager* RFLiGetCtrlBufManager(void) {
-    return !RFLAvailable() ? NULL : &RFLiGetManager()->ctrlMgr;
 }
 
 BOOL RFLiGetUseDeluxTex(void) {

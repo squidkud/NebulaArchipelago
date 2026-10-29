@@ -32,6 +32,7 @@
 #include "galaxy/gx/fifo_parser.h"
 #include "galaxy/gx/gx_state.h"
 #include "galaxy/gx/movie_replacement.h"
+#include "galaxy/gx/native_shapes.h"
 #if defined(NEBULA_GPU_VULKAN)
 #include "galaxy/gx/vk/pipeline_cache_vk.h"
 #include "galaxy/gx/vk/renderer_vk.h"
@@ -77,90 +78,6 @@ namespace galaxy::gx {
 struct GuestMemoryRange {
     std::uint32_t guest_base = 0;
     std::uint32_t size = 0;
-};
-
-// A game-visible PE event found by the FIFO preclassifier. The classifier runs FifoParser, so
-// partial commands, draw payloads, BP masks and CALL_DL recursion split exactly as for the renderer.
-struct FramePeEventSignature {
-    enum class Kind : std::uint8_t {
-        Finish,
-        Token,
-    };
-
-    Kind kind = Kind::Finish;
-    std::uint16_t token = 0;
-    bool interrupt = false;
-
-    [[nodiscard]] bool operator==(
-        const FramePeEventSignature&) const = default;
-};
-
-class FramePeEventClassifier final : private FifoSink {
-public:
-    FramePeEventClassifier();
-    void reset();
-    void classify(
-        const std::byte* fifo_data,
-        std::size_t fifo_size,
-        GuestMemory* memory,
-        std::vector<FramePeEventSignature>& events,
-        bool frozen_regions = false);
-
-private:
-    [[nodiscard]] std::size_t draw_payload_size(
-        std::uint8_t vtxfmt,
-        std::uint16_t vertex_count) const override;
-    void on_draw(
-        PrimitiveClass primitive,
-        std::uint8_t vtxfmt,
-        FifoCursor& cursor) override;
-    [[nodiscard]] bool on_cached_simple_draw_run(
-        PrimitiveClass primitive,
-        std::uint8_t vtxfmt,
-        std::span<const std::byte> bytes,
-        std::size_t base_offset,
-        std::span<const CachedDrawPacket> packets) override;
-    [[nodiscard]] bool on_cached_prepared_draw_run(
-        PrimitiveClass primitive,
-        std::uint8_t vtxfmt,
-        std::span<const std::byte> prepared_payload,
-        std::size_t base_offset,
-        std::size_t local_opcode_offset,
-        std::uint8_t opcode,
-        std::size_t source_draw_count) override;
-    [[nodiscard]] bool on_cached_packet_draw_run(
-        std::uint64_t cache_token,
-        std::size_t packet_run_index,
-        PrimitiveClass primitive,
-        std::uint8_t vtxfmt,
-        std::span<const std::byte> bytes,
-        std::size_t base_offset,
-        std::span<const CachedDrawPacket> packets,
-        std::uint32_t total_vertices,
-        std::uint32_t total_indices,
-        std::span<const std::uint16_t> precomputed_indices) override;
-    void on_efb_copy(std::uint32_t exec_command) override;
-    void on_pe_finish() override;
-    void on_pe_token(std::uint16_t token, bool interrupt) override;
-    void on_invalidate_textures() override;
-    void on_tlut_load() override;
-    void on_invalidate_vertex_cache() override;
-
-    GxState state_{};
-    FifoParser parser_{};
-    std::vector<std::byte> pending_fifo_;
-    std::vector<FramePeEventSignature>* active_events_ = nullptr;
-    // draw_payload_size() per vertex format, valid while CP VCD_LO/HI and VAT_A/B/C are unchanged.
-    struct VtxPayloadStrideMemo {
-        bool valid = false;
-        std::uint32_t vcd_lo = 0u;
-        std::uint32_t vcd_hi = 0u;
-        std::uint32_t vat_a = 0u;
-        std::uint32_t vat_b = 0u;
-        std::uint32_t vat_c = 0u;
-        std::size_t stride = 0u;
-    };
-    mutable std::array<VtxPayloadStrideMemo, 8> vtx_payload_stride_memo_{};
 };
 
 // lod_shift_x16: a texture-pack replacement 2^(shift / 16) times the guest size. The guest's LOD
@@ -218,6 +135,7 @@ public:
         if (producer_fifo_marker_count_ < producer_fifo_markers_.size()) {
             const std::uint8_t index = producer_fifo_marker_count_++;
             producer_fifo_markers_[index] = {fifo_offset, marker};
+            producer_fifo_marker_serials_[index] = producer_shape_record_serial_;
             producer_fifo_marker_views_[index] = producer_scene_view_;
             producer_fifo_marker_sky_up_[index] = producer_scene_sky_up_;
             if (producer_scene_view_valid_ && marker == FifoMarker::SceneBegin) {
@@ -275,6 +193,12 @@ public:
     void attach_stripe_particle(const StripeParticleMark& mark) {
         if (producer_stripe_particles_.size() < 65536u) producer_stripe_particles_.push_back(mark);
     }
+    // Simulation thread: a native shape record (native_shapes.h) the next submission carries, run when its parser
+    // reaches the record's offset.
+    void attach_shape_record(shapes::Record record) {
+        record.serial = producer_shape_record_serial_++;
+        producer_shape_records_.push_back(std::move(record));
+    }
     // Simulation thread: the movie frame later submissions carry (movie_replacement.h).
     void attach_movie_frame(const char* name, std::int32_t frame, float frame_rate, std::uint32_t y, std::uint32_t u,
                             std::uint32_t v, std::uint32_t width, std::uint32_t height) noexcept {
@@ -326,45 +250,6 @@ public:
     [[nodiscard]] std::uint64_t xfb_copy_count() const noexcept;
     [[nodiscard]] XfbPresentStats xfb_present_stats() const noexcept;
 
-    struct DependencyDrawRunRangeCacheKey {
-        std::uint64_t cache_token = 0;
-        std::size_t packet_run_index = 0;
-        PrimitiveClass primitive = PrimitiveClass::Points;
-        std::uint8_t vtxfmt = 0;
-        std::uint64_t state_hash = 0;
-
-        GxState::DependencyShapeWords shape_words{};
-
-        [[nodiscard]] bool operator==(
-            const DependencyDrawRunRangeCacheKey&) const = default;
-    };
-
-    struct DependencyDrawRunRangeCacheKeyHash {
-        [[nodiscard]] std::size_t operator()(
-            const DependencyDrawRunRangeCacheKey& key) const noexcept {
-            std::uint64_t hash = 1469598103934665603ull;
-            const auto mix = [&hash](std::uint64_t value) noexcept {
-                for (unsigned byte = 0; byte < 8; ++byte) {
-                    hash ^= (value >> (byte * 8u)) & 0xFFu;
-                    hash *= 1099511628211ull;
-                }
-            };
-            mix(key.cache_token);
-            mix(static_cast<std::uint64_t>(key.packet_run_index));
-            mix(static_cast<std::uint8_t>(key.primitive));
-            mix(key.vtxfmt);
-            mix(key.state_hash);
-            return static_cast<std::size_t>(hash);
-        }
-    };
-
-    struct DependencyDrawRunRangeCacheEntry {
-        DependencyDrawRunRangeCacheKey key{};
-        std::uint64_t last_used = 0;
-        std::size_t byte_size = 0;
-        std::vector<GuestMemoryRange> ranges;
-    };
-
 private:
     friend class GxBackendMemorySnapshotTestAccess;
 
@@ -389,36 +274,17 @@ private:
         PrimitiveClass primitive,
         std::uint8_t vtxfmt,
         FifoCursor& cursor) override;
+    // Resolves draw state once for a run of `draw_count` draws (a native shape's); end_cached_draw_run follows
+    // only when this returns true.
     [[nodiscard]] bool begin_cached_draw_run(
         PrimitiveClass primitive,
         std::uint8_t vtxfmt,
-        std::size_t draw_count) override;
-    void end_cached_draw_run() override;
-    [[nodiscard]] bool on_cached_simple_draw_run(
+        std::size_t draw_count);
+    void end_cached_draw_run();
+    void on_cached_draw_run_draw(
         PrimitiveClass primitive,
         std::uint8_t vtxfmt,
-        std::span<const std::byte> bytes,
-        std::size_t base_offset,
-        std::span<const CachedDrawPacket> packets) override;
-    [[nodiscard]] bool on_cached_prepared_draw_run(
-        PrimitiveClass primitive,
-        std::uint8_t vtxfmt,
-        std::span<const std::byte> prepared_payload,
-        std::size_t base_offset,
-        std::size_t local_opcode_offset,
-        std::uint8_t opcode,
-        std::size_t source_draw_count) override;
-    [[nodiscard]] bool on_cached_packet_draw_run(
-        std::uint64_t cache_token,
-        std::size_t packet_run_index,
-        PrimitiveClass primitive,
-        std::uint8_t vtxfmt,
-        std::span<const std::byte> bytes,
-        std::size_t base_offset,
-        std::span<const CachedDrawPacket> packets,
-        std::uint32_t total_vertices,
-        std::uint32_t total_indices,
-        std::span<const std::uint16_t> precomputed_indices) override;
+        FifoCursor& cursor);
     void on_efb_copy(std::uint32_t exec_command) override;
     void on_pe_finish() override;
     void on_pe_token(std::uint16_t token, bool interrupt) override;
@@ -439,6 +305,8 @@ private:
     // Whether a triangle draw with vertex format `vtxfmt` is a curved surface (curved_surfaces.h): a perspective scene
     // draw of a model the game registered, its positions indexed, not bump mapped, while the setting is on.
     [[nodiscard]] bool curved_draw(std::uint8_t vtxfmt) const;
+    // The pipeline of a curved draw's flat triangles (current_flat_pipeline_) for the curved pipeline's key.
+    [[nodiscard]] gpu::Pipeline* resolve_flat_pipeline(const PsoKey& curved_key);
     // The topology a draw records: a curved surface's patches while its specialized pipeline draws it.
     [[nodiscard]] gpu::Topology draw_topology(gpu::Topology topology) const noexcept {
         return current_curved_ && !current_pipeline_is_uber_ ? gpu::kTopologyTrianglePatches : topology;
@@ -466,6 +334,8 @@ private:
         bool traced = false;
         RtDrawInfo rt_info{};
         std::uint64_t debake_model = 0u;   // an undecided model whose vertex colours this batch samples
+        // Its indices are a native shape's own, apart from the frame's index ring: nothing extends it.
+        bool sealed = false;
     };
 
     [[nodiscard]] static bool draw_calls_batch_compatible(
@@ -478,10 +348,6 @@ private:
     void ReportPipelineCoverage();
     std::size_t last_reported_shader_records_ = 0;
     std::size_t last_reported_pso_records_ = 0;
-    void on_cached_draw_run_draw(
-        PrimitiveClass primitive,
-        std::uint8_t vtxfmt,
-        FifoCursor& cursor);
 
     struct MemorySnapshotStorage {
         std::byte* source = nullptr;
@@ -547,12 +413,10 @@ private:
         std::vector<GuestWriteRange> dirty_ranges;
         std::vector<GuestMemoryRange> memory_ranges;
         std::vector<PeEvent> pe_events;
-        std::vector<FramePeEventSignature> preclassified_pe_events;
         GuestMemory* memory = nullptr;
         const GxServices* services = nullptr;
         FramePeCompletionToken pe_completion_token{};
         std::uint64_t producer_wait_ns = 0;
-        std::uint64_t pe_classification_ns = 0;
         std::uint32_t displayed_xfb_addr = 0;
         bool present_swap_chain = true;
         bool present_only = false;
@@ -560,8 +424,6 @@ private:
         bool memory_snapshot_strict = false;
         bool cpu_reads_pending = false;
         bool fifo_effects_pending = false;
-        bool pe_events_preclassified = false;
-        bool pe_event_free_receipt = false;
         bool pe_completion_requires_resolution = false;
         bool pe_events_scanned_on_sim_thread = false;
         bool efb_peek_only = false;
@@ -574,6 +436,8 @@ private:
         // Scene boundaries in this chunk's FIFO, in stream order (3D and 2D
         // scenes of up to two frames).
         std::array<std::pair<std::size_t, FifoMarker>, kFifoMarkersPerChunk> fifo_markers{};
+        // Per marker: how many shape records the game had made before it (their order at one offset).
+        std::array<std::uint64_t, kFifoMarkersPerChunk> fifo_marker_serials{};
         std::uint8_t fifo_marker_count = 0;
         // Game camera (world to eye) per SceneBegin marker; bit i of the
         // mask marks marker i's view valid.
@@ -586,6 +450,8 @@ private:
         std::array<SceneStage, kFifoMarkersPerChunk> fifo_marker_stages{};
         // JPA stripe particles in this chunk's FIFO (attach_stripe_particle).
         std::vector<StripeParticleMark> stripe_particles;
+        // Native shape records in this chunk's FIFO, in stream order (attach_shape_record).
+        std::vector<shapes::Record> shape_records;
         std::uint64_t dependency_scan_ns = 0;
         std::uint64_t snapshot_ns = 0;
         std::uint64_t snapshot_bytes = 0;
@@ -652,6 +518,18 @@ private:
     std::shared_ptr<PointerDepthCapture> producer_pointer_depth_capture_;
     std::size_t producer_pointer_depth_capture_offset_ = 0;
     std::array<std::pair<std::size_t, FifoMarker>, kFifoMarkersPerChunk> producer_fifo_markers_{};
+    std::array<std::uint64_t, kFifoMarkersPerChunk> producer_fifo_marker_serials_{};
+    // Shape records made so far (attach_shape_record): each record's and marker's place among them.
+    std::uint64_t producer_shape_record_serial_ = 0;
+    // Render thread: where a chunk's stream is split (markers, the pointer depth field, shape records), reused.
+    struct StreamSplit {
+        std::size_t offset;
+        std::uint64_t serial;
+        int marker;  // a FifoMarker; -1 the pointer depth field; kSplitShapeRecord a shape record
+        int view;    // the marker's index (its camera) or the record's, -1 none
+    };
+    static constexpr int kSplitShapeRecord = -2;
+    std::vector<StreamSplit> stream_splits_;
     std::uint8_t producer_fifo_marker_count_ = 0;
     std::array<std::array<float, 12>, kFifoMarkersPerChunk> producer_fifo_marker_views_{};
     std::uint8_t producer_fifo_marker_view_mask_ = 0;
@@ -818,6 +696,7 @@ private:
     // The view of a perspective scene draw for ambient occlusion: its projection with the upscaler's jitter, depth
     // range and viewport (the ray tracer's RtView).
     [[nodiscard]] RtView scene_depth_view(const ScaledGxViewport& viewport) const;
+    void note_interp_rt_projection();
     void note_scene_ao_view(const DrawCall& call);
     // The scene's occlusion, once, before its first translucent phase (or at its end).
     void apply_scene_ao();
@@ -831,6 +710,10 @@ private:
     [[nodiscard]] bool rt_hidden_draw() const noexcept;
     // The draw is a clear surface the engine traces (the table's `traced`): not shown, still captured.
     [[nodiscard]] bool rt_traced_clear_draw() const noexcept;
+    // The draw is a sprite of the table's `mist` effects while the ray tracer takes them as puffs (note_rt_mist).
+    [[nodiscard]] bool rt_mist_draw() const noexcept;
+    // Its puff for the ray tracer (SceneRayTracer::note_mist).
+    void note_rt_mist(const DrawCall& call);
     // A traced clear solid's draw (the table's `traced solid`): unseen scene geometry, its game draw hidden.
     [[nodiscard]] bool rt_traced_solid_draw() const noexcept;
     // The current object's name (NameObj::mName) into `out`; its guest address, 0 for none.
@@ -927,6 +810,7 @@ private:
     // Whether a batch starting with `call` is traced geometry; the scene's first one also gives
     // the camera (projection and viewport) for rays through EFB pixels.
     [[nodiscard]] bool begin_rt_batch(const DrawCall& call, RtDrawInfo& info);
+    void exclude_layer_water(DrawCall& call, const RtDrawInfo& info, bool rt);
     // Actor lights (actor_lights.h): the open scene's aim and its serial; the scene's key light in
     // world space (direction towards it), how far the lights are moved to it, its source (1 the
     // game's visible sun, 2 the sun its sky shows, 3 a world-fixed light) and, for 2 and 3, its
@@ -989,6 +873,15 @@ private:
     void write_rt_lights(std::uint32_t* palette) noexcept;
     bool scene_3d_recorded_ = false;           // this frame's 3D scene took records
     bool mirror_opened_scene_ = false;         // this frame's InterpScene began at its mirror pass
+    // A run of frames that draw no 3D scene (the pause menu over its captured picture): each is recorded as a screen
+    // layer from its first draw (begin_screen_frame), so its layouts move in sub-frames as a scene's screen layer does.
+    // frame_scene_seen_: a 3D scene began since the last display copy; screen_run_: the frame before drew none;
+    // screen_frame_open_: this frame's screen-only record is open (a 3D scene beginning in it drops the record).
+    bool frame_scene_seen_ = false;
+    bool screen_run_ = false;
+    bool screen_frame_open_ = false;
+    void begin_screen_frame();
+    void cancel_screen_frame();
     std::array<std::uint64_t, 3> layer_serials_{};
     std::array<std::uint64_t, 3> layer_identity_markers_{};
     std::array<bool, 3> layer_identity_{};     // the layer's previous occurrence carried markers
@@ -1039,6 +932,11 @@ private:
         // The game camera (world to eye) of the scene.
         Affine34 view{};
         bool view_known = false;
+        // The projection the ray tracer took the scene's view from (GX A, B, C, D, E, F without the temporal jitter)
+        // and its viewport's size in EFB pixels: sub-frames interpolate it (SubframeTime::projection).
+        std::array<float, 6> rt_projection{};
+        float rt_viewport[2]{};
+        bool rt_projection_known = false;
         bool valid = false;
         std::uint64_t serial = 0;               // replay serial of its log (0: none)
         // Per record: draw phase and category (galaxy/motion_signals.h).
@@ -1064,6 +962,7 @@ private:
             palette.clear(); per_vertex.clear(); palette_count = 0; valid = false; serial = 0;
             ps_constants.clear();
             category.clear(); camera_epoch_known = false;
+            rt_projection_known = false;
             layers = {};
         }
     };
@@ -1108,6 +1007,7 @@ private:
     // the game camera between the scene before and it, every record whose
     // constants change in a sub-frame, and every palette snapshot pair.
     CameraMotion interp_camera_{};
+    bool interp_camera_game_cut_ = false;  // the sequence cut by the game's own camera epoch (timeline)
     float interp_camera_move_ = 0.0f;     // eye movement into the scene before (cut test)
     struct InterpRecordMotion {
         std::uint32_t record = 0;
@@ -1164,6 +1064,11 @@ private:
     // Present slot clock: next slot and slot length (with VSync, on the display's vblanks when they are timed).
     std::int64_t interp_slot_due_qpc_ = 0;
     std::int64_t interp_slot_period_qpc_ = 0;
+    // A native overlay (the HOME Menu, the settings) up while no interpolated frames run, at a display faster than
+    // 60 Hz (the interpolation's slots): the latest frame presents again at each slot without a present of its own
+    // (overlay_idle_due_qpc_: the next; 0 outside).
+    [[nodiscard]] bool overlay_idle_presents() const noexcept;
+    std::int64_t overlay_idle_due_qpc_ = 0;
     // Presents by the vblanks since the one before (0, 1, 2, 3 or more), against the display's vblank grid, and the
     // range of the time from a present's slot (the moment it shows) to the vblank that shows it.
     std::array<std::uint64_t, 4> interp_vblank_steps_{};
@@ -1335,8 +1240,6 @@ private:
         bool& cache_hit);
     void invalidate_dependency_range_cache(
         const std::vector<GuestWriteRange>& ranges) noexcept;
-    std::size_t invalidate_dirty_decoded_packet_run_ranges(
-        const std::vector<GuestWriteRange>& ranges) noexcept;
     GxState state_;
     FifoParser parser_;
     std::mutex parser_cache_mutex_;
@@ -1344,7 +1247,6 @@ private:
     // Renderer compilation/recording must not lock dependency discovery.
     FifoParser dependency_parser_;
     FifoParser event_parser_;
-    FramePeEventClassifier pe_event_classifier_;
     VertexLoader vertex_loader_;
     PipelineCache pipeline_cache_;
     TextureCache texture_cache_;
@@ -1481,134 +1383,13 @@ private:
     };
     std::array<DependencyRangeCacheEntry, 64> dependency_range_cache_{};
     std::uint64_t dependency_range_cache_tick_ = 0;
-    std::unordered_map<
-        DependencyDrawRunRangeCacheKey,
-        DependencyDrawRunRangeCacheEntry,
-        DependencyDrawRunRangeCacheKeyHash>
-        dependency_draw_run_range_cache_{};
-    std::uint64_t dependency_draw_run_range_cache_tick_ = 0;
-    std::size_t dependency_draw_run_range_cache_bytes_ = 0;
 
-    struct DecodedPacketRunCacheKey {
-        std::uint64_t cache_token = 0;
-        std::size_t packet_run_index = 0;
-        PrimitiveClass primitive = PrimitiveClass::Points;
-        std::uint8_t vtxfmt = 0;
-        std::uint32_t vcd_lo = 0;
-        std::uint32_t vcd_hi = 0;
-        std::uint32_t vat_a = 0;
-        std::uint32_t vat_b = 0;
-        std::uint32_t vat_c = 0;
-        std::uint32_t matrix_index_a = 0;
-        std::uint32_t matrix_index_b = 0;
-        std::array<std::uint32_t, 24> array_base_stride{};
-
-        [[nodiscard]] bool operator==(
-            const DecodedPacketRunCacheKey&) const = default;
-    };
-
-    struct DecodedPacketRunCacheKeyHash {
-        [[nodiscard]] std::size_t operator()(
-            const DecodedPacketRunCacheKey& key) const noexcept;
-    };
-
-    struct DecodedPacketRunCacheEntry {
-        // Every indirect vertex-array byte a decode read, merged into sorted, disjoint ranges (the same byte
-        // set as the per-attribute reads) whose copies sit back to back in `bytes`.
-        struct GuestDependencySnapshots {
-            struct Range {
-                std::uint32_t guest_base = 0;
-                std::uint32_t size = 0;
-                std::size_t offset = 0;  // into `bytes`
-            };
-            std::vector<Range> ranges;
-            std::vector<std::byte> bytes;
-
-            [[nodiscard]] bool empty() const noexcept { return ranges.empty(); }
-            [[nodiscard]] std::size_t size() const noexcept { return ranges.size(); }
-            [[nodiscard]] std::span<const std::byte> range_bytes(
-                std::size_t index) const noexcept {
-                const Range& range = ranges[index];
-                return {bytes.data() + range.offset, range.size};
-            }
-            void clear() noexcept {
-                ranges.clear();
-                bytes.clear();
-            }
-        };
-
-        DecodedPacketRunCacheKey key{};
-        std::uint32_t total_indices = 0;
-        std::uint64_t last_used = 0;
-        std::size_t byte_size = 0;
-        std::vector<GxVertexOut> vertices;
-        ImmutableUploadToken upload_token;
-        // Block of `resident_vertices_` holding a copy of `vertices` that draws
-        // reference directly. Valid only while `resident_epoch` equals the
-        // arena epoch (0 = no block).
-        std::uint64_t resident_epoch = 0;
-        std::uint32_t resident_offset = 0;  // in vertices
-        std::uint32_t resident_units = 0;
-        std::vector<VertexDecodeGuestRange> guest_array_reads;
-        // A copy of every byte the decode read, so a missed or coalesced write notification cannot replay
-        // stale geometry. A hit compares it once per write generation (decoded_packet_run_generation_),
-        // not once per replay.
-        GuestDependencySnapshots guest_array_snapshots;
-        // The decoded_packet_run_generation_ at which guest_array_snapshots last matched guest memory.
-        std::uint64_t validated_generation = 0;
-    };
-    // Bumped once per batch of guest-write notifications, before the frame's first replay: an entry validated
-    // at the current value needs no compare. Never reset to a value an entry holds.
-    std::uint64_t decoded_packet_run_generation_ = 1;
-
-    [[nodiscard]] DecodedPacketRunCacheKey decoded_packet_run_cache_key(
-        std::uint64_t cache_token,
-        std::size_t packet_run_index,
-        PrimitiveClass primitive,
-        std::uint8_t vtxfmt,
-        const VertexDescriptor& desc) const;
-    // Sorts and merges overlapping/adjacent reads (never across a gap, and
-    // never into a span that is not one contiguous host mapping), then copies
-    // each merged range. `captured_bytes` is the merged byte count, which is
-    // what the budget bounds. On failure `snapshots` is empty.
-    [[nodiscard]] static bool capture_decoded_packet_run_dependencies(
-        GuestMemory* memory,
-        const std::vector<VertexDecodeGuestRange>& dependencies,
-        std::size_t byte_budget,
-        DecodedPacketRunCacheEntry::GuestDependencySnapshots& snapshots,
-        std::size_t& captured_bytes,
-        bool regions_disjoint_sorted = false);
-    // Returns true when the snapshots still describe live guest memory.
-    // `entry_generation` is compared against `current_generation`: when they are
-    // equal and non-zero, this entry was already validated after the most recent
-    // guest write batch and the byte compare is skipped. `new_generation`
-    // receives the non-zero generation the caller may record on success.
-    [[nodiscard]] static bool decoded_packet_run_dependencies_match(
-        GuestMemory* memory,
-        std::uint64_t entry_generation,
-        std::uint64_t current_generation,
-        const DecodedPacketRunCacheEntry::GuestDependencySnapshots& snapshots,
-        std::uint64_t& new_generation,
-        bool regions_disjoint_sorted = false) noexcept;
-    void prune_decoded_packet_run_cache();
-
-    static constexpr std::size_t kDecodedPacketRunCacheMaxBytes =
-        64u * 1024u * 1024u;
-    static constexpr std::size_t kDecodedPacketRunCacheMaxEntryBytes =
-        8u * 1024u * 1024u;
-    std::unordered_map<
-        DecodedPacketRunCacheKey,
-        DecodedPacketRunCacheEntry,
-        DecodedPacketRunCacheKeyHash>
-        decoded_packet_run_cache_{};
-    std::uint64_t decoded_packet_run_cache_tick_ = 0;
-    std::size_t decoded_packet_run_cache_bytes_ = 0;
     // GPU-resident decoded vertices (render thread only). One persistently
     // mapped UPLOAD buffer, created lazily per device; see
     // resident_vertex_arena.h for the block retirement rule.
     static constexpr std::uint32_t kResidentDecodedVertexCapacity =
         static_cast<std::uint32_t>(
-            kDecodedPacketRunCacheMaxBytes / sizeof(GxVertexOut));
+            64u * 1024u * 1024u / sizeof(GxVertexOut));
     ResidentVertexArena resident_vertices_;
     UploadBuffer resident_vertex_buffer_;
     std::byte* resident_vertex_mapped_ = nullptr;
@@ -1616,18 +1397,89 @@ private:
     gpu::Device* resident_vertex_device_ = nullptr;
     bool resident_vertex_buffer_failed_ = false;
     std::uint64_t frame_resident_vertex_hits_ = 0;
+    // Curved surface triangles drawn plain (no corner bends) and as patches, and the draws split between them.
+    std::uint64_t frame_curved_flat_triangles_ = 0;
+    std::uint64_t frame_curved_patch_triangles_ = 0;
+    std::uint64_t frame_curved_split_draws_ = 0;
+    // The game's EFB clear quads drawn as a depth clear (and their colour without the Z texture).
+    std::uint64_t frame_clear_quads_ = 0;
+    // A kMarkerClearQuad marker for the next draw, with its Z texture's depth.
+    bool clear_quad_pending_ = false;
+    bool clear_quads_ = true;
+    std::uint32_t clear_quad_z24_ = 0;
+    // The clear quad's constant colour (RGBA), where its marker gave one.
+    std::uint32_t clear_quad_colour_ = 0;
+    bool clear_quad_has_colour_ = false;
+    // The game's EFB clear quad as a depth clear and its colour (motion::kMarkerClearQuad); false: the quad is not
+    // the expected one and draws as written.
+    bool draw_clear_quad(std::uint8_t vtxfmt, FifoCursor& cursor);
     std::uint64_t frame_resident_vertex_bytes_ = 0;
     [[nodiscard]] bool ensure_resident_vertex_buffer();
     void release_resident_vertex_buffer() noexcept;
-    // Returns the entry's block to the arena (deferred reuse). Every removal or
-    // replacement of a decoded_packet_run_cache_ entry must call this.
-    void release_decoded_entry_residency(DecodedPacketRunCacheEntry& entry) noexcept;
-    // Gives `entry` a resident block holding its vertices; false when out of space or the
-    // buffer could not be created (the ring path is used).
-    [[nodiscard]] bool make_decoded_entry_resident(DecodedPacketRunCacheEntry& entry);
-    // Render thread: decode scratch for runs outside the decoded cache (capacity bounded by
-    // kDecodedPacketRunCacheMaxEntryBytes).
-    std::vector<GxVertexOut> decoded_packet_vertex_scratch_;
+    // `triangles` (indices into `vertices`) with those no corner bends first, into `split`; how many indices those
+    // are. Empty `split` when an index is out of range.
+    static std::uint32_t split_curved_triangles(std::span<const GxVertexOut> vertices,
+                                                std::span<const std::uint16_t> triangles,
+                                                std::vector<std::uint16_t>& split);
+
+    // Native shapes (native_shapes.h): the game's arrays and groups by key as its records registered them (a key
+    // registered again is replaced: the game made something new at that address), and per group the vertices last
+    // expanded for it, resident while the arrays they came from are the same.
+    struct ShapeArrayEntry {
+        std::shared_ptr<const shapes::Array> array;
+        std::uint64_t version = 0;
+    };
+    std::unordered_map<std::uint64_t, ShapeArrayEntry> shape_arrays_;
+    std::uint64_t shape_array_versions_ = 0;
+    struct RecordShape {
+        std::shared_ptr<const shapes::Geometry> geometry;
+        std::array<std::uint64_t, 12> versions{};  // of the arrays its vertices came from
+        std::uint8_t position_matrix = 0;
+        std::shared_ptr<const curved::Model> curved;
+        bool expanded = false;
+        std::vector<GxVertexOut> vertices;
+        ImmutableUploadToken index_upload_token;
+        std::uint64_t resident_epoch = 0;
+        std::uint32_t resident_offset = 0;
+        std::uint32_t resident_units = 0;
+        std::vector<std::uint16_t> split_indices;
+        std::uint32_t split_flat_indices = 0;
+        bool split_built = false;
+        ImmutableUploadToken split_upload_token;
+    };
+    std::unordered_map<std::uint64_t, RecordShape> record_shapes_;
+    std::vector<shapes::Record> producer_shape_records_;
+    void take_attached_shape_records(FrameChunk& chunk, std::size_t fifo_size);
+    // Render thread: a record at its place in the stream (an array or group registered, or a group drawn).
+    void on_shape_record(const shapes::Record& record);
+    void draw_record_shape(const shapes::Record& record);
+    // Vertices the game sent as it drew them, through the frame's rings.
+    void draw_record_immediate(const shapes::Immediate& immediate);
+    // A material record into the drawing state (native_material.h).
+    void apply_record_material(const material::Material& m);
+    // A draw record's matrices and current matrices, into the matrix state its draw reads.
+    void apply_record_matrices(const shapes::Record& record);
+    // Gives back a group's resident block.
+    void release_record_shape(RecordShape& shape) noexcept;
+    // The vertex inputs of the draw being made when a native shape record draws (its corners' matrix slots, its
+    // model's arrays), in place of the GX vertex description the stream's draws carry.
+    struct RecordVertexInputs {
+        std::uint32_t matrix_bits = 0;  // bit 0 position matrix per corner, bits 1-8 texture matrices 0-7
+        std::uint64_t positions = 0;    // the position array's key
+        std::uint64_t colors = 0;       // the colour arrays' keys, combined
+        bool colored = false;
+        // Positions and colours the group's own values (geometry the game builds): drawn as direct vertices were.
+        bool own_positions = false;
+        const curved::Model* curved = nullptr;
+    };
+    const RecordVertexInputs* record_inputs_ = nullptr;
+    // draw_record_immediate's vertices and indices before they go to the rings.
+    std::vector<GxVertexOut> immediate_vertices_;
+    std::vector<std::uint16_t> immediate_indices_;
+    // The vertex inputs the last keys were built with (GX's VCD bits 0-8, or a record's matrix bits and arrays).
+    std::uint64_t vs_key_vertex_source_ = 0;
+    // Whether the draw being made reads indexed positions (a model's): a record does unless its positions are its own.
+    [[nodiscard]] bool draw_positions_indexed() const noexcept;
     bool stop_render_thread_ = false;
     std::exception_ptr render_thread_error_;
     std::uint64_t present_epoch_ = 0;
@@ -1688,6 +1540,11 @@ private:
     // flushed draw is a curved surface (its keys carry kVsKeyCurved and the patch topology).
     bool curved_surfaces_ = false;
     bool current_curved_ = false;
+    // The last curved draw's pipeline without the patch stages, for its flat triangles (DrawCall::flat_pipeline);
+    // null where the order of a draw's triangles could show (blending, a logic op, no depth test or write) or while
+    // it compiles.
+    gpu::Pipeline* current_flat_pipeline_ = nullptr;
+    bool curved_split_ = true;
     // RenderConfig::enhanced_lighting, sampled at each frame start; the last draw's eligibility and
     // material word (enhanced_lighting.h), kept until its keys or eligibility change.
     bool enhanced_lighting_ = false;
@@ -1697,7 +1554,10 @@ private:
     std::uint32_t enhanced_ps_flags_ = 0u;
     // The material table bits (enhanced_table_material) the last uploaded PS constants carry.
     std::uint32_t enhanced_material_bits_ = 0u;
-    std::uint16_t glow_material_ = 0u;  // the material whose glow gain the PS constants hold (output_flags bit 5)
+    // The material whose glow gain (output_flags bit 5) or falling water (bit 6) the PS constants hold.
+    std::uint16_t glow_material_ = 0u;
+    // The share of a clear ice or crystal draw's tint the PS constants clear (rt_materials.h kRtIceTintKept; 0 none).
+    float ps_tint_cleared_ = 0.0f;
     PsoKey current_pso_key_{};
     bool current_pso_key_valid_ = false;
     gpu::Pipeline* current_pipeline_ = nullptr;
@@ -1754,6 +1614,9 @@ private:
     // without rewriting its BP texture registers.
     bool frame_bindings_dirty_ = true;
     bool texture_bindings_dirty_ = true;
+    // Coordinate scales come from the sampled textures (the game changed TEV order or textures since the last
+    // material) rather than from the scale registers (coordinate_scales).
+    bool scales_from_textures_ = false;
     std::uint8_t current_texture_map_mask_ = 0;
     // sampled_texture_map_mask(state_) reads GenMode, the TEV order, indirect-command and IND_REF registers,
     // all of which set kDirtyTev; invalidated wherever the BP register file resets.
@@ -1986,6 +1849,8 @@ private:
     // replay.
     std::uint64_t frame_replay_prepared_batches_ = 0;
     std::uint64_t frame_replay_packet_batches_ = 0;
+    std::uint64_t frame_native_shape_draws_ = 0;
+    std::uint64_t frame_native_shape_misses_ = 0;
     std::uint64_t frame_replay_simple_batches_ = 0;
     std::uint64_t frame_replay_generic_draws_ = 0;
     std::uint64_t frame_flush_matrix_us_ = 0;
@@ -2010,10 +1875,6 @@ private:
     std::uint64_t frame_cached_vertex_upload_us_ = 0;
     std::uint64_t frame_draw_record_us_ = 0;
     std::uint64_t frame_efb_copy_us_ = 0;
-    std::uint64_t frame_decoded_vertex_cache_hits_ = 0;
-    std::uint64_t frame_decoded_vertex_cache_misses_ = 0;
-    std::uint64_t frame_decoded_vertex_cache_evictions_ = 0;
-    std::uint64_t frame_decoded_vertex_cache_stale_rejects_ = 0;
     // Always-counted structural counters (the timing fields above need frame_time_detail_). The memo and
     // get() routes are frame_pso_memo_hits_ and frame_pso_get_calls_.
     std::uint64_t frame_flush_calls_ = 0;
@@ -2028,7 +1889,6 @@ private:
     PrimitiveClass cached_draw_run_primitive_ = PrimitiveClass::Points;
     std::uint8_t cached_draw_run_vtxfmt_ = 0;
     DrawCall cached_draw_run_state_call_{};
-    std::vector<std::byte> cached_simple_draw_scratch_;
     FifoParserProfile frame_fifo_profile_{};
     std::atomic<std::uint64_t> stat_xfb_copies_{0};
     std::unique_ptr<galaxy::telemetry::Publisher> frame_telemetry_;

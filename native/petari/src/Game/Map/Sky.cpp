@@ -10,6 +10,9 @@
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/StringUtil.hpp"
+#ifdef TARGET_PC
+#include "Game/System/NebulaArchipelago.hpp"
+#endif
 
 namespace {
     const char* cChangeAnimName = "Change";
@@ -29,7 +32,13 @@ void Sky::init(const JMapInfoIter& rIter) {
     const char* objName = nullptr;
     MR::getObjectName(&objName, rIter);
 
-    initModel(objName);
+    const char* modelName = objName;
+#ifdef TARGET_PC
+    modelName = NebulaArchipelago::getShuffledSky(objName);
+    NebulaArchipelago::logNote("Sky object", objName, modelName);
+#endif
+
+    initModel(modelName);
     MR::connectToSceneSky(this);
     MR::useStageSwitchReadA(this, rIter);
     MR::useStageSwitchReadB(this, rIter);
@@ -48,14 +57,14 @@ void Sky::init(const JMapInfoIter& rIter) {
     MR::getJMapInfoArg0NoInit(rIter, &arg0);
 
     if (arg0 == 0) {
-        mReflectionModel = new MirrorReflectionModel(this, "\213\276\223\340\203\202\203\146\203\213" /* 鏡内モデル */, objName, getBaseMtx());
+        mReflectionModel = new MirrorReflectionModel(this, "\213\276\223\340\203\202\203\146\203\213" /* 鏡内モデル */, modelName, getBaseMtx());
         mReflectionModel->initWithoutIter();
     }
 
-    MR::tryStartAllAnim(this, objName);
+    MR::tryStartAllAnim(this, modelName);
 
     if (mReflectionModel) {
-        MR::tryStartAllAnim(mReflectionModel, objName);
+        MR::tryStartAllAnim(mReflectionModel, modelName);
     }
 
     MR::invalidateClipping(this);
@@ -111,7 +120,11 @@ void Sky::exeWait() {
 
 void Sky::exeChange() {
     if (MR::isFirstStep(this)) {
+#ifdef TARGET_PC
+        MR::tryStartAllAnim(this, ::cChangeAnimName);  // a sky swapped in by skybox_shuffle may have no such animation
+#else
         MR::startAllAnim(this, ::cChangeAnimName);
+#endif
     }
 }
 

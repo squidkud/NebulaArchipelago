@@ -625,6 +625,12 @@ void SaveDataHandleSequence::restoreUserFileConfigData(UserFile* pUserFile, int 
 }
 
 void SaveDataHandleSequence::restoreUserFileGameData(UserFile* pUserFile, int index, bool isPlayerMario) {
+#ifdef TARGET_PC
+    // Archipelago: a slot that plays one character has only that character's saves.
+    if (NebulaArchipelago::getForcedCharacter() >= 0) {
+        isPlayerMario = NebulaArchipelago::getForcedCharacter() == 0;
+    }
+#endif
     char dataName[16];
     snprintf(dataName, sizeof(dataName), "%s%1d", isPlayerMario ? "mario" : "luigi", index);
 

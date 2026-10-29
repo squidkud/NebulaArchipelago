@@ -86,6 +86,16 @@ inline constexpr std::uint32_t kRenderStateMotionTarget = 1u << 29u;
 // alpha (max-blended, capped at 0.9) to an R8 render target 1.
 inline constexpr std::uint8_t kPsKeyReactive = 0x04u;
 inline constexpr std::uint32_t kRenderStateReactiveTarget = 1u << 30u;
+// A blend under constant destination alpha 0 drawn single-source (a reactive draw: GxBackend's motion keys): the
+// alpha channel's own blend writes the 0 (factors zero), the colour blends at the TEV alpha.
+inline constexpr std::uint32_t kRenderStateZeroAlpha = 1u << 24u;
+// The effects layer (ray-traced scenes, from the game's effects to the water's composite; RendererD3D12's layer
+// window): a reactive draw also blends its colour into render target 2 as it blends into the EFB (the effects' own
+// light, premultiplied) and the EFB's destination factor into render target 3 (the share of what lay behind them they
+// let through), so the water's and clear surfaces' composites go under them exactly. Single-source, its factors never
+// reading the EFB.
+inline constexpr std::uint8_t kPsKeyLayer = 0x20u;
+inline constexpr std::uint32_t kRenderStateLayerTarget = 1u << 23u;
 // Lit channels with spotlight or specular attenuation evaluate the XF attenuation polynomials
 // on finite operands (cosine and distance at most 1e18), so a zero coefficient nulls an
 // out-of-range cosine as on the hardware, where a light whose direction the game never set
@@ -99,12 +109,23 @@ inline constexpr std::uint8_t kPsKeyPplFiniteLightAttn = 0x08u;
 // pixel key's ind_reserved word carries the material (kEnhanced* below).
 inline constexpr std::uint8_t kVsKeyEnhancedLighting = 0x40u;
 inline constexpr std::uint8_t kPsKeyEnhancedLighting = 0x10u;
+// A scene draw while the scene is ray traced (kEnhancedRtReflections, kEnhancedRtLighting or kEnhancedRtPhysical): the
+// shader keeps the branches only ray tracing takes (an enhanced key's header bits, a clear ice draw's tint). Without it
+// they are left out.
+inline constexpr std::uint8_t kPsKeyRtPaths = 0x40u;
 // Curved surfaces (RenderConfig::curved_surfaces, curved_surfaces.h): a perspective scene triangle draw of a model the
-// game registered. The vertex stage also passes the eye-space position and the displacement normal (GxVertexOut::bend);
+// game registered. The vertex stage also passes the eye-space position, displacement and crease normals and the
+// places that pick one per edge (GxVertexOut::curve);
 // the pipeline adds the Phong tessellation stages and draws three-point patches: RenderStateKey::primitive_topology
 // is kTopologyPatch with the vertex output's variant in its high bits, which picks the hull and domain shaders
 // (ShaderGenerator::curved_stage_source).
 inline constexpr std::uint8_t kVsKeyCurved = 0x80u;
+// VertexShaderKey::features: code a vertex shader carries only for the frames that run it. Interpolated redraws blend
+// each vertex with the matching draw's of the frame before (kVertexBlendDef): the vertex shaders of a frame recorded for
+// them. Physical ray tracing de-bakes vertex colours (GxVsConstants::flags bits 2, 3 and 6): the vertex shaders of its
+// frames.
+inline constexpr std::uint32_t kVsFeatureVertexBlend = 0x1u;
+inline constexpr std::uint32_t kVsFeatureDebake = 0x2u;
 inline constexpr std::uint8_t kTopologyTypeMask = 0x0Fu;
 inline constexpr std::uint8_t kTopologyPatch = 4u;  // D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH
 inline constexpr std::uint8_t kCurvedPerPixel = 0x10u;  // the per-pixel lighting interpolants
@@ -165,7 +186,7 @@ struct PixelShaderKey {
     std::uint8_t efb_scale_minus_one;
     std::uint8_t reserved;          // bit0 per-pixel lighting, bit1 motion, bit2 reactive,
                                     // bit3 per-pixel finite light attenuation,
-                                    // bit4 enhanced lighting
+                                    // bit4 enhanced lighting, bit5 effects layer
     std::uint32_t ind_cmd[4][4];    // BP 0x10-0x1F, grouped as uint4s
     std::uint32_t ind_ref;          // BP 0x27
     std::uint32_t ind_scale[2];     // BP 0x25-0x26
@@ -197,6 +218,7 @@ struct VertexShaderKey {
     std::uint32_t post_texgen[8];   // raw XF 0x1050+n (dual-tex transforms)
     std::uint32_t channel[4];       // raw XF 0x100E+n: color0, color1,
                                     // alpha0, alpha1 (zeroed past num_chans)
+    std::uint32_t features;         // kVsFeature*
 
     [[nodiscard]] bool operator==(const VertexShaderKey& other) const noexcept {
         return key_bytes_equal(this, &other, sizeof(*this));
@@ -205,7 +227,7 @@ struct VertexShaderKey {
         return fnv1a64(this, sizeof(*this));
     }
 };
-static_assert(sizeof(VertexShaderKey) == 4 + 8 * 4 + 8 * 4 + 4 * 4);
+static_assert(sizeof(VertexShaderKey) == 4 + 8 * 4 + 8 * 4 + 4 * 4 + 4);
 static_assert(std::has_unique_object_representations_v<VertexShaderKey>);
 
 // RenderStateKey::samples_log2 bit 2: the draw renders into the ray tracer's HDR scene EFB
@@ -322,6 +344,9 @@ struct MemoizedPsoKeyHasher {
     return build_pixel_shader_key(state, efb_scale, true);
 }
 [[nodiscard]] VertexShaderKey build_vertex_shader_key(const GxState& state);
+// The same with the vertices' matrix slots given (bit 0 a position matrix per vertex, bits 1-8 texture matrices 0-7:
+// GX's VCD bits 0-8, or a native shape's) in place of the VCD's.
+[[nodiscard]] VertexShaderKey build_vertex_shader_key(const GxState& state, std::uint32_t matrix_bits);
 [[nodiscard]] RenderStateKey build_render_state_key(const GxState& state);
 
 }  // namespace galaxy::gx

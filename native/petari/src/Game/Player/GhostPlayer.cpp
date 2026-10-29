@@ -1,4 +1,5 @@
 #include "Game/Player/GhostPlayer.hpp"
+#include <JSystem/J3DGraphBase/J3DNativeState.hpp>
 #include "Game/Animation/XanimeCore.hpp"
 #include "Game/Animation/XanimePlayer.hpp"
 #include "Game/Camera/CameraTargetArg.hpp"
@@ -595,16 +596,15 @@ void GhostPlayer::draw() const {
 
     J3DModelX* model = reinterpret_cast< J3DModelX* >(MR::getJ3DModel(this));
     model->viewCalc2();
-    GXInvalidateVtxCache();
     model->mFlags.clear();
     model->directDraw(nullptr);
     if (mHasJetTurtle) {
         mJetTurtleShadow->drawType1();
     }
 
-    GXSetAlphaUpdate(GX_FALSE);
-    GXSetColorUpdate(GX_TRUE);
-    GXSetDstAlpha(GX_FALSE, 0);
+    J3DNativeState::setAlphaUpdate(GX_FALSE);
+    J3DNativeState::setColorUpdate(GX_TRUE);
+    J3DNativeState::setDstAlpha(GX_FALSE, 0);
 }
 
 u32 GhostPlayer::receiveGhostPacket(GhostPacket* pPacket) {

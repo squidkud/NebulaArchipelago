@@ -16,6 +16,7 @@
 
 #include <array>
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -52,6 +53,8 @@ public:
     bool initialize(ID3D12Device* device, ID3D12CommandQueue* queue,
                     const PostProcessSettings& settings);
     void shutdown() noexcept;
+    // Whether it presents a picture held from the top left of a taller texture (a handed-over EFB).
+    [[nodiscard]] bool reads_held_pictures() const noexcept { return resample_box_ != nullptr; }
     [[nodiscard]] bool ready() const noexcept { return ready_; }
     // Capabilities, self-test results, last frame's AA pass and totals.
     [[nodiscard]] const PostProcessStatus& status() const noexcept { return status_; }
@@ -60,6 +63,7 @@ public:
     // into the `viewport` rectangle of `target_rtv`. Intermediate targets are
     // kept across frames and replaced only when a size changes; replaced
     // resources are released `frames_in_flight` frames later.
+    // `source` holds its `source_width` x `source_height` picture from its top left (a handed-over EFB is taller).
     void record(ID3D12GraphicsCommandList* list,
                 DescriptorRing& srv_ring,
                 ID3D12Resource* source,
@@ -135,6 +139,10 @@ private:
               const D3D12_VIEWPORT& viewport,
               const Constants& constants);
     void note_aa_run(const PostProcessPlan& plan, AaRun ran);
+    // The deband pass of `image` (width x height) into the render target bound after `bind`, at `viewport`.
+    void record_deband(ID3D12GraphicsCommandList* list, DescriptorRing& srv_ring, ID3D12Resource* image,
+                       unsigned width, unsigned height, const std::function<void(D3D12_VIEWPORT&, Constants&)>& bind,
+                       std::uint64_t frame_index, unsigned frames_in_flight);
     void release_retired(std::uint64_t frame_index) noexcept;
 
     ID3D12Device* device_ = nullptr;
@@ -158,7 +166,17 @@ private:
     // Bilinear enlargement and RCAS in one pass (no window-sized intermediate).
     Microsoft::WRL::ComPtr<ID3D12PipelineState> rcas_scaled_;
     Microsoft::WRL::ComPtr<ID3D12PipelineState> resample_;
+    // The passes reading a picture held in a taller texture (post_process.hlsl SOURCE_BOX): all or none.
+    Microsoft::WRL::ComPtr<ID3D12PipelineState> easu_box_;
+    Microsoft::WRL::ComPtr<ID3D12PipelineState> rcas_scaled_box_;
+    Microsoft::WRL::ComPtr<ID3D12PipelineState> resample_box_;
+    Microsoft::WRL::ComPtr<ID3D12PipelineState> deband_box_;
+    Microsoft::WRL::ComPtr<ID3D12PipelineState> deband_reduce_box_;
+    Microsoft::WRL::ComPtr<ID3D12PipelineState> deband_apply_box_;
     Microsoft::WRL::ComPtr<ID3D12PipelineState> deband_;
+    Microsoft::WRL::ComPtr<ID3D12PipelineState> deband_reduce_;
+    Microsoft::WRL::ComPtr<ID3D12PipelineState> deband_smooth_;
+    Microsoft::WRL::ComPtr<ID3D12PipelineState> deband_apply_;
     Microsoft::WRL::ComPtr<ID3D12Resource> area_texture_;
     Microsoft::WRL::ComPtr<ID3D12Resource> search_texture_;
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> rtv_heap_;
@@ -168,8 +186,10 @@ private:
     Target weights_;
     Target antialiased_;
     Target scaled_;
-    // The debanded picture, source-sized.
+    // The debanded picture, source-sized, and from 1080 lines the reduced picture and its smoothing.
     Target debanded_;
+    Target deband_reduced_;
+    Target deband_smoothed_;
     // SMAA's edge mask: the weight pass runs only where edge detection kept a
     // pixel. `rtv` holds its DSV.
     Target stencil_;

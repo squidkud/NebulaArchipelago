@@ -193,6 +193,27 @@ bool RendererVk::initialize(int window_width, int window_height, unsigned efb_sc
             query_info.queryCount = kFramesInFlight * 2u;
             vk::check(vkCreateQueryPool(device, &query_info, nullptr, &timestamps_), "vkCreateQueryPool");
             timestamp_period_ns_ = vk::Context::get().properties().limits.timestampPeriod;
+            if (env_flag("GALAXY_GPU_DRAWS", false)) {
+                query_info.queryCount = kFramesInFlight * kGpuDrawSlots;
+                vk::check(vkCreateQueryPool(device, &query_info, nullptr, &draw_queries_), "vkCreateQueryPool");
+            }
+            if (env_flag("GALAXY_GPU_PASSES", false)) {
+                query_info.queryCount = kFramesInFlight * (kGpuPassSlots + 2u);
+                vk::check(vkCreateQueryPool(device, &query_info, nullptr, &pass_queries_), "vkCreateQueryPool");
+                if (vk::Context::get().pipeline_statistics()) {
+                    VkQueryPoolCreateInfo stats_info{VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO};
+                    stats_info.queryType = VK_QUERY_TYPE_PIPELINE_STATISTICS;
+                    stats_info.queryCount = kFramesInFlight;
+                    stats_info.pipelineStatistics =
+                        VK_QUERY_PIPELINE_STATISTIC_VERTEX_SHADER_INVOCATIONS_BIT |
+                        VK_QUERY_PIPELINE_STATISTIC_CLIPPING_PRIMITIVES_BIT |
+                        VK_QUERY_PIPELINE_STATISTIC_FRAGMENT_SHADER_INVOCATIONS_BIT |
+                        VK_QUERY_PIPELINE_STATISTIC_TESSELLATION_CONTROL_SHADER_PATCHES_BIT |
+                        VK_QUERY_PIPELINE_STATISTIC_TESSELLATION_EVALUATION_SHADER_INVOCATIONS_BIT |
+                        VK_QUERY_PIPELINE_STATISTIC_COMPUTE_SHADER_INVOCATIONS_BIT;
+                    vk::check(vkCreateQueryPool(device, &stats_info, nullptr, &stats_queries_), "vkCreateQueryPool");
+                }
+            }
         }
         // The rings are Vulkan buffers with GX addresses; their sizes follow the D3D12 renderer's. Every segmentation
         // shares one buffer per ring.
@@ -490,6 +511,8 @@ bool RendererVk::create_layouts() {
         info.dependencyCount = 2;
         info.pDependencies = dependencies;
         vk::check(vkCreateRenderPass(device, &info, nullptr, &color_pass_), "copy render pass");
+        attachment.format = VK_FORMAT_R8_UNORM;
+        vk::check(vkCreateRenderPass(device, &info, nullptr, &grey_pass_), "one-channel copy render pass");
     }
     gx_layout_.depth_format = depth_format_;
     gx_layout_.geometry_shaders = context.geometry_shader();
@@ -843,6 +866,10 @@ bool RendererVk::create_utility_pipelines() {
         VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
     conversion_pipeline_ = create_utility_pipeline(color_pass_, conversion_layout_, blit_vertex_shader_source(),
                                                    efb_conversion_shader_source(), kAll, false, false, false);
+    grey_conversion_pipeline_ = create_utility_pipeline(grey_pass_, conversion_layout_, blit_vertex_shader_source(),
+                                                        efb_conversion_shader_source(), kAll, false, false, false);
+    display_filter_pipeline_ = create_utility_pipeline(color_pass_, conversion_layout_, blit_vertex_shader_source(),
+                                                       display_filter_shader_source(), kAll, false, false, false);
     for (unsigned kind = 0u; kind < static_cast<unsigned>(EfbUtility::Count); ++kind) {
         (void)efb_utility_pipeline(static_cast<EfbUtility>(kind));
     }
@@ -934,8 +961,9 @@ void RendererVk::shutdown() {
         if (utility_pool_ != VK_NULL_HANDLE) vkDestroyCommandPool(device, utility_pool_, nullptr);
         utility_pool_ = VK_NULL_HANDLE;
         utility_commands_ = VK_NULL_HANDLE;
-        for (VkPipeline pipeline : {conversion_pipeline_, blit_pipeline_, ui_solid_pipeline_, ui_textured_pipeline_,
-                                    depth_carry_pipeline_, color_carry_pipeline_, depth_resolve_pipeline_}) {
+        for (VkPipeline pipeline : {conversion_pipeline_, grey_conversion_pipeline_, display_filter_pipeline_,
+                                    blit_pipeline_, ui_solid_pipeline_, ui_textured_pipeline_, depth_carry_pipeline_,
+                                    color_carry_pipeline_, depth_resolve_pipeline_}) {
             if (pipeline != VK_NULL_HANDLE) vkDestroyPipeline(device, pipeline, nullptr);
         }
         for (auto& by_samples : efb_utility_pipelines_) {
@@ -944,7 +972,8 @@ void RendererVk::shutdown() {
                 pipeline = VK_NULL_HANDLE;
             }
         }
-        conversion_pipeline_ = blit_pipeline_ = depth_resolve_pipeline_ = VK_NULL_HANDLE;
+        conversion_pipeline_ = grey_conversion_pipeline_ = display_filter_pipeline_ = blit_pipeline_ =
+            depth_resolve_pipeline_ = VK_NULL_HANDLE;
         ui_solid_pipeline_ = ui_textured_pipeline_ = depth_carry_pipeline_ = color_carry_pipeline_ = VK_NULL_HANDLE;
         for (auto& [key, sampler] : samplers_) vkDestroySampler(device, sampler, nullptr);
         samplers_.clear();
@@ -982,8 +1011,15 @@ void RendererVk::shutdown() {
         persistent_overflow_.clear();
         if (timestamps_ != VK_NULL_HANDLE) vkDestroyQueryPool(device, timestamps_, nullptr);
         timestamps_ = VK_NULL_HANDLE;
+        if (pass_queries_ != VK_NULL_HANDLE) vkDestroyQueryPool(device, pass_queries_, nullptr);
+        pass_queries_ = VK_NULL_HANDLE;
+        if (stats_queries_ != VK_NULL_HANDLE) vkDestroyQueryPool(device, stats_queries_, nullptr);
+        stats_queries_ = VK_NULL_HANDLE;
+        if (draw_queries_ != VK_NULL_HANDLE) vkDestroyQueryPool(device, draw_queries_, nullptr);
+        draw_queries_ = VK_NULL_HANDLE;
         destroy_swapchain();
-        for (VkRenderPass pass : {present_pass_, color_pass_, gx_layout_.efb_pass, gx_layout_.efb_pass_clear}) {
+        for (VkRenderPass pass :
+             {present_pass_, color_pass_, grey_pass_, gx_layout_.efb_pass, gx_layout_.efb_pass_clear}) {
             if (pass != VK_NULL_HANDLE) vkDestroyRenderPass(device, pass, nullptr);
         }
         for (auto* passes : {&gx_layout_.ms_passes, &gx_layout_.ms_passes_clear}) {
@@ -992,7 +1028,7 @@ void RendererVk::shutdown() {
                 pass = VK_NULL_HANDLE;
             }
         }
-        present_pass_ = color_pass_ = gx_layout_.efb_pass = gx_layout_.efb_pass_clear = VK_NULL_HANDLE;
+        present_pass_ = color_pass_ = grey_pass_ = gx_layout_.efb_pass = gx_layout_.efb_pass_clear = VK_NULL_HANDLE;
         for (VkPipelineLayout layout : {gx_layout_.layout, utility_layout_, conversion_layout_}) {
             if (layout != VK_NULL_HANDLE) vkDestroyPipelineLayout(device, layout, nullptr);
         }
@@ -1034,6 +1070,22 @@ bool RendererVk::quit_requested() const noexcept {
 
 UploadBuffer RendererVk::create_upload_buffer(std::size_t bytes, const char* name) {
     return gpu::create_upload_memory(device(), bytes, name);
+}
+
+UploadBuffer RendererVk::create_resident_vertices(std::size_t bytes, const char* name) {
+    std::shared_ptr<vk::Buffer> buffer = vk::Context::get().create_buffer(
+        bytes,
+        VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT |
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+        name, vk::BufferPlace::DeviceMapped);
+    if (!buffer) {
+        return {};
+    }
+    UploadBuffer out;
+    out.cpu = buffer->mapped;
+    out.gpu = buffer->address;
+    out.buffer = std::move(buffer);
+    return out;
 }
 
 std::uint64_t RendererVk::completed_fence_value() const {
@@ -1089,6 +1141,7 @@ void RendererVk::begin_frame(bool) {
         }
         timestamp_pending_[frame_slot_] = false;
     }
+    read_gpu_passes();
     context.collect();
     frame.retired.clear();
     refresh_default_sampler_table();
@@ -1103,9 +1156,28 @@ void RendererVk::begin_frame(bool) {
     vk::check(vkBeginCommandBuffer(frame.uploads, &begin), "vkBeginCommandBuffer");
     vk::check(vkBeginCommandBuffer(frame.commands, &begin), "vkBeginCommandBuffer");
     commands_ = frame.commands;
+    ++curve_sort_list_;
+    curve_sort_[frame_slot_].draws.clear();
+    curve_sort_[frame_slot_].bytes = 0u;
+    curve_sort_[frame_slot_].sources = {};
     if (timestamps_ != VK_NULL_HANDLE) {
         vkCmdResetQueryPool(frame.commands, timestamps_, frame_slot_ * 2u, 2u);
         vkCmdWriteTimestamp(frame.commands, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, timestamps_, frame_slot_ * 2u);
+    }
+    if (pass_queries_ != VK_NULL_HANDLE) {
+        vkCmdResetQueryPool(frame.uploads, pass_queries_, kFramesInFlight * kGpuPassSlots + frame_slot_ * 2u, 2u);
+        vkCmdResetQueryPool(frame.commands, pass_queries_, frame_slot_ * kGpuPassSlots, kGpuPassSlots);
+        current_pass_ = GpuPass::Count;
+        pass_recording_ = true;
+        gpu_pass(GpuPass::Scene);
+    }
+    if (stats_queries_ != VK_NULL_HANDLE) {
+        vkCmdResetQueryPool(frame.commands, stats_queries_, frame_slot_, 1u);
+        vkCmdBeginQuery(frame.commands, stats_queries_, frame_slot_, 0);
+    }
+    if (draw_queries_ != VK_NULL_HANDLE) {
+        vkCmdResetQueryPool(frame.commands, draw_queries_, frame_slot_ * kGpuDrawSlots, kGpuDrawSlots);
+        pass_recording_ = true;
     }
     if (ring_mode_ == RingMode::Interp) {
         // One segment per game frame: its frames (chunks) append to it, so its draws stay replayable until the
@@ -1138,6 +1210,25 @@ std::uint64_t RendererVk::end_frame(bool present_swap_chain, SubmissionCallback 
     if (timestamps_ != VK_NULL_HANDLE) {
         vkCmdWriteTimestamp(frame.commands, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, timestamps_,
                             frame_slot_ * 2u + 1u);
+    }
+    if (pass_queries_ != VK_NULL_HANDLE) {
+        gpu_pass(GpuPass::Count);
+    }
+    pass_recording_ = false;
+    if (stats_queries_ != VK_NULL_HANDLE) {
+        vkCmdEndQuery(frame.commands, stats_queries_, frame_slot_);
+        stats_pending_[frame_slot_] = true;
+    }
+    if (!curve_sort_[frame_slot_].draws.empty()) {
+        const std::uint32_t sort_query = kFramesInFlight * kGpuPassSlots + frame_slot_ * 2u;
+        if (pass_queries_ != VK_NULL_HANDLE) {
+            vkCmdWriteTimestamp(frame.uploads, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, pass_queries_, sort_query);
+        }
+        record_curve_sort(frame.uploads);
+        if (pass_queries_ != VK_NULL_HANDLE) {
+            vkCmdWriteTimestamp(frame.uploads, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, pass_queries_, sort_query + 1u);
+            pass_sort_timed_[frame_slot_] = true;
+        }
     }
     vk::check(vkEndCommandBuffer(frame.uploads), "vkEndCommandBuffer");
     vk::check(vkEndCommandBuffer(frame.commands), "vkEndCommandBuffer");
@@ -1270,6 +1361,7 @@ void RendererVk::present_swapchain_image() {
         vk::check(result, "vkQueuePresentKHR");
     }
     const std::int64_t present_end = galaxy::qpc_now();
+    swap_present_qpc_ = present_end;
     if (trace_present_stats_enabled()) {
         const double present_ms = static_cast<double>(present_end - present_start) * 1000.0 /
             static_cast<double>(galaxy::qpc_frequency());
@@ -1387,13 +1479,116 @@ void RendererVk::report_present_stats() {
     } else {
         message << "unavailable";
     }
-    message << " gpu-samples=" << stats_.gpu_samples << " api=vulkan\n";
+    message << " gpu-samples=" << stats_.gpu_samples << " gpu-total-ms=" << stats_.gpu_ms;
+    if (pass_queries_ != VK_NULL_HANDLE) {
+        static constexpr const char* kPassNames[] = {"scene", "resolve", "efb-copy", "xfb-copy", "bloom", "scene-aa",
+                                                     "scene-ao", "upscale", "rt", "present", "curve-sort"};
+        static_assert(std::size(kPassNames) == static_cast<std::size_t>(GpuPass::Count));
+        message << " gpu-pass-ms=";
+        for (std::size_t pass = 0; pass < std::size(kPassNames); ++pass) {
+            message << (pass == 0 ? "" : ",") << kPassNames[pass] << ':' << pass_ms_[pass] / presents;
+        }
+        pass_ms_.fill(0.0);
+        // Flag bits in order: vertex, clipped primitives, fragment, control patches, evaluation, compute.
+        const std::array<double, 6>& st = stats_sum_;
+        message << " gpu-stats=vs:" << st[0] / presents << ",hs:" << st[3] / presents << ",ds:" << st[4] / presents
+                << ",prims:" << st[1] / presents << ",ps:" << st[2] / presents << ",cs:" << st[5] / presents;
+        stats_sum_.fill(0.0);
+    }
+    message << " api=vulkan\n";
+    if (!draw_cost_.empty()) {
+        std::vector<std::pair<gpu::Pipeline*, GpuDrawCost>> costs(draw_cost_.begin(), draw_cost_.end());
+        std::sort(costs.begin(), costs.end(), [](const auto& a, const auto& b) { return a.second.ms > b.second.ms; });
+        double total = 0.0;
+        for (const auto& cost : costs) {
+            total += cost.second.ms;
+        }
+        message << "[gpu-draws] total-ms=" << total / presents << " pipelines=" << costs.size() << '\n';
+        for (std::size_t i = 0; i < costs.size() && i < 24u; ++i) {
+            message << "[gpu-draws] pso=" << static_cast<const void*>(costs[i].first)
+                    << " ms=" << costs[i].second.ms / presents
+                    << " draws=" << static_cast<double>(costs[i].second.draws) / presents
+                    << " tris=" << static_cast<double>(costs[i].second.triangles) / presents << '\n';
+        }
+        draw_cost_.clear();
+    }
     std::cerr << message.str();
     first_serial_start = progress.first_serial_presentations;
     copies_start = copies;
     stats_ = PresentStats{};
     stats_.window_start_qpc = now;
     stats_.last_present_qpc = now;
+}
+
+void RendererVk::gpu_pass(GpuPass pass) {
+    if (pass == current_pass_) {
+        return;
+    }
+    current_pass_ = pass;
+    unsigned& marks = pass_mark_count_[frame_slot_];
+    const VkCommandBuffer commands = frames_[frame_slot_].commands;
+    if (pass_queries_ == VK_NULL_HANDLE || !pass_recording_ || commands_ != commands || marks + 1u >= kGpuPassSlots) {
+        return;
+    }
+    vkCmdWriteTimestamp(commands, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, pass_queries_,
+                        frame_slot_ * kGpuPassSlots + marks);
+    pass_marks_[frame_slot_][marks++] = pass;
+}
+
+// The slot's previous frame (its fence passed): each mark's time to the next.
+void RendererVk::read_gpu_passes() {
+    const VkDevice device = vk::Context::get().device();
+    const double ms_per_tick = timestamp_period_ns_ / 1'000'000.0;
+    std::vector<GpuDrawMark>& draws = draw_marks_[frame_slot_];
+    if (!draws.empty()) {
+        std::vector<std::uint64_t> stamps(2u * draws.size());
+        if (vkGetQueryPoolResults(device, draw_queries_, frame_slot_ * kGpuDrawSlots,
+                                  static_cast<std::uint32_t>(stamps.size()), stamps.size() * sizeof(std::uint64_t),
+                                  stamps.data(), sizeof(std::uint64_t), VK_QUERY_RESULT_64_BIT) == VK_SUCCESS) {
+            for (std::size_t i = 0; i < draws.size(); ++i) {
+                GpuDrawCost& cost = draw_cost_[draws[i].pipeline];
+                if (stamps[2u * i + 1u] >= stamps[2u * i]) {
+                    cost.ms += static_cast<double>(stamps[2u * i + 1u] - stamps[2u * i]) * ms_per_tick;
+                }
+                ++cost.draws;
+                cost.triangles += draws[i].triangles;
+            }
+        }
+        draws.clear();
+    }
+    if (pass_queries_ == VK_NULL_HANDLE) {
+        return;
+    }
+    const unsigned marks = pass_mark_count_[frame_slot_];
+    std::array<std::uint64_t, kGpuPassSlots> ticks{};
+    if (marks > 1u && vkGetQueryPoolResults(device, pass_queries_, frame_slot_ * kGpuPassSlots, marks,
+                                            marks * sizeof(std::uint64_t), ticks.data(), sizeof(std::uint64_t),
+                                            VK_QUERY_RESULT_64_BIT) == VK_SUCCESS) {
+        for (unsigned i = 0; i + 1u < marks; ++i) {
+            if (ticks[i + 1u] >= ticks[i]) {
+                pass_ms_[static_cast<std::size_t>(pass_marks_[frame_slot_][i])] +=
+                    static_cast<double>(ticks[i + 1u] - ticks[i]) * ms_per_tick;
+            }
+        }
+    }
+    if (pass_sort_timed_[frame_slot_] &&
+        vkGetQueryPoolResults(device, pass_queries_, kFramesInFlight * kGpuPassSlots + frame_slot_ * 2u, 2u,
+                              2u * sizeof(std::uint64_t), ticks.data(), sizeof(std::uint64_t),
+                              VK_QUERY_RESULT_64_BIT) == VK_SUCCESS &&
+        ticks[1] >= ticks[0]) {
+        pass_ms_[static_cast<std::size_t>(GpuPass::CurveSort)] += static_cast<double>(ticks[1] - ticks[0]) * ms_per_tick;
+    }
+    pass_mark_count_[frame_slot_] = 0u;
+    pass_sort_timed_[frame_slot_] = false;
+    std::array<std::uint64_t, 6> counts{};
+    if (stats_pending_[frame_slot_] &&
+        vkGetQueryPoolResults(device, stats_queries_, frame_slot_, 1u, sizeof(counts), counts.data(), sizeof(counts),
+                              VK_QUERY_RESULT_64_BIT) == VK_SUCCESS) {
+        for (std::size_t i = 0; i < counts.size(); ++i) {
+            stats_sum_[i] += static_cast<double>(counts[i]);
+        }
+    }
+    stats_pending_[frame_slot_] = false;
 }
 
 // The share of wall time the GPU may spend on the frame before Match Output steps down (RendererD3D12's rule).
@@ -1537,6 +1732,7 @@ void RendererVk::follow_window_and_resize() {
 }
 
 bool RendererVk::present(const XfbTexture* source, bool capture_backbuffer, bool black) {
+    const GpuPassScope pass{*this, GpuPass::Present};
     present_black_ = black;
     if (source == nullptr || !source->texture) {
         throw std::runtime_error("present requested without a valid XFB blit source");
@@ -1705,7 +1901,6 @@ bool RendererVk::present(const XfbTexture* source, bool capture_backbuffer, bool
     // The overlays are drawn unturned (Windows); turned images belong to platforms whose overlays are their own screens.
     if (swapchain_.transform == VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR) {
         host_window::draw_native_settings_overlay(*this);
-        host_window::draw_native_settings_hint(*this);
         host_window::draw_home_menu(*this);
     }
     vkCmdEndRenderPass(commands);

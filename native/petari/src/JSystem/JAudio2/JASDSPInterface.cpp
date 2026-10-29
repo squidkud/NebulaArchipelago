@@ -63,12 +63,9 @@ void JASDsp::setFilterTable(NEBULA_BE(s16)* param_0, s16* param_1, u32 param_2) 
 }
 
 void JASDsp::flushBuffer() {
-    DCFlushRange(CH_BUF, sizeof(TChannel) * 64);
-    DCFlushRange(FX_BUF, sizeof(FxBuf) * 4);
 }
 
 void JASDsp::invalChannelAll() {
-    DCInvalidateRange(CH_BUF, sizeof(TChannel) * 64);
 }
 
 u8 const ATTRIBUTE_ALIGN(32) JASDsp::DSPADPCM_FILTER[64] = {
@@ -226,7 +223,6 @@ int JASDsp::setFXLine(u8 param_0, s16* buffer, JASDsp::FxlineConfig_* param_2) {
         u32 bufsize = param_2->_C * 0xa0;
         puVar3->_4 = FX_LINE_ADDR(buffer);
         JASCalc::bzero(buffer, bufsize);
-        DCFlushRange(buffer, bufsize);
     } else if (param_2 == NULL || buffer != NULL) {
         puVar3->_4 = FX_LINE_ADDR(buffer);
     }
@@ -236,7 +232,6 @@ int JASDsp::setFXLine(u8 param_0, s16* buffer, JASDsp::FxlineConfig_* param_2) {
     } else {
         puVar3->_0 = 0;
     }
-    DCFlushRange(puVar3, sizeof(FxBuf));
     return 1;
 }
 
@@ -380,7 +375,6 @@ void JASDsp::TChannel::setPauseFlag(u8 flag) {
 }
 
 void JASDsp::TChannel::flush() {
-    DCFlushRange(this, sizeof(*this));
 }
 
 void JASDsp::TChannel::initFilter() {

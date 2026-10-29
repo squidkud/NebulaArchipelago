@@ -77,32 +77,8 @@ struct J3DIndTexCoordScale : public J3DIndTexCoordScaleInfo {
 
 class J3DColorBlock {
 public:
-    virtual void load() {
-    }
 
     virtual void reset(J3DColorBlock*) {
-    }
-
-    virtual void patch() {
-    }
-
-    virtual void patchMatColor() {
-    }
-
-    virtual void patchLight() {
-    }
-
-    virtual void diff(u32) {
-    }
-
-    virtual void diffMatColor() {
-    }
-
-    virtual void diffLight() {
-    }
-
-    virtual s32 countDLSize() {
-        return 0;
     }
 
     virtual u32 getType() = 0;
@@ -188,16 +164,7 @@ public:
     }
 
     void initialize();
-
-    virtual s32 countDLSize();
-    virtual void load();
     virtual void reset(J3DColorBlock*);
-    virtual void patch();
-    virtual void patchMatColor();
-    virtual void patchLight();
-    virtual void diff(u32);
-    virtual void diffMatColor();
-    virtual void diffLight();
     virtual u32 getType() {
         return 'CLOF';
     }
@@ -284,10 +251,7 @@ public:
     }
 
     void initialize();
-
-    virtual void load();
     virtual void reset(J3DColorBlock*);
-    virtual s32 countDLSize();
     virtual u32 getType() {
         return 'CLAB';
     }
@@ -317,16 +281,7 @@ public:
     }
 
     void initialize();
-
-    virtual void load();
     virtual void reset(J3DColorBlock*);
-    virtual void patch();
-    virtual void patchMatColor();
-    virtual void patchLight();
-    virtual void diff(u32);
-    virtual void diffMatColor();
-    virtual void diffLight();
-    virtual s32 countDLSize();
     virtual u32 getType() {
         return 'CLON';
     }
@@ -437,14 +392,6 @@ public:
     virtual void calcWithoutViewMtx(f32 const (*)[4]) = 0;
     virtual void calcPostTexMtx(f32 const (*)[4]) = 0;
     virtual void calcPostTexMtxWithoutViewMtx(f32 const (*)[4]) = 0;
-    virtual void load() = 0;
-    virtual void patch() = 0;
-    virtual void diff(u32) = 0;
-    virtual void diffTexMtx() = 0;
-    virtual void diffTexGen() = 0;
-    virtual s32 countDLSize() {
-        return 0;
-    }
 
     virtual u32 getType() = 0;
     virtual void setTexGenNum(u32 const*) {
@@ -505,14 +452,6 @@ public:
     virtual void calcWithoutViewMtx(f32 const (*)[4]);
     virtual void calcPostTexMtx(f32 const (*)[4]);
     virtual void calcPostTexMtxWithoutViewMtx(f32 const (*)[4]);
-    virtual void load() {
-    }
-
-    virtual void patch();
-    virtual void diff(u32);
-    virtual void diffTexMtx();
-    virtual void diffTexGen();
-    virtual s32 countDLSize();
     virtual u32 getType() {
         return 'TGPT';
     }
@@ -571,9 +510,6 @@ public:
     void initialize();
 
     virtual void reset(J3DTexGenBlock*);
-    virtual void load();
-    virtual void patch();
-    virtual s32 countDLSize();
     virtual u32 getType() {
         return 'TGB4';
     }
@@ -605,9 +541,6 @@ public:
     void initialize();
 
     virtual void reset(J3DTexGenBlock*);
-    virtual void load();
-    virtual void patch();
-    virtual s32 countDLSize();
     virtual u32 getType() {
         return 'TGBC';
     }
@@ -634,44 +567,7 @@ class J3DTevBlock {
 public:
     virtual void reset(J3DTevBlock*) {
     }
-
-    virtual void load() {
-    }
-
-    virtual void diff(u32);
-    virtual void diffTexNo() {
-    }
-
-    virtual void diffTevReg() {
-    }
-
-    virtual void diffTexCoordScale() {
-    }
-
-    virtual void diffTevStage() {
-    }
-
-    virtual void diffTevStageIndirect() {
-    }
-
-    virtual void patch() {
-    }
-
-    virtual void patchTexNo() {
-    }
-
-    virtual void patchTevReg() {
-    }
-
-    virtual void patchTexNoAndTexCoordScale() {
-    }
-
-    virtual void ptrToIndex() = 0;
-    virtual void indexToPtr() = 0;
     virtual u32 getType() = 0;
-    virtual s32 countDLSize() {
-        return 0;
-    }
 
     virtual void setTexNo(u32, u16 const*) {
     }
@@ -798,7 +694,6 @@ public:
     }
 
 protected:
-    void indexToPtr_private(u32);
 
     /* 0x4 */ u32 mTexNoOffset;
 };
@@ -827,21 +722,6 @@ public:
     virtual void calcPostTexMtxWithoutViewMtx(f32 const (*)[4]) {
     }
 
-    virtual void load() {
-    }
-
-    virtual void patch() {
-    }
-
-    virtual void diff(u32) {
-    }
-
-    virtual void diffTexMtx() {
-    }
-
-    virtual void diffTexGen() {
-    }
-
     virtual u32 getType() {
         return 'TGNL';
     }
@@ -858,13 +738,6 @@ public:
 
     void initialize();
     virtual void reset(J3DTevBlock*) {
-    }
-
-    virtual void ptrToIndex() {
-    }
-
-    virtual void indexToPtr() {
-        indexToPtr_private(mTexNoOffset);
     }
 
     virtual u32 getType() {
@@ -884,22 +757,6 @@ public:
     void initialize();
 
     virtual void reset(J3DTevBlock*);
-    virtual void load() {
-    }
-
-    virtual void diffTexNo();
-    virtual void diffTevReg();
-    virtual void diffTexCoordScale();
-    virtual void diffTevStage();
-    virtual void diffTevStageIndirect();
-    virtual void patch();
-    virtual void patchTexNo();
-    virtual void patchTevReg();
-    virtual void patchTexNoAndTexCoordScale();
-    virtual void ptrToIndex();
-    virtual void indexToPtr() {
-        indexToPtr_private(mTexNoOffset);
-    }
 
     virtual u32 getType() {
         return 'TVPT';
@@ -916,8 +773,6 @@ public:
     virtual u8 getTevStageNum() const {
         return mTevStageNum;
     }
-
-    virtual s32 countDLSize();
     virtual void setTexNo(u32 idx, u16 const* texNo) {
         mTexNo[idx] = *texNo;
     }
@@ -1037,28 +892,10 @@ public:
     void initialize();
 
     virtual void reset(J3DTevBlock*);
-    virtual void load();
-    virtual void diffTexNo();
-    virtual void diffTevReg();
-    virtual void diffTexCoordScale();
-    virtual void diffTevStage();
-    virtual void diffTevStageIndirect();
-    virtual void patch();
-    virtual void patchTexNo();
-    virtual void patchTevReg();
-    virtual void patchTexNoAndTexCoordScale();
-    virtual void ptrToIndex() {
-    }
-
-    virtual void indexToPtr() {
-        indexToPtr_private(mTexNoOffset);
-    }
 
     virtual u32 getType() {
         return 'TVB1';
     }
-
-    virtual s32 countDLSize();
     virtual void setTexNo(u32 idx, u16 const* no) {
         mTexNo[idx] = *no;
     }
@@ -1139,28 +976,10 @@ public:
     void initialize();
 
     virtual void reset(J3DTevBlock*);
-    virtual void load();
-    virtual void diffTexNo();
-    virtual void diffTevReg();
-    virtual void diffTexCoordScale();
-    virtual void diffTevStage();
-    virtual void diffTevStageIndirect();
-    virtual void patch();
-    virtual void patchTexNo();
-    virtual void patchTevReg();
-    virtual void patchTexNoAndTexCoordScale();
-    virtual void ptrToIndex() {
-    }
-
-    virtual void indexToPtr() {
-        indexToPtr_private(mTexNoOffset);
-    }
 
     virtual u32 getType() {
         return 'TVB2';
     }
-
-    virtual s32 countDLSize();
     virtual void setTexNo(u32 idx, u16 const* texNo) {
         mTexNo[idx] = *texNo;
     }
@@ -1330,28 +1149,10 @@ public:
     void initialize();
 
     virtual void reset(J3DTevBlock*);
-    virtual void load();
-    virtual void diffTexNo();
-    virtual void diffTevReg();
-    virtual void diffTexCoordScale();
-    virtual void diffTevStage();
-    virtual void diffTevStageIndirect();
-    virtual void patch();
-    virtual void patchTexNo();
-    virtual void patchTevReg();
-    virtual void patchTexNoAndTexCoordScale();
-    virtual void ptrToIndex() {
-    }
-
-    virtual void indexToPtr() {
-        indexToPtr_private(mTexNoOffset);
-    }
 
     virtual u32 getType() {
         return 'TVB4';
     }
-
-    virtual s32 countDLSize();
     virtual void setTexNo(u32 idx, u16 const* texNo) {
         mTexNo[idx] = *texNo;
     }
@@ -1517,26 +1318,10 @@ public:
     void initialize();
 
     virtual void reset(J3DTevBlock*);
-    virtual void load();
-    virtual void diffTexNo();
-    virtual void diffTevReg();
-    virtual void diffTexCoordScale();
-    virtual void diffTevStage();
-    virtual void diffTevStageIndirect();
-    virtual void patch();
-    virtual void patchTexNo();
-    virtual void patchTevReg();
-    virtual void patchTexNoAndTexCoordScale();
-    virtual void ptrToIndex();
-    virtual void indexToPtr() {
-        indexToPtr_private(mTexNoOffset);
-    }
 
     virtual u32 getType() {
         return 'TV16';
     }
-
-    virtual s32 countDLSize();
     virtual void setTexNo(u32 idx, u16 const* texNo) {
         mTexNo[idx] = *texNo;
     }
@@ -1708,21 +1493,11 @@ struct J3DIndTexMtx : public J3DIndTexMtxInfo {
 
     ~J3DIndTexMtx() {
     }
-
-    void load(u32 param_1) const {
-        J3DGDSetIndTexMtx((GXIndTexMtxID)(param_1 + GX_ITM_0), (Mtx3P)field_0x0, field_0x18);
-    }
 };  // Size: 0x1C
 
 class J3DIndBlock {
 public:
     virtual void reset(J3DIndBlock*) {
-    }
-
-    virtual void diff(u32) = 0;
-    virtual void load() = 0;
-    virtual s32 countDLSize() {
-        return 0;
     }
 
     virtual u32 getType() = 0;
@@ -1774,11 +1549,7 @@ public:
     }
 
     void initialize();
-
-    virtual s32 countDLSize();
     virtual void reset(J3DIndBlock*);
-    virtual void diff(u32);
-    virtual void load();
     virtual u32 getType() {
         return 'IBLF';
     }
@@ -1838,11 +1609,6 @@ public:
 
 class J3DIndBlockNull : public J3DIndBlock {
 public:
-    virtual void diff(u32) {
-    }
-
-    virtual void load() {
-    }
 
     virtual void reset(J3DIndBlock*) {
     }
@@ -1858,23 +1624,6 @@ public:
 class J3DPEBlock {
 public:
     virtual void reset(J3DPEBlock*) {
-    }
-
-    virtual void load() = 0;
-    virtual void patch() {
-    }
-
-    virtual void diff(u32) {
-    }
-
-    virtual void diffFog() {
-    }
-
-    virtual void diffBlend() {
-    }
-
-    virtual s32 countDLSize() {
-        return 0;
     }
 
     virtual u32 getType() = 0;
@@ -1950,8 +1699,6 @@ public:
 };
 
 struct J3DPEBlockNull : public J3DPEBlock {
-    virtual void load() {
-    }
 
     virtual u32 getType() {
         return 'PENL';
@@ -1963,8 +1710,6 @@ struct J3DPEBlockNull : public J3DPEBlock {
 
 class J3DPEBlockOpa : public J3DPEBlock {
 public:
-    virtual s32 countDLSize();
-    virtual void load();
     virtual u32 getType() {
         return 'PEOP';
     }
@@ -1975,8 +1720,6 @@ public:
 
 class J3DPEBlockTexEdge : public J3DPEBlock {
 public:
-    virtual s32 countDLSize();
-    virtual void load();
     virtual u32 getType() {
         return 'PEED';
     }
@@ -1987,8 +1730,6 @@ public:
 
 class J3DPEBlockXlu : public J3DPEBlock {
 public:
-    virtual s32 countDLSize();
-    virtual void load();
     virtual u32 getType() {
         return 'PEXL';
     }
@@ -2006,14 +1747,6 @@ public:
     void initialize();
 
     virtual void reset(J3DPEBlock*);
-    virtual void load();
-    virtual void diff(u32 param_0) {
-        if (param_0 & 0x20000000) {
-            diffBlend();
-        }
-    };
-    virtual void diffBlend();
-    virtual s32 countDLSize();
     virtual u32 getType() {
         return 'PEFG';
     }
@@ -2097,12 +1830,6 @@ public:
     void initialize();
 
     virtual void reset(J3DPEBlock*);
-    virtual void load();
-    virtual void patch();
-    virtual void diff(u32);
-    virtual void diffFog();
-    virtual void diffBlend();
-    virtual s32 countDLSize();
     virtual u32 getType() {
         return 'PEFL';
     }

@@ -275,8 +275,9 @@ void check_independent_pair_compilation() {
 int main() {
     using namespace galaxy::gx;
 
-    {   // RGB8/RGB565 have no EFB alpha, so destination-alpha factors share a PSO key with
-        // ONE/ZERO (as in Aurora's GX pipeline normalization); RGBA6 keeps its factors.
+    {   // RGB8/RGB565 have no EFB alpha, so destination-alpha factors read ONE/ZERO (as in Aurora's GX pipeline
+        // normalization), which writes the source unchanged: no blend at all (effective_blend), the key of an
+        // unblended draw; RGBA6 keeps its factors and its blend.
         GxState state;
         const auto write_bp = [&state](std::uint8_t reg, std::uint32_t value) {
             state.load_bp((static_cast<std::uint32_t>(reg) << 24u) | value);
@@ -294,9 +295,9 @@ int main() {
         const RenderStateKey rgb565 = build_render_state_key(state);
         write_bp(bp::kPeControl, 1u);  // RGBA6_Z24 has EFB alpha.
         const RenderStateKey rgba6 = build_render_state_key(state);
-        if (!(rgb8 == rgb8_normalized) ||
-            ((rgb565.blend_bits >> 2u) & 7u) != 1u ||
-            ((rgb565.blend_bits >> 5u) & 7u) != 0u ||
+        if (!(rgb8 == rgb8_normalized) || (rgb8.blend_bits & 1u) != 0u ||
+            (rgb565.blend_bits & 0x1FFFu) != 0u ||
+            (rgba6.blend_bits & 1u) == 0u ||
             ((rgba6.blend_bits >> 2u) & 7u) != 6u ||
             ((rgba6.blend_bits >> 5u) & 7u) != 7u) {
             ++g_failures;
@@ -582,10 +583,23 @@ int main() {
         run_vs(k, "vs_texgen_x8");
     }
 
+    // Physical ray tracing's de-baking only in its frames' vertex shaders.
+    {
+        const ShaderGenerator gen;
+        VertexShaderKey k{};
+        std::memset(&k, 0, sizeof(k));
+        k.num_chans = 1;
+        k.channel[0] = chan_ctrl(true, false, 0, false, 0, 0);
+        check_not_contains(gen.generate_vs(k), "nebula_debake", "vs_without_debake");
+        k.features = kVsFeatureDebake;
+        check_contains(gen.generate_vs(k), "nebula_debake_gain(v.nrm)", "vs_debake");
+        run_vs(k, "vs_debake");
+    }
+
     // Motion-vector variants.
     {
         const ShaderGenerator gen;
-        for (unsigned variant = 0; variant < 4u; ++variant) {
+        for (unsigned variant = 0; variant < 8u; ++variant) {
             VertexShaderKey k{};
             std::memset(&k, 0, sizeof(k));
             k.num_chans = 1;
@@ -596,6 +610,8 @@ int main() {
                 k.flags |= 0x02u | kVsKeyPerPixelLighting;
                 k.channel[0] = chan_ctrl(false, true, 0x01, false, 1, 1);
             }
+            const bool blend = (variant & 4u) != 0u;
+            k.features = blend ? kVsFeatureVertexBlend : 0u;
             const std::string src = gen.generate_vs(k);
             char label[64];
             std::snprintf(label, sizeof(label), "vs_motion_variant%u", variant);
@@ -603,9 +619,15 @@ int main() {
             check_contains(src, (variant & 1u) != 0u ? "motion_ctrl.x == 0u"
                                                      : "dot(motion_prev_pos[0], float4(vb_pos_prev",
                            label);
-            // Replays take the presented frame's jitter and the blended position before it.
+            // Replays take the presented frame's jitter and the blended position before it; without them, the game
+            // frame's (no jitter, the vertex's own position).
             check_contains(src, "o.pos.xy += jitter_ndc * o.pos.w", label);
-            check_contains(src, "vb_pos_prev = lerp(earlier, v.pos, vb_t_prev)", label);
+            if (blend) {
+                check_contains(src, "vb_pos_prev = lerp(earlier, v.pos, vb_t_prev)", label);
+            } else {
+                check_not_contains(src, "vertex_blend(", label);
+                check_contains(src, "const float3 vb_pos_prev = v.pos;", label);
+            }
             Microsoft::WRL::ComPtr<ID3DBlob> code, errors;
             const HRESULT hr = D3DCompile(src.data(), src.size(), label, nullptr, nullptr,
                 "main", "vs_5_1", D3DCOMPILE_ENABLE_STRICTNESS |
@@ -701,8 +723,8 @@ int main() {
             check_compiles(src, "vs_5_1", label);
         }
         // Pixel stage: lit dielectric, lit environment-mapped, unlit environment-mapped (the ray
-        // tracer's class), each also with motion vectors.
-        for (unsigned variant = 0; variant < 6u; ++variant) {
+        // tracer's class), each also with motion vectors, in a scene without and with ray tracing.
+        for (unsigned variant = 0; variant < 12u; ++variant) {
             PixelShaderKey k{};
             std::memset(&k, 0, sizeof(k));
             k.num_tev_stages = 2;
@@ -713,7 +735,8 @@ int main() {
             k.stages[0] = basic_stage();
             k.stages[1] = basic_stage();
             k.stages[1].order = (1u << 3) | 1u | (1u << 6);
-            k.reserved = kPsKeyEnhancedLighting;
+            const bool rt = variant >= 6u;
+            k.reserved = static_cast<std::uint8_t>(kPsKeyEnhancedLighting | (rt ? kPsKeyRtPaths : 0u));
             const unsigned material = variant % 3u;
             // The actors' colour channel 0x70F: lights 0 and 1, clamped diffuse, spot attenuation,
             // material from the vertex colour.
@@ -722,7 +745,7 @@ int main() {
             k.ind_reserved = material == 0u ? actor
                            : material == 1u ? actor | 0x02u | kEnhancedReflective
                                             : 0x02u | kEnhancedReflective;
-            if (variant >= 3u) k.reserved |= kPsKeyMotion;
+            if (variant % 6u >= 3u) k.reserved |= kPsKeyMotion;
             const std::string src = gen.generate_ps(k);
             char label[64];
             std::snprintf(label, sizeof(label), "ps_enhanced_variant%u", variant);
@@ -733,7 +756,19 @@ int main() {
                 check_contains(src, "enh_light(1u, true, pin.ppl_pos", label);
                 check_contains(src, "pin.col0.rgb = enh_mat *", label);
                 // Under traced lighting the channel is the game's light averaged over direction.
-                check_contains(src, "pin.col0.rgb = enh_mat * saturate(enh_avg);", label);
+                if (rt) {
+                    check_contains(src, "pin.col0.rgb = enh_mat * saturate(enh_avg);", label);
+                } else {
+                    check_not_contains(src, "enh_avg", label);
+                }
+            }
+            // Without ray tracing none of its branches (header bits 16, 17, 31) are compiled in.
+            if (rt) {
+                check_contains(src, "0x20000u", label);
+            } else {
+                check_not_contains(src, "0x20000u", label);
+                check_not_contains(src, "0x30000u", label);
+                check_not_contains(src, "0x80000000u", label);
             }
             if (material == 0u) {
                 check_not_contains(src, "enh.env_gain))", label);
@@ -757,6 +792,13 @@ int main() {
         const std::string ppl = gen.generate_ps(k);
         check_not_contains(ppl, "enh_", "ps_ppl_has_no_enhanced_lighting");
         check_not_contains(ppl, "uber_ps_header", "ps_ppl_keeps_its_constants");
+        // A clear ice draw's tint is taken only under ray tracing: only a ray-traced scene's keys compile it.
+        k.reserved = 0u;
+        check_not_contains(gen.generate_ps(k), "gx_tint_cleared", "ps_no_tint_without_ray_tracing");
+        k.reserved = kPsKeyRtPaths;
+        const std::string traced = gen.generate_ps(k);
+        check_contains(traced, "pin.col0.rgb = gx_tint_cleared(", "ps_tint_under_ray_tracing");
+        check_compiles(traced, "ps_5_1", "ps_tint_under_ray_tracing");
 
         // The material word from the draw's keys (enhanced_lighting.h).
         {
@@ -1585,6 +1627,8 @@ int main() {
             source += uber_ps_variant_export_depth(variant) ? "1" : "0";
             source += "\n#define UBER_EARLY_DEPTH ";
             source += uber_ps_variant_early_depth(variant) ? "1" : "0";
+            source += "\n#define UBER_LAYER ";
+            source += uber_ps_variant_layer(variant) ? "1" : "0";
             source += "\n";
             source += uber_ps_source();
             const std::string label = "uber_ps_variant_" + std::to_string(variant);
@@ -1606,6 +1650,10 @@ int main() {
         expect_variant(0x03u, 2u);  // late Z texture exports depth
         expect_variant(0x83u, 3u);
         expect_variant(0x02u, 4u);  // early Z texture keeps geometric depth
+        key.reserved = kPsKeyLayer;
+        expect_variant(0x01u, 6u);  // effects layer, late depth
+        expect_variant(0x03u, 7u);  // effects layer, depth export
+        expect_variant(0x00u, 8u);  // effects layer, early depth
     }
 
     if (g_failures == 0) {

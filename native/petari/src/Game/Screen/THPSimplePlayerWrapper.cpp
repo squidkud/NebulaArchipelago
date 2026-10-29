@@ -64,8 +64,6 @@ THPSimplePlayerWrapper::THPSimplePlayerWrapper(const char* pName)
     mSoundBuffer[1] = new (32) s32[0x230];
     MR::zeroMemory(mSoundBuffer[0], 0x8C0);
     MR::zeroMemory(mSoundBuffer[1], 0x8C0);
-    DCFlushRange(mSoundBuffer[0], 0x8C0);
-    DCFlushRange(mSoundBuffer[1], 0x8C0);
     MR::zeroMemory(&mFileInfo, sizeof(mFileInfo));
     MR::zeroMemory(&mHeader, sizeof(mHeader));
     MR::zeroMemory(&mFrameComp, sizeof(mFrameComp));
@@ -85,7 +83,6 @@ THPSimplePlayerWrapper::THPSimplePlayerWrapper(const char* pName)
 }
 
 bool THPSimplePlayerWrapper::init(s32 audio) {
-    LCEnable();
     if (!THPInit()) {
         return false;
     }
@@ -96,8 +93,6 @@ bool THPSimplePlayerWrapper::init(s32 audio) {
     OSRestoreInterrupts(old);
     MR::zeroMemory(mSoundBuffer[0], 0x8C0);
     MR::zeroMemory(mSoundBuffer[1], 0x8C0);
-    DCFlushRange(mSoundBuffer[0], 0x8C0);
-    DCFlushRange(mSoundBuffer[1], 0x8C0);
     _2F0 = 0;
     _2F4 = 1.0f;
     _2F8 = 0.0f;
@@ -107,7 +102,6 @@ bool THPSimplePlayerWrapper::init(s32 audio) {
 }
 
 void THPSimplePlayerWrapper::quit() {
-    LCDisable();
     JASDriver::registerMixCallback(nullptr, (JASMixMode)3);
     THPSimplePlayerStaticAudio::mPlayer = nullptr;
     _8 = 0;
@@ -193,32 +187,23 @@ bool THPSimplePlayerWrapper::setBuffer(u8* pBuffer) {
 
 #if (VERSION == RMGJ01 || VERSION == RMGE01 || VERSION == RMGP01)
         mTextureSet.ytexture = pBuffer;
-        DCInvalidateRange(pBuffer, ysize);
         pBuffer += ysize;
         mTextureSet.utexture = pBuffer;
-        DCInvalidateRange(pBuffer, uvsize);
         pBuffer += uvsize;
         mTextureSet.vtexture = pBuffer;
-        DCInvalidateRange(pBuffer, uvsize);
         pBuffer += uvsize;
 #else
         mTextureSet[0].ytexture = pBuffer;
-        DCInvalidateRange(pBuffer, ysize);
         pBuffer += ysize;
         mTextureSet[0].utexture = pBuffer;
-        DCInvalidateRange(pBuffer, uvsize);
         pBuffer += uvsize;
         mTextureSet[0].vtexture = pBuffer;
-        DCInvalidateRange(pBuffer, uvsize);
         pBuffer += uvsize;
         mTextureSet[1].ytexture = pBuffer;
-        DCInvalidateRange(pBuffer, ysize);
         pBuffer += ysize;
         mTextureSet[1].utexture = pBuffer;
-        DCInvalidateRange(pBuffer, uvsize);
         pBuffer += uvsize;
         mTextureSet[1].vtexture = pBuffer;
-        DCInvalidateRange(pBuffer, uvsize);
         pBuffer += uvsize;
 #endif
 

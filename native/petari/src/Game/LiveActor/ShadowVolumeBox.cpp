@@ -1,4 +1,7 @@
 #include "Game/LiveActor/ShadowVolumeBox.hpp"
+#include <JSystem/J3DGraphBase/J3DNativeState.hpp>
+#include <JSystem/J3DGraphBase/J3DNativeShape.hpp>
+#include <JSystem/J3DGraphBase/J3DNativeDraw.hpp>
 #include "Game/LiveActor/LiveActor.hpp"
 #include "Game/LiveActor/ShadowController.hpp"
 #include "Game/LiveActor/ShadowDrawer.hpp"
@@ -20,11 +23,8 @@ void ShadowVolumeBox::setSize(const TVec3f& rSize) {
 }
 
 void ShadowVolumeBox::loadModelDrawMtx() const {
-    GXLoadPosMtxImm(MR::getCameraViewMtx(), 0);
-    GXSetCurrentMtx(0);
-    GXClearVtxDesc();
-    GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
-    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
+    J3DNativeShape::sendPosition(MR::getCameraViewMtx(), 0);
+    J3DNativeState::setCurrentMtx(0);
     makeVertexBuffer();
 }
 
@@ -137,7 +137,7 @@ void ShadowVolumeBox::makeVertexBuffer() const {
 }
 
 void ShadowVolumeBox::drawShape() const {
-    GXBegin(GX_TRIANGLESTRIP, GX_VTXFMT0, 14);
+    J3DNativeDraw::begin(GX_TRIANGLESTRIP, 14, 0);
     {
         TDDraw::sendPoint(mPoints[0]);
         TDDraw::sendPoint(mPoints[1]);
@@ -155,9 +155,8 @@ void ShadowVolumeBox::drawShape() const {
         TDDraw::sendPoint(mPoints[1]);
     }
 
-    GXEnd();
 
-    GXBegin(GX_TRIANGLEFAN, GX_VTXFMT0, 8);
+    J3DNativeDraw::begin(GX_TRIANGLEFAN, 8, 0);
     {
         TDDraw::sendPoint(mPoints[12]);
         TDDraw::sendPoint(mPoints[0]);
@@ -169,9 +168,8 @@ void ShadowVolumeBox::drawShape() const {
         TDDraw::sendPoint(mPoints[0]);
     }
 
-    GXEnd();
 
-    GXBegin(GX_TRIANGLEFAN, GX_VTXFMT0, 8);
+    J3DNativeDraw::begin(GX_TRIANGLEFAN, 8, 0);
     {
         TDDraw::sendPoint(mPoints[13]);
         TDDraw::sendPoint(mPoints[1]);
@@ -182,6 +180,4 @@ void ShadowVolumeBox::drawShape() const {
         TDDraw::sendPoint(mPoints[3]);
         TDDraw::sendPoint(mPoints[1]);
     }
-
-    GXEnd();
 }

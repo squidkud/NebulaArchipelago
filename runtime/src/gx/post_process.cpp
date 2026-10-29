@@ -31,12 +31,22 @@
 #include "post_smaa_weights_ps_ultra.h"
 #include "post_smaa_blend_vs.h"
 #include "post_smaa_blend_ps.h"
+#include "post_smaa_blend_keep_ps.h"
 #include "post_fsr_easu_ps.h"
 #include "post_fsr_rcas_ps.h"
 #include "post_fsr_rcas_scaled_ps.h"
 #include "post_resample_ps.h"
 #include "post_deband_ps.h"
+#include "post_deband_reduce_ps.h"
+#include "post_deband_smooth_ps.h"
+#include "post_deband_apply_ps.h"
 #include "post_fxaa_ps.h"
+#include "post_resample_box_ps.h"
+#include "post_deband_box_ps.h"
+#include "post_deband_reduce_box_ps.h"
+#include "post_deband_apply_box_ps.h"
+#include "post_fsr_easu_box_ps.h"
+#include "post_fsr_rcas_scaled_box_ps.h"
 
 namespace galaxy::gx {
 namespace {
@@ -56,7 +66,7 @@ constexpr ShaderBytes bytes(const BYTE (&code)[N]) noexcept {
 constexpr DXGI_FORMAT kColorFormat = DXGI_FORMAT_R8G8B8A8_UNORM;
 constexpr DXGI_FORMAT kEdgesFormat = DXGI_FORMAT_R8G8_UNORM;
 constexpr DXGI_FORMAT kStencilFormat = DXGI_FORMAT_D24_UNORM_S8_UINT;
-constexpr unsigned kRtvSlots = 5u;
+constexpr unsigned kRtvSlots = 7u;
 
 D3D12_SHADER_BYTECODE code(ShaderBytes shader) noexcept {
     return {shader.data, shader.size};
@@ -229,13 +239,40 @@ bool PostProcessor::initialize(ID3D12Device* device, ID3D12CommandQueue* queue,
                         rcas_scaled_) &&
         create_pipeline(code(bytes(g_post_fullscreen_vs)), code(bytes(g_post_resample_ps)), kColorFormat, 0, resample_);
     // Optional: without it the picture goes on as the game drew it.
-    if (!create_pipeline(code(bytes(g_post_fullscreen_vs)), code(bytes(g_post_deband_ps)), kColorFormat, 0, deband_)) {
+    if (!create_pipeline(code(bytes(g_post_fullscreen_vs)), code(bytes(g_post_deband_ps)), kColorFormat, 0, deband_) ||
+        !create_pipeline(code(bytes(g_post_fullscreen_vs)), code(bytes(g_post_deband_reduce_ps)), kColorFormat, 0,
+                         deband_reduce_) ||
+        !create_pipeline(code(bytes(g_post_fullscreen_vs)), code(bytes(g_post_deband_smooth_ps)), kColorFormat, 0,
+                         deband_smooth_) ||
+        !create_pipeline(code(bytes(g_post_fullscreen_vs)), code(bytes(g_post_deband_apply_ps)), kColorFormat, 0,
+                         deband_apply_)) {
         std::cerr << "[post-process] deband pipeline unavailable\n";
+        deband_.Reset();
     }
     if (!scaling) {
         std::cerr << "[post-process] pipeline creation failed\n";
         shutdown();
         return false;
+    }
+    // Optional: without them every display copy is a copy.
+    if (!create_pipeline(code(bytes(g_post_fullscreen_vs)), code(bytes(g_post_fsr_easu_box_ps)), kColorFormat, 0,
+                         easu_box_) ||
+        !create_pipeline(code(bytes(g_post_fullscreen_vs)), code(bytes(g_post_fsr_rcas_scaled_box_ps)), kColorFormat,
+                         0, rcas_scaled_box_) ||
+        !create_pipeline(code(bytes(g_post_fullscreen_vs)), code(bytes(g_post_deband_box_ps)), kColorFormat, 0,
+                         deband_box_) ||
+        !create_pipeline(code(bytes(g_post_fullscreen_vs)), code(bytes(g_post_deband_reduce_box_ps)), kColorFormat, 0,
+                         deband_reduce_box_) ||
+        !create_pipeline(code(bytes(g_post_fullscreen_vs)), code(bytes(g_post_deband_apply_box_ps)), kColorFormat, 0,
+                         deband_apply_box_) ||
+        !create_pipeline(code(bytes(g_post_fullscreen_vs)), code(bytes(g_post_resample_box_ps)), kColorFormat, 0,
+                         resample_box_)) {
+        easu_box_.Reset();
+        rcas_scaled_box_.Reset();
+        deband_box_.Reset();
+        deband_reduce_box_.Reset();
+        deband_apply_box_.Reset();
+        resample_box_.Reset();
     }
     fault_selftest_ = test_fault("selftest");
     fault_targets_ = test_fault("targets");
@@ -244,7 +281,7 @@ bool PostProcessor::initialize(ID3D12Device* device, ID3D12CommandQueue* queue,
     const bool smaa_pipelines = !test_fault("smaa") &&
         create_smaa_pipelines(settings_.smaa_quality, smaa_edges_, smaa_weights_) &&
         create_pipeline(code(bytes(g_post_smaa_blend_vs)), code(bytes(g_post_smaa_blend_ps)), kColorFormat, 0, smaa_blend_) &&
-        create_pipeline(code(bytes(g_post_smaa_blend_vs)), code(bytes(g_post_smaa_blend_ps)), kColorFormat, 0,
+        create_pipeline(code(bytes(g_post_smaa_blend_vs)), code(bytes(g_post_smaa_blend_keep_ps)), kColorFormat, 0,
                         smaa_blend_rgb_, kRgb);
     const bool fxaa_pipeline = !test_fault("fxaa") &&
         create_pipeline(code(bytes(g_post_fullscreen_vs)), code(bytes(g_post_fxaa_ps)), kColorFormat, 0, fxaa_) &&
@@ -302,7 +339,18 @@ bool PostProcessor::initialize(ID3D12Device* device, ID3D12CommandQueue* queue,
 
 void PostProcessor::shutdown() noexcept {
     deband_.Reset();
+    deband_reduce_.Reset();
+    deband_smooth_.Reset();
+    deband_apply_.Reset();
+    easu_box_.Reset();
+    rcas_scaled_box_.Reset();
+    resample_box_.Reset();
+    deband_box_.Reset();
+    deband_reduce_box_.Reset();
+    deband_apply_box_.Reset();
     debanded_ = {};
+    deband_reduced_ = {};
+    deband_smoothed_ = {};
     ready_ = false;
     status_.initialized = false;
     status_.smaa_ok = false;
@@ -813,6 +861,53 @@ void PostProcessor::self_test(ID3D12CommandQueue* queue) {
     edges_ = weights_ = antialiased_ = stencil_ = {};
 }
 
+void PostProcessor::record_deband(ID3D12GraphicsCommandList* list, DescriptorRing& srv_ring, ID3D12Resource* image,
+                                  unsigned width, unsigned height,
+                                  const std::function<void(D3D12_VIEWPORT&, Constants&)>& bind,
+                                  std::uint64_t frame_index, unsigned frames_in_flight) {
+    const unsigned reduction = deband_reduction(height);
+    const unsigned reduced_width = deband_reduced_size(width, reduction);
+    const unsigned reduced_height = deband_reduced_size(height, reduction);
+    const D3D12_RESOURCE_DESC image_desc = image->GetDesc();
+    const bool held = image_desc.Width != width || image_desc.Height != height;
+    Constants d{};
+    set_post_input_size(d, width, height);
+    set_post_source(d, width, height, static_cast<unsigned>(image_desc.Width), image_desc.Height);
+    D3D12_VIEWPORT viewport{};
+    if (reduction == 1u ||
+        !ensure_target(deband_reduced_, reduced_width, reduced_height, kColorFormat, 5u, frame_index,
+                       frames_in_flight) ||
+        !ensure_target(deband_smoothed_, reduced_width, reduced_height, kColorFormat, 6u, frame_index,
+                       frames_in_flight)) {
+        set_deband_constants(d, width, height, 1u);
+        bind(viewport, d);
+        draw(list, srv_ring, (held ? deband_box_ : deband_).Get(), {image}, {kColorFormat}, viewport, d);
+        return;
+    }
+    const D3D12_VIEWPORT reduced_viewport{
+        0.0f, 0.0f, static_cast<float>(reduced_width), static_cast<float>(reduced_height), 0.0f, 1.0f};
+    Constants r{};
+    set_post_input_size(r, width, height);
+    set_post_source(r, width, height, static_cast<unsigned>(image_desc.Width), image_desc.Height);
+    r.params[0] = static_cast<float>(reduction);
+    transition(list, deband_reduced_, D3D12_RESOURCE_STATE_RENDER_TARGET);
+    list->OMSetRenderTargets(1, &deband_reduced_.rtv, FALSE, nullptr);
+    draw(list, srv_ring, (held ? deband_reduce_box_ : deband_reduce_).Get(), {image}, {kColorFormat}, reduced_viewport,
+         r);
+    transition(list, deband_reduced_, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+    Constants s{};
+    set_post_input_size(s, reduced_width, reduced_height);
+    set_deband_constants(s, width, height, reduction);
+    transition(list, deband_smoothed_, D3D12_RESOURCE_STATE_RENDER_TARGET);
+    list->OMSetRenderTargets(1, &deband_smoothed_.rtv, FALSE, nullptr);
+    draw(list, srv_ring, deband_smooth_.Get(), {deband_reduced_.resource.Get()}, {kColorFormat}, reduced_viewport, s);
+    transition(list, deband_smoothed_, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+    set_deband_constants(d, width, height, reduction);
+    bind(viewport, d);
+    draw(list, srv_ring, (held ? deband_apply_box_ : deband_apply_).Get(), {image, deband_smoothed_.resource.Get()},
+         {kColorFormat, kColorFormat}, viewport, d);
+}
+
 void PostProcessor::record(ID3D12GraphicsCommandList* list,
                            DescriptorRing& srv_ring,
                            ID3D12Resource* source,
@@ -840,17 +935,38 @@ void PostProcessor::record(ID3D12GraphicsCommandList* list,
         0.0f, 0.0f, static_cast<float>(target_width), static_cast<float>(target_height), 0.0f, 1.0f};
     Constants c{};
     set_post_input_size(c, source_width, source_height);
+    // A pass reading `input` (the picture, or one the size of it) takes the picture's place in its texture; whether
+    // that is a taller texture (the box variant reads it).
+    const auto picture_in = [&](Constants& constants, ID3D12Resource* input) {
+        const D3D12_RESOURCE_DESC desc = input->GetDesc();
+        set_post_source(constants, source_width, source_height, static_cast<unsigned>(desc.Width), desc.Height);
+        return desc.Width != source_width || desc.Height != source_height;
+    };
 
-    // The picture's 8-bit steps smoothed at its own size, before any scaling (PASS_DEBAND).
-    if (deband_ && deband_wanted() &&
+    // The picture's 8-bit steps smoothed (PASS_DEBAND): at its own size before any enlarging; a reduced one (a
+    // supersampled scene) in the window after the box filter, where it has a third or less of the pixels, its taps
+    // stay in the texture cache and its dither is at the size it is seen.
+    const bool deband = deband_ && deband_wanted();
+    // GALAXY_TEST_DEBAND_AB=1: a reduced picture debanded at its own size in every other frame (same-run pictures).
+    static const bool deband_ab = [] {
+        char value[8]{};
+        std::size_t length = 0u;
+        return getenv_s(&length, value, sizeof(value), "GALAXY_TEST_DEBAND_AB") == 0 && length > 1u && value[0] == '1';
+    }();
+    const bool deband_in_window = deband && !(deband_ab && (frame_index & 1u) != 0u) &&
+        target_width < source_width && target_height < source_height &&
+        plan.resample && !plan.rcas &&
+        ensure_target(scaled_, target_width, target_height, kColorFormat, 3u, frame_index, frames_in_flight);
+    if (deband && !deband_in_window &&
         ensure_target(debanded_, source_width, source_height, kColorFormat, 4u, frame_index, frames_in_flight)) {
-        Constants d = c;
-        set_deband_constants(d, source_height);
-        transition(list, debanded_, D3D12_RESOURCE_STATE_RENDER_TARGET);
-        list->OMSetRenderTargets(1, &debanded_.rtv, FALSE, nullptr);
-        const D3D12_VIEWPORT source_sized{
-            0.0f, 0.0f, static_cast<float>(source_width), static_cast<float>(source_height), 0.0f, 1.0f};
-        draw(list, srv_ring, deband_.Get(), {image}, {kColorFormat}, source_sized, d);
+        record_deband(list, srv_ring, image, source_width, source_height,
+                      [&](D3D12_VIEWPORT& out_viewport, Constants&) {
+                          transition(list, debanded_, D3D12_RESOURCE_STATE_RENDER_TARGET);
+                          list->OMSetRenderTargets(1, &debanded_.rtv, FALSE, nullptr);
+                          out_viewport = {0.0f, 0.0f, static_cast<float>(source_width),
+                                          static_cast<float>(source_height), 0.0f, 1.0f};
+                      },
+                      frame_index, frames_in_flight);
         transition(list, debanded_, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
         image = debanded_.resource.Get();
     }
@@ -868,7 +984,8 @@ void PostProcessor::record(ID3D12GraphicsCommandList* list,
         list->OMSetRenderTargets(1, &target_rtv, FALSE, nullptr);
         s.origin[0] = static_cast<std::int32_t>(viewport.TopLeftX);
         s.origin[1] = static_cast<std::int32_t>(viewport.TopLeftY);
-        draw(list, srv_ring, rcas_scaled_.Get(), {image}, {kColorFormat}, viewport, s);
+        const bool held = picture_in(s, image);
+        draw(list, srv_ring, (held ? rcas_scaled_box_ : rcas_scaled_).Get(), {image}, {kColorFormat}, viewport, s);
         return;
     }
 
@@ -904,7 +1021,8 @@ void PostProcessor::record(ID3D12GraphicsCommandList* list,
                                static_cast<float>(target_width), static_cast<float>(target_height));
         D3D12_VIEWPORT vp{};
         into(!plan.rcas, vp, e);
-        draw(list, srv_ring, easu_.Get(), {image}, {kColorFormat}, vp, e);
+        const bool held = picture_in(e, image);
+        draw(list, srv_ring, (held ? easu_box_ : easu_).Get(), {image}, {kColorFormat}, vp, e);
         if (plan.rcas) {
             transition(list, scaled_, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
             image = scaled_.resource.Get();
@@ -916,8 +1034,16 @@ void PostProcessor::record(ID3D12GraphicsCommandList* list,
         r.params[2] = static_cast<float>(target_width);
         r.params[3] = static_cast<float>(target_height);
         D3D12_VIEWPORT vp{};
-        into(plan.resample_to_target, vp, r);
-        draw(list, srv_ring, resample_.Get(), {image}, {kColorFormat}, vp, r);
+        into(plan.resample_to_target && !deband_in_window, vp, r);
+        const bool held = picture_in(r, image);
+        draw(list, srv_ring, (held ? resample_box_ : resample_).Get(), {image}, {kColorFormat}, vp, r);
+        if (deband_in_window) {
+            transition(list, scaled_, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+            record_deband(list, srv_ring, scaled_.resource.Get(), target_width, target_height,
+                          [&](D3D12_VIEWPORT& window, Constants& d) { into(true, window, d); }, frame_index,
+                          frames_in_flight);
+            return;
+        }
         if (!plan.resample_to_target) {
             transition(list, scaled_, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
             image = scaled_.resource.Get();

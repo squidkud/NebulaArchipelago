@@ -1,4 +1,6 @@
 #include "Game/Player/MarioFoo.hpp"
+#include <JSystem/J3DGraphBase/J3DNativeState.hpp>
+#include <JSystem/J3DGraphBase/J3DNativeDraw.hpp>
 #include "Game/LiveActor/HitSensor.hpp"
 #include "Game/MapObj/DashRing.hpp"
 #include "Game/Player/Mario.hpp"
@@ -685,16 +687,16 @@ void MarioFoo::draw3D() const {
         TDDraw::setup(1, 1, 0);
         MR::ddSetVtxFormat(2);
         MR::ddLightingOff();
-        GXSetTevColorIn(GX_TEVSTAGE0, GX_CC_C0, GX_CC_C1, GX_CC_TEXA, GX_CC_ZERO);
-        GXSetTevColorOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
-        GXSetTevAlphaIn(GX_TEVSTAGE0, GX_CA_ZERO, GX_CA_TEXA, GX_CA_A0, GX_CA_ZERO);
-        GXSetTevAlphaOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_2, GX_TRUE, GX_TEVPREV);
-        GXSetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_ONE, GX_LO_NOOP);
+        J3DNativeState::setTevColorIn(GX_TEVSTAGE0, GX_CC_C0, GX_CC_C1, GX_CC_TEXA, GX_CC_ZERO);
+        J3DNativeState::setTevColorOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
+        J3DNativeState::setTevAlphaIn(GX_TEVSTAGE0, GX_CA_ZERO, GX_CA_TEXA, GX_CA_A0, GX_CA_ZERO);
+        J3DNativeState::setTevAlphaOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_2, GX_TRUE, GX_TEVPREV);
+        J3DNativeState::setBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_ONE, GX_LO_NOOP);
         _6B8->load(GX_TEXMAP0);
         const Color8 color0(255, 32, 32, 128);
-        GXSetTevColor(GX_TEVREG0, color0);
+        J3DNativeState::setTevColor(GX_TEVREG0, color0);
         const Color8 color1(255, 64, 64, 255);
-        GXSetTevColor(GX_TEVREG1, color1);
+        J3DNativeState::setTevColor(GX_TEVREG1, color1);
 
         TVec3f center = mActor->_2A0 + getPlayer()->getUpVec() * 50.0f;
         TVec3f back = -getPlayer()->getUpVec();
@@ -709,37 +711,35 @@ void MarioFoo::draw3D() const {
         beamVertices[1] = center - side * 70.0f + front * 2000.0f * length;
         beamVertices[2] = center - side * 50.0f + front * 2000.0f * length;
         beamVertices[3] = center - side * 50.0f;
-        GXBegin(GX_QUADS, GX_VTXFMT0, 4);
+        J3DNativeDraw::begin(GX_QUADS, 4, MR::ddVtxAttributes());
         MR::ddSendVtxData(beamVertices[0], TVec2f(0.0f, 0.0f));
         MR::ddSendVtxData(beamVertices[1], TVec2f(0.5f, 0.0f));
         MR::ddSendVtxData(beamVertices[2], TVec2f(0.5f, 1.0f));
         MR::ddSendVtxData(beamVertices[3], TVec2f(0.0f, 1.0f));
-        GXEnd();
 
         beamVertices[0] = center + side * 70.0f;
         beamVertices[1] = center + side * 70.0f + front * 2000.0f * length;
         beamVertices[2] = center + side * 50.0f + front * 2000.0f * length;
         beamVertices[3] = center + side * 50.0f;
-        GXBegin(GX_QUADS, GX_VTXFMT0, 4);
+        J3DNativeDraw::begin(GX_QUADS, 4, MR::ddVtxAttributes());
         MR::ddSendVtxData(beamVertices[0], TVec2f(0.0f, 0.0f));
         MR::ddSendVtxData(beamVertices[1], TVec2f(0.5f, 0.0f));
         MR::ddSendVtxData(beamVertices[2], TVec2f(0.5f, 1.0f));
         MR::ddSendVtxData(beamVertices[3], TVec2f(0.0f, 1.0f));
-        GXEnd();
     }
 
     const Color8 color2(255, 64, 64, 255);
 
-    GXSetTevColor(GX_TEVREG1, color2);
+    J3DNativeState::setTevColor(GX_TEVREG1, color2);
     if (_6B0) {
         TDDraw::setup(1, 1, 0);
         MR::ddSetVtxFormat(2);
         MR::ddLightingOff();
-        GXSetTevColorIn(GX_TEVSTAGE0, GX_CC_C0, GX_CC_C1, GX_CC_TEXA, GX_CC_ZERO);
-        GXSetTevColorOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
-        GXSetTevAlphaIn(GX_TEVSTAGE0, GX_CA_ZERO, GX_CA_TEXA, GX_CA_A0, GX_CA_ZERO);
-        GXSetTevAlphaOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_2, GX_TRUE, GX_TEVPREV);
-        GXSetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_ONE, GX_LO_NOOP);
+        J3DNativeState::setTevColorIn(GX_TEVSTAGE0, GX_CC_C0, GX_CC_C1, GX_CC_TEXA, GX_CC_ZERO);
+        J3DNativeState::setTevColorOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
+        J3DNativeState::setTevAlphaIn(GX_TEVSTAGE0, GX_CA_ZERO, GX_CA_TEXA, GX_CA_A0, GX_CA_ZERO);
+        J3DNativeState::setTevAlphaOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_2, GX_TRUE, GX_TEVPREV);
+        J3DNativeState::setBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_ONE, GX_LO_NOOP);
         _6B8->load(GX_TEXMAP0);
 
         u32 midpoint;
@@ -757,7 +757,7 @@ void MarioFoo::draw3D() const {
             }
 
             const Color8 color3(255, 0, 0, alpha);
-            GXSetTevColor(GX_TEVREG0, color3);
+            J3DNativeState::setTevColor(GX_TEVREG0, color3);
             u32 index = (_6B4 + 127 - i) % 64;
             if (i == 0) {
                 u32 j;
@@ -794,21 +794,19 @@ void MarioFoo::draw3D() const {
                 width.setLength(10.0f);
                 nextLeftEdge[0] = rPosition + width - _3B0[index] * ::cWidth;
                 nextLeftEdge[1] = rPosition - width - _3B0[index] * ::cWidth;
-                GXBegin(GX_QUADS, GX_VTXFMT0, 4);
+                J3DNativeDraw::begin(GX_QUADS, 4, MR::ddVtxAttributes());
                 MR::ddSendVtxData(leftEdge[0], texCoords[0]);
                 MR::ddSendVtxData(nextLeftEdge[0], nextTexCoords[0]);
                 MR::ddSendVtxData(nextLeftEdge[1], nextTexCoords[1]);
                 MR::ddSendVtxData(leftEdge[1], texCoords[1]);
-                GXEnd();
 
                 nextRightEdge[0] = rPosition + width + _3B0[index] * ::cWidth;
                 nextRightEdge[1] = rPosition - width + _3B0[index] * ::cWidth;
-                GXBegin(GX_QUADS, GX_VTXFMT0, 4);
+                J3DNativeDraw::begin(GX_QUADS, 4, MR::ddVtxAttributes());
                 MR::ddSendVtxData(rightEdge[0], texCoords[0]);
                 MR::ddSendVtxData(nextRightEdge[0], nextTexCoords[0]);
                 MR::ddSendVtxData(nextRightEdge[1], nextTexCoords[1]);
                 MR::ddSendVtxData(rightEdge[1], texCoords[1]);
-                GXEnd();
 
                 leftEdge[0] = nextLeftEdge[0];
                 texCoords[0] = nextTexCoords[0];

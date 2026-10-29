@@ -25,8 +25,6 @@ uint8_t* nebula_arena_base(void);
 void nebula_image_range(uintptr_t* base, uintptr_t* size);
 /* The output's shape, latched from the host after each retrace's vi_frame (vi/display_native.c). */
 void nebula_display_refresh(void);
-/* Integer division traps in the game module finish with the console CPU's result (os/divide_native.c). */
-void nebula_divide_init(void);
 
 void nebula_memory_regions(NebulaMemoryRegion* out, int* count);
 void nebula_memory_arenas(void** mem1Lo, void** mem1Hi, void** mem2Lo, void** mem2Hi);
@@ -47,6 +45,10 @@ void nebula_fatal(const char* format, ...) __attribute__((noreturn, format(print
 
 /* The data tables the game keeps in main.dol, read from the user's disc (dol_data.c). */
 void nebula_load_dol_data(void);
+
+/* The disc's release (region.c): 'E' North America, 'P' Europe, 'J' Japan; and its save folder on the NAND. */
+char nebula_disc_region(void);
+const char* nebula_home_dir(void);
 
 /* The OS core (os/os_native.c). */
 /* A device interrupt by its SDK number (__OS_INTERRUPT_*), from any host thread: the handler registered with

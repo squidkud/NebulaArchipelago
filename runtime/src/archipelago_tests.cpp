@@ -3,6 +3,7 @@
 
 #include <cstdio>
 #include <filesystem>
+#include <fstream>
 #include <string>
 #include <vector>
 
@@ -59,6 +60,55 @@ std::string received(int index, std::initializer_list<std::uint32_t> items) {
 int main() {
     const std::filesystem::path folder = std::filesystem::temp_directory_path() / "nebula_archipelago_test";
     std::filesystem::remove_all(folder);
+
+    // A slot that plays both characters is done when both have reached the goal (also across runs).
+    {
+        std::string both = connected_message();
+        const std::size_t at = both.find("\"character\":1");
+        both.replace(at, 13, "\"character\":2");
+        ap::Config config;
+        config.enabled = true;
+        config.server = "localhost:38281";
+        config.slot = "Mario";
+        const std::filesystem::path both_folder = std::filesystem::temp_directory_path() / "nebula_archipelago_test_both";
+        std::filesystem::remove_all(both_folder);
+        std::vector<std::string> out;
+        {
+            ap::Engine engine(config, both_folder, log_line);
+            engine.on_message(kRoomInfo, out);
+            engine.on_message(both, out);
+            out.clear();
+            engine.report_goal(0);
+            engine.poll_outgoing(out);
+            expect(out.empty(), "Mario alone does not finish a slot that plays both");
+        }
+        {
+            ap::Engine engine(config, both_folder, log_line);
+            engine.on_message(kRoomInfo, out);
+            engine.on_message(both, out);
+            out.clear();
+            engine.report_goal(1);
+            engine.poll_outgoing(out);
+            expect(out.size() == 1u && first_command(out.at(0)).find("status")->as_int() == 30,
+                   "Luigi's goal, with Mario's from an earlier run, finishes it");
+        }
+        std::filesystem::remove_all(both_folder);
+    }
+
+    // Option overrides in archipelago.ini.
+    {
+        const auto o = ap::parse_option_overrides(
+            "server=a:1\n# comment\noption.star_colors = on\nOPTION.color_3=255\noption.death_link=0\n"
+            "option.goal=2\noption.movement_items=1\noption.music_shuffle=maybe\noption.enemy_shuffle=0x1\n");
+        expect(o.at(static_cast<std::uint32_t>(ap::Option::StarColors)) == 1, "an override can be on/off");
+        expect(o.at(19u) == 255, "a colour override is a number");
+        expect(o.at(static_cast<std::uint32_t>(ap::Option::DeathLink)) == 0, "off is 0");
+        expect(o.count(static_cast<std::uint32_t>(ap::Option::Goal)) == 0, "the goal cannot be overridden");
+        expect(o.count(static_cast<std::uint32_t>(ap::Option::MovementItems)) == 0, "logic options cannot be overridden");
+        expect(o.count(static_cast<std::uint32_t>(ap::Option::MusicShuffle)) == 0, "a value that is not a number is ignored");
+        expect(o.at(static_cast<std::uint32_t>(ap::Option::EnemyShuffle)) == 1, "hexadecimal is read");
+        expect(ap::parse_option_overrides("").empty(), "no overrides in an empty file");
+    }
 
     // The configuration file.
     {
@@ -176,12 +226,15 @@ int main() {
         engine.on_message(R"([{"cmd":"Bounce","tags":["DeathLink"],"data":{"time":5.5,"source":"Bob","cause":"Bob ate a mushroom"}}])", out);
         expect(engine.take_death() && !engine.take_death(), "another player's death arrives once");
 
-        // The goal.
-        engine.report_goal();
+        // The goal (this slot plays Luigi: character 1).
+        engine.report_goal(0);
+        engine.poll_outgoing(out);
+        expect(out.empty(), "Mario's goal does not finish a Luigi slot");
+        engine.report_goal(1);
         engine.poll_outgoing(out);
         expect(out.size() == 1u && first_command(out.at(0)).find("status")->as_int() == 30, "StatusUpdate with CLIENT_GOAL");
         out.clear();
-        engine.report_goal();
+        engine.report_goal(1);
         engine.poll_outgoing(out);
         expect(out.empty(), "the goal is sent once");
 
@@ -362,7 +415,7 @@ int main() {
         expect(ap::config_problem("server=a:1").find("slot=") != std::string::npos, "a missing slot is explained");
         expect(ap::config_problem(plain).empty(), "a good file has no problem");
         expect(ap::option_name(static_cast<std::uint32_t>(ap::Option::StarItems)) != nullptr, "an option has a name");
-        expect(ap::option_name(15) == nullptr, "a number that is no option has none");
+        expect(ap::option_name(43) == nullptr, "a number that is no option has none");
     }
 
     // The shop: prices from the slot data, what each shelf holds from LocationInfo, purchases reported as locations.
@@ -429,6 +482,21 @@ int main() {
         engine.on_message("{}", out);
         engine.on_message(R"([{"no_cmd":1},{"cmd":"Unknown"},3,"x"])", out);
         expect(out.empty() && engine.state() == ap::State::Connecting, "garbage is ignored");
+    }
+
+    // The green spheres' guard: a guard file left by a run that stopped turns them off, for good, and the guard can be set and cleared.
+    {
+        const std::filesystem::path settings = folder / "settings";
+        std::filesystem::create_directories(settings);
+        { std::ofstream(settings / "sphere-guard.txt") << "left behind\n"; }
+        ap::start(settings, log_line);
+        expect(!ap::spheres_allowed(), "a guard file left behind turns the spheres off");
+        expect(!std::filesystem::exists(settings / "sphere-guard.txt"), "the stale guard is removed");
+        expect(std::filesystem::exists(settings / "green-spheres-off.txt"), "and the off marker is written");
+        ap::sphere_guard_begin();
+        expect(std::filesystem::exists(settings / "sphere-guard.txt"), "the guard is set");
+        ap::sphere_guard_end();
+        expect(!std::filesystem::exists(settings / "sphere-guard.txt"), "and cleared");
     }
 
     std::filesystem::remove_all(folder);

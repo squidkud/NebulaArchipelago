@@ -4,6 +4,7 @@
 // Its buffers stay unordered-access (the slot results excepted) and are reached through views in the scene's
 // descriptor block (rt_engine.hlsl g_engine_views).
 #include "galaxy/gx/ray_tracing.h"
+#include "galaxy/gx/pso_jobs.h"
 
 #include "rt_engine_atrous_cs.h"
 #include "rt_engine_clear_cs.h"
@@ -14,6 +15,9 @@
 #include "rt_engine_indirect_cs.h"
 #include "rt_engine_indirect_spatial_cs.h"
 #include "rt_engine_light_grid_cs.h"
+#include "rt_engine_mist_cs.h"
+#include "rt_engine_paint_clear_cs.h"
+#include "rt_engine_paint_cs.h"
 #include "rt_engine_cache_cs.h"
 #include "rt_engine_reference_cs.h"
 #include "rt_engine_shadow_blur_cs.h"
@@ -48,7 +52,8 @@ enum EngineView : std::uint32_t {
     // The world's radiance cache (rt_engine.hlsl EngineCacheCS).
     kEvRadianceCache,
 };
-static_assert(kEvRadianceCache < 32u);
+// 30 and 31: the mist's light pass's (ray_tracing.cpp kEvMist*).
+static_assert(kEvRadianceCache < 30u);
 
 // rt_engine.hlsl's light grid: kGridCells^3 cells of kGridSlots slots (a light, its weight).
 constexpr std::uint64_t kEngineGridBytes = 24ull * 24ull * 24ull * 64ull * 8ull;
@@ -83,6 +88,11 @@ constexpr std::uint32_t kEngineGiFull = 2147483648u;
 constexpr std::uint64_t kEngineCacheEntries = 1048576ull;
 constexpr std::uint64_t kEngineCacheBytes = kEngineCacheEntries * 32ull;
 
+// The table metals' painted colour (rt_engine.hlsl EnginePaintCS): per draw a record of four sums (red, green and blue
+// in 1/1023 units, the triangles counted); draws past this many decide pixel by pixel.
+constexpr std::uint32_t kEnginePaintDraws = 16384u;
+constexpr std::uint64_t kEnginePaintBytes = kEnginePaintDraws * 16ull;
+
 float env_value(const char* name, float fallback) {
     char value[32]{};
     std::size_t length = 0u;
@@ -102,14 +112,14 @@ D3D12_RESOURCE_BARRIER all_uavs() {
 
 // The engine's buffers: bytes per pixel (full resolution) or per half-resolution sample.
 const SceneRayTracer::EngineBufferSpec SceneRayTracer::kEngineBufferSpecs[kEngineBuffers] = {
-    {32u, false, L"rt engine gbuffer 0"},   {32u, false, L"rt engine gbuffer 1"},
+    {44u, false, L"rt engine gbuffer 0"},   {44u, false, L"rt engine gbuffer 1"},
     {16u, false, L"rt engine di temp"},     {16u, false, L"rt engine di 0"},
     {16u, false, L"rt engine di 1"},        {16u, false, L"rt engine direct"},
     {32u, true, L"rt engine gi temp"},      {32u, true, L"rt engine gi 0"},
     {32u, true, L"rt engine gi 1"},         {8u, true, L"rt engine gi out"},
     {8u, false, L"rt engine specular"},     {16u, false, L"rt engine diffuse history 0"},
-    {16u, false, L"rt engine diffuse history 1"}, {16u, false, L"rt engine specular history 0"},
-    {16u, false, L"rt engine specular history 1"}, {16u, false, L"rt engine a-trous a"},
+    {16u, false, L"rt engine diffuse history 1"}, {32u, false, L"rt engine specular history 0"},
+    {32u, false, L"rt engine specular history 1"}, {16u, false, L"rt engine a-trous a"},
     {16u, false, L"rt engine a-trous b"},   {4u, false, L"rt engine shadow 0"},
     {4u, false, L"rt engine shadow 1"},
 };
@@ -132,19 +142,23 @@ bool SceneRayTracer::create_engine_pipelines() {
     engine_clear_mode_ = static_cast<std::uint32_t>(std::clamp(env_value("GALAXY_RT_ENGINE_CLEAR", 1.0f), 0.0f, 10.0f));
     engine_clear_wanted_ = engine_clear_mode_ != 0u;
     engine_reference_ = env_value("GALAXY_RT_ENGINE_REFERENCE", 0.0f) != 0.0f;
+    mist_wanted_ = env_value("GALAXY_RT_MIST", 1.0f) != 0.0f;
+    mist_view_ = static_cast<std::uint32_t>(std::clamp(env_value("GALAXY_RT_MIST_VIEW", 0.0f), 0.0f, 2.0f));
     water_light_ = env_value("GALAXY_RT_WATER_LIGHT", 1.0f) != 0.0f;
     engine_reference_bounces_ =
         static_cast<std::uint32_t>(std::clamp(env_value("GALAXY_RT_ENGINE_REFERENCE_BOUNCES", 8.0f), 0.0f, 32.0f));
     if (!light_textured_ || !light_root_) {
         return false;
     }
+    // Compiled in parallel (pso_jobs.h), joined below.
+    PsoJobs jobs;
     const auto compute = [&](const void* code, std::size_t size, ComPtr<ID3D12PipelineState>& out) {
-        D3D12_COMPUTE_PIPELINE_STATE_DESC desc{};
-        desc.pRootSignature = light_root_.Get();
-        desc.CS = {code, size};
-        return SUCCEEDED(device_->CreateComputePipelineState(&desc, IID_PPV_ARGS(&out)));
+        jobs.compute(device_.Get(), light_root_.Get(), code, size, out);
+        return true;
     };
     const bool ok =
+        compute(g_rt_engine_paint_clear_cs, sizeof(g_rt_engine_paint_clear_cs), engine_paint_clear_pso_) &&
+        compute(g_rt_engine_paint_cs, sizeof(g_rt_engine_paint_cs), engine_paint_pso_) &&
         compute(g_rt_engine_gbuffer_cs, sizeof(g_rt_engine_gbuffer_cs), engine_gbuffer_pso_) &&
         compute(g_rt_engine_direct_cs, sizeof(g_rt_engine_direct_cs), engine_direct_pso_) &&
         compute(g_rt_engine_direct_spatial_cs, sizeof(g_rt_engine_direct_spatial_cs), engine_direct_spatial_pso_) &&
@@ -162,8 +176,9 @@ bool SceneRayTracer::create_engine_pipelines() {
         compute(g_rt_engine_atrous_cs, sizeof(g_rt_engine_atrous_cs), engine_atrous_pso_) &&
         compute(g_rt_engine_final_cs, sizeof(g_rt_engine_final_cs), engine_final_pso_) &&
         compute(g_rt_engine_clear_cs, sizeof(g_rt_engine_clear_cs), engine_clear_pso_) &&
+        compute(g_rt_engine_mist_cs, sizeof(g_rt_engine_mist_cs), engine_mist_pso_) &&
         compute(g_rt_engine_reference_cs, sizeof(g_rt_engine_reference_cs), engine_reference_pso_);
-    if (!ok) {
+    if (!ok || jobs.wait() != 0u) {
         std::cerr << "[rt] engine pipelines failed\n";
         return false;
     }
@@ -208,12 +223,66 @@ std::uint32_t SceneRayTracer::texture_srv(ID3D12Resource* resource) {
     return texture_view_first_ + slot;
 }
 
+void SceneRayTracer::prepare_buffers(std::uint32_t width, std::uint32_t height) {
+    if (!ready_ || width == 0u || height == 0u) {
+        return;
+    }
+    const auto start = std::chrono::steady_clock::now();
+    const std::uint32_t factor = sample_factor(width, height);
+    ensure_lighting_buffers(((width + factor - 1u) / factor) * ((height + factor - 1u) / factor));
+    const std::uint64_t full = static_cast<std::uint64_t>(width) * height;
+    for (unsigned slot = 0; slot < kLightSlots; ++slot) {
+        // trace_lighting's per-pixel normals, de-lighting and fog (one per slot).
+        if (!light_pixels_[slot] || light_pixels_bytes_[slot] < full * 16u) {
+            light_pixels_[slot].Reset();
+            light_pixels_bytes_[slot] = 0u;
+            if (create_buffer(full * 16u, D3D12_HEAP_TYPE_DEFAULT, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                              D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, light_pixels_[slot], L"rt pixel normals")) {
+                light_pixels_bytes_[slot] = full * 16u;
+                light_pixels_state_[slot] = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+            }
+        }
+    }
+    // The engine's buffers whatever the stage at the start (the title has no physical light; every stage the game
+    // lights has, and the first would make them on the render thread: about 2 GB at 4x, 40 ms).
+    if (engine_ready_ && ensure_engine_buffers(width, height) && engine_clear_wanted_) {
+        // trace_engine_clear's two records a pixel (one per slot).
+        for (unsigned slot = 0; slot < kLightSlots; ++slot) {
+            if (!engine_clear_[slot] &&
+                create_buffer(full * 32u, D3D12_HEAP_TYPE_DEFAULT, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                              D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, engine_clear_[slot], L"rt engine clear")) {
+                engine_clear_state_[slot] = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+            }
+        }
+    }
+    // The water pass's (reflections and refraction over water, glass and crystals), which it makes on the first stage
+    // with any: the same sample grid as the lighting's.
+    if (reflections_.ready()) {
+        const std::uint32_t samples_x = (width + factor - 1u) / factor;
+        const std::uint32_t samples_y = (height + factor - 1u) / factor;
+        static_cast<void>(reflections_.prepare_water(samples_x * samples_y, ((samples_x + 7u) / 8u) * ((samples_y + 7u) / 8u)));
+    }
+    // A size made before this one (the EFB changed while the tracer started) never reached the GPU: no frame of this
+    // tracer has run, so its buffers go now instead of holding two sizes until the retire delay passes.
+    retired_.clear();
+    prepared_width_ = width;
+    prepared_height_ = height;
+    std::cerr << "[rt] buffers for " << width << 'x' << height << " made on the starting worker in "
+              << std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count() << " ms\n";
+}
+
 bool SceneRayTracer::ensure_engine_buffers(std::uint32_t width, std::uint32_t height) {
     if (!engine_light_grid_ &&
         !create_buffer(kEngineGridBytes, D3D12_HEAP_TYPE_DEFAULT, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
                        D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, engine_light_grid_, L"rt engine light grid")) {
         engine_light_grid_.Reset();
         return false;
+    }
+    // The table metals' painted colour per draw; without it each pixel decides metal or paint by its own colour.
+    if (!engine_paint_ &&
+        !create_buffer(kEnginePaintBytes, D3D12_HEAP_TYPE_DEFAULT, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                       D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, engine_paint_, L"rt engine painted metal")) {
+        engine_paint_.Reset();
     }
     // The radiance cache (created zeroed: every entry free); without it the hits keep their own samples.
     if (!engine_radiance_cache_ &&
@@ -224,6 +293,7 @@ bool SceneRayTracer::ensure_engine_buffers(std::uint32_t width, std::uint32_t he
     if (width == engine_width_ && height == engine_height_ && engine_buffers_[0]) {
         return true;
     }
+    const auto made_from = std::chrono::steady_clock::now();
     for (auto& buffer : engine_buffers_) retire(buffer);
     for (auto& buffer : engine_slots_) retire(buffer);
     for (auto& buffer : engine_clear_) retire(buffer);
@@ -257,9 +327,10 @@ bool SceneRayTracer::ensure_engine_buffers(std::uint32_t width, std::uint32_t he
     engine_height_ = height;
     engine_fresh_ = true;
     std::cerr << "[rt] engine buffers " << width << 'x' << height << " mb="
-              << ((full * (32u * 2u + 16u * 3u + 16u + 8u + 16u * 6u + 4u * 2u + 16u * kLightSlots) + half * (32u * 3u + 8u)) >>
+              << ((full * (44u * 2u + 16u * 3u + 16u + 8u + 16u * 6u + 4u * 2u + 16u * kLightSlots) + half * (32u * 3u + 8u)) >>
                   20u)
-              << '\n';
+              << " in " << std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - made_from).count()
+              << " ms\n";
     return true;
 }
 
@@ -438,6 +509,10 @@ bool SceneRayTracer::engine_prepare(std::uint32_t width, std::uint32_t height, u
         }
     }
     std::copy(std::begin(views), std::end(views), c.views);
+    // The table metals' painted colour per draw (EnginePaintCS fills it before the G-buffer reads it).
+    c.paint[0] = engine_paint_ ? buffer_uav(engine_paint_.Get(), kEnginePaintBytes) : 0xFFFFFFFFu;
+    c.paint[2] = kEnginePaintDraws;
+    engine_paint_triangles_ = c.paint[0] != 0xFFFFFFFFu ? c.paint[1] : 0u;
     // The raster's motion, where the scene wrote it (RendererD3D12 scene_motion_): the histories follow what moved by
     // itself (rt_engine.hlsl engine_history).
     // The world's radiance cache for the hits' light (rt_engine.hlsl engine_cache_light).
@@ -457,16 +532,21 @@ bool SceneRayTracer::engine_prepare(std::uint32_t width, std::uint32_t height, u
             motion = true;
         }
     }
-    // Light under water reads the last water pass's surfaces; the next water pass rebuilds them after this trace.
+    // Light under water and the light at falling water read the last water pass's surfaces (their draw flags too); the
+    // next water pass rebuilds them after this trace.
     bool water_light = false;
-    if (water_light_ && water_light_triangles_ != 0u && water_tlas_ && water_positions_ &&
-        water_positions_state_ == D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE) {
+    if (water_light_ && water_light_triangles_ != 0u && water_tlas_ && water_positions_ && water_surfaces_ &&
+        water_positions_state_ == D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE &&
+        water_surfaces_state_ == D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE) {
         const std::uint32_t scene = tlas_view(water_tlas_->GetGPUVirtualAddress());
         const std::uint32_t positions =
             buffer_view(water_positions_.Get(), 0u, static_cast<std::uint64_t>(water_light_triangles_) * 36u);
-        if (scene != 0xFFFFFFFFu && positions != 0xFFFFFFFFu) {
+        const std::uint32_t surfaces =
+            buffer_view(water_surfaces_.Get(), 0u, static_cast<std::uint64_t>(water_light_triangles_) * 16u);
+        if (scene != 0xFFFFFFFFu && positions != 0xFFFFFFFFu && surfaces != 0xFFFFFFFFu) {
             c.views[kEvWaterScene] = scene;
             c.views[kEvWaterPositions] = positions;
+            c.views[kEvWaterSurfaces] = surfaces;
             water_light = true;
         }
     }
@@ -532,14 +612,27 @@ void SceneRayTracer::trace_engine(ID3D12GraphicsCommandList* list, Allocate allo
     const UINT hy = ((engine_gi_full_ ? engine_height_ : (engine_height_ + 1u) / 2u) + 7u) / 8u;
     const D3D12_RESOURCE_BARRIER barrier = all_uavs();
     to_state(list, engine_slots_[slot].Get(), engine_slot_state_[slot], D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    // GALAXY_RT_PASS_TIMING=2: each dispatch's GPU time too ([rt-engine-kernels]).
+    unsigned kernel = 0u;
     const auto run = [&](ID3D12PipelineState* pso, UINT x, UINT y, const wchar_t* name) {
         dred_marker(list, name);
+        const int timed_kernel = kernel_timing_ && kernel < kEngineKernels ? begin_pass(list) : -1;
         list->SetPipelineState(pso);
         list->Dispatch(x, y, 1u);
         list->ResourceBarrier(1u, &barrier);
+        if (timed_kernel >= 0) {
+            end_pass(list, timed_kernel, static_cast<Pass>(kPassEngineKernel + kernel));
+            kernel_names_[kernel] = name;
+        }
+        ++kernel;
     };
     // GALAXY_RT_PASS_TIMING: each stage's GPU time ([rt-engine-pass]).
     int timed = begin_pass(list);
+    // Each table metal's colour as the game paints it, over all its triangles, for the G-buffer's metal or paint.
+    if (engine_paint_triangles_ != 0u) {
+        run(engine_paint_clear_pso_.Get(), (kEnginePaintDraws * 4u + 63u) / 64u, 1u, L"engine_paint_clear");
+        run(engine_paint_pso_.Get(), (engine_paint_triangles_ + 255u) / 256u, 1u, L"engine_paint");
+    }
     run(engine_gbuffer_pso_.Get(), gx, gy, L"engine_gbuffer");
     end_pass(list, timed, kPassEngineGBuffer);
     // The light grid (the lights near each cell about the camera), for the surfaces' and the hits' light candidates.

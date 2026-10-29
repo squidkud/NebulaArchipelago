@@ -11,6 +11,8 @@
 
 namespace {
 
+using galaxy::gx::kRtCrystalTintKept;
+using galaxy::gx::kRtIceTintKept;
 using galaxy::gx::RtEmission;
 using galaxy::gx::RtMaterial;
 using galaxy::gx::RtMaterialTable;
@@ -152,6 +154,44 @@ bool identities_by_stage() {
     return ok;
 }
 
+bool luminous_effects() {
+    std::istringstream file(
+        "hash\tclass\n"
+        "00000000000000e1\tparticle+luminous\n"
+        "00000000000000e2\tparticle\n");
+    RtMaterialTable table;
+    table.read(file);
+    const RtMaterial* sparkle = find(table, 0xE1u);
+    const RtMaterial* smoke = find(table, 0xE2u);
+    bool ok = expect(sparkle != nullptr && sparkle->particle && sparkle->luminous &&
+                         sparkle->emission == RtEmission::None,
+                     "a luminous effect is light, not a light source");
+    ok &= expect(smoke != nullptr && smoke->particle && !smoke->luminous, "other effects take the traced light");
+    return ok;
+}
+
+bool clear_tints() {
+    std::istringstream file(
+        "hash\tclass\n"
+        "00000000000000f1\tice+helper+ior1.31\n"
+        "00000000000000f2\tparticle+luminous+icetint\n"
+        "00000000000000f3\tparticle+luminous+crystaltint\n"
+        "00000000000000f4\tcrystal+helper\n");
+    RtMaterialTable table;
+    table.read(file);
+    const RtMaterial* ice = find(table, 0xF1u);
+    const RtMaterial* cracks = find(table, 0xF2u);
+    const RtMaterial* crystal_cracks = find(table, 0xF3u);
+    const RtMaterial* crystal = find(table, 0xF4u);
+    bool ok = expect(ice != nullptr && ice->ice && near(ice->tint_kept, kRtIceTintKept), "ice keeps its share of tint");
+    ok &= expect(cracks != nullptr && !cracks->ice && cracks->particle && near(cracks->tint_kept, kRtIceTintKept),
+                 "an ice layer of another class keeps it, not ice");
+    ok &= expect(crystal_cracks != nullptr && near(crystal_cracks->tint_kept, kRtCrystalTintKept),
+                 "a crystal's layer keeps the crystals' share");
+    ok &= expect(crystal != nullptr && near(crystal->tint_kept, 1.0f), "other materials keep their tint");
+    return ok;
+}
+
 bool glow_apart_from_light() {
     std::istringstream file(
         "hash\tclass\tr\tg\tb\tintensity\tglow\n"
@@ -228,6 +268,8 @@ int main() {
     ok &= lights_fill_their_fields();
     ok &= values_are_clamped();
     ok &= glow_apart_from_light();
+    ok &= luminous_effects();
+    ok &= clear_tints();
     ok &= identities_by_stage();
     ok &= stage_suns();
     if (!ok) {

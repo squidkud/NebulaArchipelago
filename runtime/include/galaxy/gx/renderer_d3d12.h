@@ -50,6 +50,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <future>
+#include <memory>
 #include <optional>
 #include <string>
 #include <span>
@@ -98,6 +99,9 @@ inline constexpr DXGI_FORMAT kEfbHdrColorFormat = DXGI_FORMAT_R16G16B16A16_FLOAT
 inline constexpr DXGI_FORMAT kMotionVectorFormat = DXGI_FORMAT_R16G16_FLOAT;
 // Reactive mask for temporal upscaling: blended draws' alpha, max-blended.
 inline constexpr DXGI_FORMAT kReactiveMaskFormat = DXGI_FORMAT_R8_UNORM;
+// The effects layer (kRenderStateLayerTarget): its colour (what the effects added, as they blended into the EFB) and
+// transmittance (the product of their destination factors), in the EFB's own encoding.
+inline constexpr DXGI_FORMAT kLayerFormat = DXGI_FORMAT_R16G16B16A16_FLOAT;
 inline constexpr DXGI_FORMAT kEfbDepthResourceFormat =
     DXGI_FORMAT_R24G8_TYPELESS;
 inline constexpr DXGI_FORMAT kEfbDepthFormat = DXGI_FORMAT_D24_UNORM_S8_UINT;
@@ -277,6 +281,11 @@ public:
     // jitter, no upscale): clears the motion target for the scene. False
     // otherwise or when it could not be created (no motion writers).
     [[nodiscard]] bool begin_motion_scene();
+    // The game's effects begin (the scene's ShadowSurface draw type, after its translucent lists) in a scene whose
+    // blended draws write the reactive mask: the effects layer opens (cleared: nothing added, everything let through)
+    // and its draws record what they blend over the EFB until the water's composite (kRenderStateLayerTarget).
+    void begin_layer_window();
+    [[nodiscard]] bool layer_window() const noexcept { return layer_window_; }
     // GALAXY_MOTION_DEBUG: at the scene's end, replaces the EFB color with
     // the motion field (grey = still; red/green = +x/+y towards the previous
     // position, 8 pixels to full scale).
@@ -286,61 +295,68 @@ public:
 
     // Ray tracing (galaxy/gx/ray_tracing.h): the 3D scene's opaque draws, noted as they are
     // drawn, become the traced scene when the game's translucent phases begin.
-    [[nodiscard]] bool rt_active() const noexcept { return ray_tracer_.ready(); }
+    [[nodiscard]] bool rt_active() const noexcept { return ray_tracer_->ready(); }
     // Starts or stops the ray tracer at a frame boundary to follow the RAY TRACING setting.
     void reconcile_ray_tracing();
-    [[nodiscard]] bool rt_scene_open() const noexcept { return ray_tracer_.scene_open(); }
-    [[nodiscard]] bool rt_glow_open() const noexcept { return ray_tracer_.glow_open(); }
-    [[nodiscard]] bool rt_water_open() const noexcept { return ray_tracer_.water_open(); }
-    [[nodiscard]] bool rt_late_open() const noexcept { return ray_tracer_.late_open(); }
-    [[nodiscard]] bool rt_sky_open() const noexcept { return ray_tracer_.sky_open(); }
-    void rt_begin_sky() noexcept { ray_tracer_.begin_sky(); }
-    void rt_set_scene_up(const std::array<float, 3>& up) noexcept { ray_tracer_.set_scene_up(up); }
+    [[nodiscard]] bool rt_scene_open() const noexcept { return ray_tracer_->scene_open(); }
+    [[nodiscard]] bool rt_glow_open() const noexcept { return ray_tracer_->glow_open(); }
+    [[nodiscard]] bool rt_water_open() const noexcept { return ray_tracer_->water_open(); }
+    [[nodiscard]] bool rt_late_open() const noexcept { return ray_tracer_->late_open(); }
+    [[nodiscard]] bool rt_sky_open() const noexcept { return ray_tracer_->sky_open(); }
+    void rt_begin_sky() noexcept { ray_tracer_->begin_sky(); }
+    void rt_set_scene_up(const std::array<float, 3>& up) noexcept { ray_tracer_->set_scene_up(up); }
     [[nodiscard]] float rt_glow_exposure(bool model = false) const noexcept {
-        return ray_tracer_.ready() ? ray_tracer_.glow_exposure(model) : 1.0f;
+        return ray_tracer_->ready() ? ray_tracer_->glow_exposure(model) : 1.0f;
     }
     // The last traced scene's lighting as a texture for lit translucents (texture 7).
     [[nodiscard]] bool rt_light_texture_ready() const noexcept {
-        return ray_tracer_.ready() && ray_tracer_.light_texture_ready();
+        return ray_tracer_->ready() && ray_tracer_->light_texture_ready();
     }
-    [[nodiscard]] ID3D12Resource* rt_light_texture() const noexcept { return ray_tracer_.light_texture(); }
+    [[nodiscard]] ID3D12Resource* rt_light_texture() const noexcept { return ray_tracer_->light_texture(); }
     [[nodiscard]] D3D12_CPU_DESCRIPTOR_HANDLE rt_light_texture_srv() const noexcept {
-        return ray_tracer_.light_texture_srv();
+        return ray_tracer_->light_texture_srv();
     }
-    [[nodiscard]] float rt_light_texture_scale() const noexcept { return ray_tracer_.light_texture_scale(); }
+    [[nodiscard]] float rt_light_texture_scale() const noexcept { return ray_tracer_->light_texture_scale(); }
     void rt_begin_scene();
-    void rt_set_view(const RtView& view) noexcept { ray_tracer_.set_view(view); }
-    void rt_set_camera(const std::array<float, 12>* view) noexcept { ray_tracer_.set_camera(view); }
-    [[nodiscard]] bool rt_lighting() const noexcept { return ray_tracer_.lighting_active(); }
-    [[nodiscard]] bool rt_physical() const noexcept { return ray_tracer_.physical_active(); }
+    void rt_set_view(const RtView& view) noexcept { ray_tracer_->set_view(view); }
+    void rt_set_camera(const std::array<float, 12>* view) noexcept { ray_tracer_->set_camera(view); }
+    [[nodiscard]] bool rt_lighting() const noexcept { return ray_tracer_->lighting_active(); }
+    [[nodiscard]] bool rt_physical() const noexcept { return ray_tracer_->physical_active(); }
     // The ray tracing engine runs (its clear-surface pass traces the table's `traced` glass).
-    [[nodiscard]] bool rt_engine() const noexcept { return ray_tracer_.engine_active(); }
-    [[nodiscard]] bool rt_engine_clear() const noexcept { return ray_tracer_.engine_clear_active(); }
-    [[nodiscard]] bool rt_log_seq() const noexcept { return ray_tracer_.log_seq(); }
-    [[nodiscard]] bool rt_ab_original() const noexcept { return ray_tracer_.ab_original(); }
-    [[nodiscard]] bool rt_scene_untraced() const noexcept { return ray_tracer_.scene_untraced(); }
-    void rt_set_ab_original(bool original) noexcept { ray_tracer_.set_ab_original(original); }
-    void rt_set_scene_untraced(bool untraced) noexcept { ray_tracer_.set_scene_untraced(untraced); }
-    void rt_set_presents(std::uint64_t presents) noexcept { ray_tracer_.set_presents(presents); }
-    // The traced reflections on the scene's surfaces (SceneRayTracer::surface_reflections_active).
-    [[nodiscard]] bool rt_reflections_active() const noexcept { return ray_tracer_.surface_reflections_active(); }
-    [[nodiscard]] bool rt_sun_direction(std::array<float, 3>& world) const noexcept {
-        return ray_tracer_.sun_direction(world);
+    [[nodiscard]] bool rt_engine() const noexcept { return ray_tracer_->engine_active(); }
+    [[nodiscard]] bool rt_engine_clear() const noexcept { return ray_tracer_->engine_clear_active(); }
+    // When the swap chain last took a present (QPC; 0 none).
+    [[nodiscard]] std::int64_t last_present_qpc() const noexcept { return swap_present_qpc_; }
+    // The waterfall mist (SceneRayTracer::mist_open, note_mist): the table's `mist` effects' sprites as puffs of drops.
+    [[nodiscard]] bool rt_mist_open() const noexcept { return ray_tracer_->mist_open(); }
+    void rt_note_mist(const float centre[3], float sigma, float depth, float white) {
+        ray_tracer_->note_mist(centre, sigma, depth, white);
     }
-    void rt_hold_sun(bool held) noexcept { ray_tracer_.hold_sun(held); }
+    [[nodiscard]] bool rt_log_seq() const noexcept { return ray_tracer_->log_seq(); }
+    [[nodiscard]] bool rt_ab_original() const noexcept { return ray_tracer_->ab_original(); }
+    [[nodiscard]] bool rt_scene_untraced() const noexcept { return ray_tracer_->scene_untraced(); }
+    void rt_set_ab_original(bool original) noexcept { ray_tracer_->set_ab_original(original); }
+    void rt_set_scene_untraced(bool untraced) noexcept { ray_tracer_->set_scene_untraced(untraced); }
+    void rt_set_presents(std::uint64_t presents) noexcept { ray_tracer_->set_presents(presents); }
+    // The traced reflections on the scene's surfaces (SceneRayTracer::surface_reflections_active).
+    [[nodiscard]] bool rt_reflections_active() const noexcept { return ray_tracer_->surface_reflections_active(); }
+    [[nodiscard]] bool rt_sun_direction(std::array<float, 3>& world) const noexcept {
+        return ray_tracer_->sun_direction(world);
+    }
+    void rt_hold_sun(bool held) noexcept { ray_tracer_->hold_sun(held); }
     void rt_set_key_light(bool valid, const std::array<float, 3>& world, const std::array<float, 3>& color,
                           float strength, bool shown) noexcept {
-        ray_tracer_.set_key_light(valid, world, color, strength, shown);
+        ray_tracer_->set_key_light(valid, world, color, strength, shown);
     }
     [[nodiscard]] bool rt_sky_sun(std::array<float, 3>& world, std::array<float, 3>& color) const noexcept {
-        return ray_tracer_.sky_sun(world, color);
+        return ray_tracer_->sky_sun(world, color);
     }
     [[nodiscard]] bool rt_sky_key(std::array<float, 3>& world, float& strength) const noexcept {
-        return ray_tracer_.sky_key(world, strength);
+        return ray_tracer_->sky_key(world, strength);
     }
-    void rt_reset_sky() noexcept { ray_tracer_.reset_sky(); }
-    void rt_set_stage_sun(const RtStageSun* sun) noexcept { ray_tracer_.set_stage_sun(sun); }
-    [[nodiscard]] const RtStageSun* rt_stage_sun() const noexcept { return ray_tracer_.stage_sun(); }
+    void rt_reset_sky() noexcept { ray_tracer_->reset_sky(); }
+    void rt_set_stage_sun(const RtStageSun* sun) noexcept { ray_tracer_->set_stage_sun(sun); }
+    [[nodiscard]] const RtStageSun* rt_stage_sun() const noexcept { return ray_tracer_->stage_sun(); }
     void rt_note_draw(const DrawCall& call, const RtDrawInfo& info);
     void rt_trace_scene();
     // The scene's end: its finished picture becomes the light the next frame's rays read.
@@ -398,6 +414,10 @@ public:
     [[nodiscard]] std::uint32_t replay_xfb_addr() const noexcept { return replay_xfb_addr_; }
     // A 3D scene began inside the log being recorded (one is replayable).
     void note_replay_scene() noexcept { ++replay_scene_count_; }
+    // The log being recorded is a frame that draws no 3D scene, recorded as its screen layer alone (GxBackend::
+    // begin_screen_frame): replayable without a scene; dropped again when a scene begins in it after all.
+    void note_replay_screen_frame() noexcept { replay_screen_frame_ = true; }
+    void cancel_replay_screen_frame() noexcept { replay_screen_frame_ = false; }
     // Why the latest closed log is not replayable: 0 it is, 1 no 3D scene,
     // 2 more than one.
     [[nodiscard]] unsigned replay_reject() const noexcept { return replay_reject_; }
@@ -454,7 +474,18 @@ public:
     void set_resident_vertices(D3D12_GPU_VIRTUAL_ADDRESS base, std::uint64_t bytes) noexcept {
         resident_vertex_base_ = base;
         resident_vertex_bytes_ = bytes;
+        if (base == 0u) {
+            resident_staging_.Reset();
+            resident_local_ = nullptr;
+            resident_copies_.clear();
+        }
     }
+    // The resident decoded vertices (GxBackend): written through the returned mapping, an upload copy; the GPU reads
+    // them from local memory at the returned address (GPU reads of upload memory measured 2.7x slower on an AMD
+    // APU), each range once copy_resident_vertices has queued it: the copies run before the command list being
+    // recorded. Where local memory cannot be had the GPU reads the upload copy.
+    [[nodiscard]] UploadBuffer create_resident_vertices(std::size_t bytes, const char* name);
+    void copy_resident_vertices(std::uint64_t offset, std::uint64_t bytes);
     // Swap-chain presents per second over the last second (any source).
     [[nodiscard]] double measured_present_hz() const noexcept {
         return measured_present_hz_.load(std::memory_order_relaxed);
@@ -549,6 +580,17 @@ public:
 
     void draw(const DrawCall& call);
 
+    // Curved surfaces sorted on the GPU before the command list runs (ShaderGenerator::curve_sort_source): of a split
+    // draw's triangles after its flat ones, those the hull shader would leave whole this frame draw after the flat
+    // ones as a triangle list. The vertices are resident, the indices (those triangles') in the index ring, the
+    // constants and palette the draw's. Returns the draw's DrawCall::curve_sort, -1 where it cannot be sorted (no
+    // sort pipeline, no room).
+    [[nodiscard]] std::int32_t sort_curved(D3D12_GPU_VIRTUAL_ADDRESS vertices, D3D12_GPU_VIRTUAL_ADDRESS indices,
+                                           std::uint32_t triangles, D3D12_GPU_VIRTUAL_ADDRESS constants,
+                                           D3D12_GPU_VIRTUAL_ADDRESS palette, bool palette_rows);
+    // The command list being recorded (DrawCall::curve_sort_list).
+    [[nodiscard]] std::uint32_t curve_sort_list() const noexcept { return curve_sort_list_; }
+
     // EFB copy paths (record into the current command list). Both run the
     // conversion blit (intensity / gamma / 3-tap vertical copy filter /
     // half-scale box / XFB y-scale stretch / depth-source packing) instead
@@ -556,6 +598,15 @@ public:
     // semantics. `is_depth_copy` is true when the PE pixel format is Z24 at copy time
     // (Dolphin BPStructs BPMEM_TRIGGER_EFB_COPY).
     void copy_efb_to_xfb(const EfbCopyParams& params, XfbTexture& dest);
+    // Native presentation: whether this display copy can take the EFB's colour target instead of copying it
+    // (hand_over_efb_color): an exact copy of the EFB's top rows (the identity filter, no gamma or scaling) on the
+    // plain path (one sample a pixel, no HDR scene, ray tracing, temporal upscaler, output-resolution 2D layer,
+    // interpolation or frame generation, post-processing ready).
+    [[nodiscard]] bool can_hand_over_display_copy(const EfbCopyParams& params, const XfbTexture& dest) const;
+    // Gives the EFB's colour target (the picture of this display copy, as an XFB keeps it) to the caller and continues
+    // the EFB on `fresh` (a released texture of the EFB's description, or null for a new one). The picture is owed to
+    // the EFB until a clear covers it (settle_owed_efb).
+    [[nodiscard]] gpu::TextureRef hand_over_efb_color(gpu::TextureRef fresh);
     [[nodiscard]] bool copy_efb_to_texture(
         const EfbCopyParams& params,
         TextureCache& textures,
@@ -794,6 +845,29 @@ private:
     unsigned gpu_budget_cap_ = 0;  // 0: none
     // (Re)creates the EFB color/depth conversion SRVs in their fixed slots.
     void refresh_efb_conversion_source_views();
+    // The EFB's conversion views (colour and depth) into `table`.
+    void write_efb_conversion_views(const DescriptorRing::Table& table);
+    // The picture a handed-over EFB still owes (hand_over_efb_color): anything but a clear that covers it copies it
+    // back before reading or writing the EFB's colour.
+    Microsoft::WRL::ComPtr<ID3D12Resource> efb_owed_;
+    // Inside the frame's command list; between lists the picture stays owed (create_efb_targets carries from it).
+    void settle_owed_efb() {
+        if (efb_owed_ && pass_list_open_) [[unlikely]] {
+            restore_owed_efb(nullptr);
+        }
+    }
+    // Copies the owed picture back, all of it or (`kept`) all but that rect, which a clear is about to cover.
+    void restore_owed_efb(const D3D12_RECT* kept);
+    // The conversion views after a handover: a table per handover in turn, as the GPU reads views when it runs.
+    std::array<std::optional<DescriptorRing::Table>, kFramesInFlight + 1u> conv_efb_tables_{};
+    unsigned conv_efb_table_next_ = 0;
+    // Presents so far (the native-presentation A/B alternates by them); handovers, and how their pictures were settled:
+    // a clear covered all of it, a clear left bands to copy back, or something read or wrote the EFB first.
+    std::uint64_t presented_frames_ = 0;
+    std::uint64_t efb_handovers_ = 0;
+    std::uint64_t efb_handovers_free_ = 0;
+    std::uint64_t efb_handovers_banded_ = 0;
+    std::uint64_t efb_handovers_restored_ = 0;
     bool create_root_signature();
     bool create_sampler_heap();
     void reset_sampler_frame(); // only after this slot's fence completes
@@ -858,6 +932,95 @@ private:
     Microsoft::WRL::ComPtr<ID3D12Resource> timestamp_readback_;
     std::array<bool, kFramesInFlight> timestamp_pending_{};
     std::uint64_t timestamp_frequency_ = 0;
+    // GALAXY_GPU_PASSES=1: GPU time by pass for present-stats' gpu-pass-ms. A mark starts a pass on the open command
+    // list; the time to the next mark (or the list's end) is that pass's.
+    enum class GpuPass : std::uint8_t {
+        Scene, Resolve, EfbCopy, XfbCopy, Bloom, SceneAa, SceneAo, Upscale, RayTracing, Present, CurveSort, Count
+    };
+    static constexpr unsigned kGpuPassSlots = 512;
+    void gpu_pass(GpuPass pass);
+    class GpuPassScope {
+    public:
+        GpuPassScope(RendererD3D12& renderer, GpuPass pass) : renderer_(renderer), outer_(renderer.current_pass_) {
+            renderer_.gpu_pass(pass);
+        }
+        ~GpuPassScope() { renderer_.gpu_pass(outer_); }
+        GpuPassScope(const GpuPassScope&) = delete;
+        GpuPassScope& operator=(const GpuPassScope&) = delete;
+    private:
+        RendererD3D12& renderer_;
+        GpuPass outer_;
+    };
+    Microsoft::WRL::ComPtr<ID3D12QueryHeap> pass_query_heap_;
+    Microsoft::WRL::ComPtr<ID3D12Resource> pass_readback_;
+    std::array<std::array<GpuPass, kGpuPassSlots>, kFramesInFlight> pass_marks_{};
+    std::array<unsigned, kFramesInFlight> pass_mark_count_{};
+    GpuPass current_pass_ = GpuPass::Scene;
+    bool pass_list_open_ = false;
+    std::array<double, static_cast<std::size_t>(GpuPass::Count)> telemetry_pass_ms_{};
+    // GALAXY_GPU_DRAWS=1: each GX draw between two timestamps, its time summed by pipeline for present-stats'
+    // [gpu-draws] lines (the timestamps serialize the draws: the total grows, the shares hold).
+    static constexpr unsigned kGpuDrawSlots = 16384;
+    struct GpuDrawMark {
+        ID3D12PipelineState* pipeline = nullptr;
+        std::uint32_t triangles = 0;
+    };
+    struct GpuDrawCost {
+        double ms = 0.0;
+        std::uint64_t draws = 0;
+        std::uint64_t triangles = 0;
+    };
+    Microsoft::WRL::ComPtr<ID3D12QueryHeap> draw_query_heap_;
+    Microsoft::WRL::ComPtr<ID3D12Resource> draw_readback_;
+    std::array<std::vector<GpuDrawMark>, kFramesInFlight> draw_marks_{};
+    std::unordered_map<ID3D12PipelineState*, GpuDrawCost> telemetry_draw_cost_;
+    // GALAXY_GPU_PASSES=1 also counts each command list's pipeline statistics (shader invocations, primitives) for
+    // present-stats' gpu-stats.
+    Microsoft::WRL::ComPtr<ID3D12QueryHeap> stats_query_heap_;
+    Microsoft::WRL::ComPtr<ID3D12Resource> stats_readback_;
+    std::array<bool, kFramesInFlight> stats_pending_{};
+    D3D12_QUERY_DATA_PIPELINE_STATISTICS telemetry_stats_{};
+
+    // Curved surfaces' sort (sort_curved): three dispatches in the pre-list of the command list whose draws it sorts.
+    // Each frame slot's output: per draw two DrawIndexedArguments and its two index lists.
+    struct CurveSortDraw {
+        std::uint32_t vertices;
+        std::uint32_t indices;
+        std::uint32_t triangles;
+        std::uint32_t constants;
+        std::uint32_t palette;
+        std::uint32_t flags;
+        std::uint32_t output;
+        std::uint32_t scratch;
+    };
+    static constexpr std::uint64_t kCurveSortBytes = 8u << 20u;
+    bool ensure_curve_sort();
+    // The command list run before each main one when it has work: resident vertex copies, then the curve sort.
+    bool ensure_pre_list();
+    void record_pre_list();
+    Microsoft::WRL::ComPtr<ID3D12Resource> resident_staging_;
+    ID3D12Resource* resident_local_ = nullptr;
+    std::vector<std::array<std::uint64_t, 2>> resident_copies_;
+    bool pre_list_failed_ = false;
+    Microsoft::WRL::ComPtr<ID3D12RootSignature> curve_sort_root_;
+    Microsoft::WRL::ComPtr<ID3D12PipelineState> curve_sort_pso_;
+    Microsoft::WRL::ComPtr<ID3D12PipelineState> curve_offsets_pso_;
+    Microsoft::WRL::ComPtr<ID3D12PipelineState> curve_scatter_pso_;
+    std::vector<std::array<std::uint32_t, 2>> curve_sort_blocks_;
+    Microsoft::WRL::ComPtr<ID3D12CommandSignature> curve_draw_signature_;
+    Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> pre_list_;
+    std::array<Microsoft::WRL::ComPtr<ID3D12CommandAllocator>, kFramesInFlight> pre_allocators_;
+    std::array<Microsoft::WRL::ComPtr<ID3D12Resource>, kFramesInFlight> curve_sorted_;
+    std::array<std::vector<CurveSortDraw>, kFramesInFlight> curve_sort_draws_;
+    std::array<std::uint64_t, kFramesInFlight> curve_sorted_bytes_{};
+    std::array<D3D12_GPU_VIRTUAL_ADDRESS, kFramesInFlight> curve_sort_vertices_{};
+    std::array<bool, kFramesInFlight> pre_list_used_{};
+    // The sort's GPU time (two timestamps a slot), counted in the frame's.
+    Microsoft::WRL::ComPtr<ID3D12QueryHeap> curve_sort_queries_;
+    Microsoft::WRL::ComPtr<ID3D12Resource> curve_sort_readback_;
+    std::uint32_t curve_sort_list_ = 0;
+    bool curve_sort_failed_ = false;
+    bool pre_list_recorded_ = false;
 
     // EFB.
     Microsoft::WRL::ComPtr<ID3D12Resource> efb_color_;
@@ -971,8 +1134,10 @@ private:
     // RtComposite: the ambient occlusion of ray-tracer result slot `index`.
     enum class ReplayKind : std::uint8_t {
         Draw, BindEfb, Clear, Copy, SwapEfbSets, ClearDepth, RtComposite, RtWater, SceneAa, SceneAo,
-        HdrBegin, HdrEnd, Bloom
+        HdrBegin, HdrEnd, Bloom, LayerBegin, RtMist
     };
+    // RtWater's and RtMist's index: the light slot, kReplayWaterLayer when the effects layer was open.
+    static constexpr std::uint32_t kReplayWaterLayer = 0x80000000u;
     // Bloom: a game_bloom marker.
     struct ReplayBloom {
         std::uint16_t phase = 0;
@@ -1028,6 +1193,7 @@ private:
     bool subframe_capture_ = false;
     bool capture_waits_ = false;
     unsigned replay_scene_count_ = 0;
+    bool replay_screen_frame_ = false;
     unsigned replay_segment_ = 0;
     std::uint64_t replay_serial_ = 0;
     std::uint32_t replay_xfb_addr_ = 0;
@@ -1058,7 +1224,8 @@ private:
     // The live EFB is an HDR set (swapped with the set that held it).
     bool efb_hdr_ = false;
     void record_hdr_begin();
-    void record_hdr_end();
+    // `slot`: the light slot of the frame the picture shows (the replay's ReplayKind::HdrEnd keeps it, index + 1).
+    void record_hdr_end(int slot);
     // The output-resolution EFB of a sub-frame whose log switches to it.
     EfbTargetSet replay_output_efb_;
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> replay_output_efb_rtv_heap_;
@@ -1109,9 +1276,31 @@ private:
     D3D12_RESOURCE_STATES blend_verdicts_state_ = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
     Microsoft::WRL::ComPtr<ID3D12RootSignature> blend_validate_root_;
     Microsoft::WRL::ComPtr<ID3D12PipelineState> blend_validate_pso_;
-    SceneRayTracer ray_tracer_;
+    std::unique_ptr<SceneRayTracer> ray_tracer_ = std::make_unique<SceneRayTracer>();
     // The ray tracer could not start on this device: not retried every frame.
     bool rt_start_failed_ = false;
+    // A tracer starting on a worker (start_ray_tracer), and since when: the frames draw without ray tracing meanwhile.
+    std::future<std::unique_ptr<SceneRayTracer>> rt_starting_;
+    std::chrono::steady_clock::time_point rt_start_time_{};
+    // The frames after a started tracer took over ([rt] frame N after taking over: their intervals, begin to begin),
+    // and the last frame's start.
+    unsigned rt_takeover_frames_ = 0u;
+    std::chrono::steady_clock::time_point frame_begun_{};
+    // The descriptor tables the tracers write their texture and de-light views into (set at initialize).
+    struct RtViewTable {
+        D3D12_CPU_DESCRIPTOR_HANDLE cpu{};
+        std::uint32_t first = 0u;
+        UINT increment = 0u;
+    };
+    RtViewTable rt_texture_views_{};
+    RtViewTable rt_delight_views_{};
+    void start_ray_tracer(bool first);
+    // reconcile_ray_tracing's first call (initialize's) is past; RAY TRACING waits for the next start (logged once).
+    bool rt_first_reconciled_ = false;
+    bool rt_waiting_restart_ = false;
+    void take_started_ray_tracer();
+    // Waits for a tracer still starting and drops it (the device goes away, or the renderer shuts down).
+    void abandon_ray_tracer_start() noexcept;
     static RtUpload rt_allocate(void* renderer, std::size_t bytes, std::size_t alignment);
     [[nodiscard]] RtSources rt_sources() const;
     // The occlusion of result `slot` onto the EFB colour; `reproject` on a sub-frame's replay.
@@ -1125,7 +1314,23 @@ private:
     Microsoft::WRL::ComPtr<ID3D12Resource> rt_water_copy_;   // the frame with the game's water (water composite)
     Microsoft::WRL::ComPtr<ID3D12Resource> rt_opaque_copy_;  // the frame before the translucent phases
     D3D12_GPU_DESCRIPTOR_HANDLE rt_opaque_srv_{};             // its view this frame (0: none)
-    void record_rt_water(int slot, bool reproject);
+    // What the frame's effects drew over the water and the clear surfaces: copies of the effects layer's colour and
+    // transmittance, a table of their two views (0: no layer this scene).
+    D3D12_GPU_DESCRIPTOR_HANDLE rt_layer_table();
+    Microsoft::WRL::ComPtr<ID3D12Resource> rt_layer_color_copy_;
+    Microsoft::WRL::ComPtr<ID3D12Resource> rt_layer_trans_copy_;
+    // The effects layer: its colour (what the effects added, as they blended into the EFB) and transmittance (what of
+    // the EFB behind them they let through), render targets 2 and 3 of a layer draw; whether this scene's is open.
+    Microsoft::WRL::ComPtr<ID3D12Resource> layer_color_;
+    Microsoft::WRL::ComPtr<ID3D12Resource> layer_trans_;
+    D3D12_CPU_DESCRIPTOR_HANDLE layer_color_rtv_{};
+    D3D12_CPU_DESCRIPTOR_HANDLE layer_trans_rtv_{};
+    bool layer_window_ = false;
+    void record_layer_begin();
+    bool reactive_scene_ = false;   // this scene's blended draws write the reactive mask (begin_motion_scene)
+    void record_rt_water(int slot, bool reproject, bool layer);
+    // The waterfall mist of light slot `slot` over the frame (SceneRayTracer::composite_mist), after the water's.
+    void record_rt_mist(int slot, bool reproject, bool layer);
     void log_rt_seq(const char* step);
     [[nodiscard]] bool temporal_inputs_match(const TemporalUpscaleInputs& in) const;
     D3D12_GPU_VIRTUAL_ADDRESS resident_vertex_base_ = 0;
@@ -1231,8 +1436,12 @@ private:
     struct ReplayMotionTargets {
         Microsoft::WRL::ComPtr<ID3D12Resource> target;
         Microsoft::WRL::ComPtr<ID3D12Resource> reactive;
+        Microsoft::WRL::ComPtr<ID3D12Resource> layer_color;
+        Microsoft::WRL::ComPtr<ID3D12Resource> layer_trans;
         D3D12_CPU_DESCRIPTOR_HANDLE rtv{};
         D3D12_CPU_DESCRIPTOR_HANDLE reactive_rtv{};
+        D3D12_CPU_DESCRIPTOR_HANDLE layer_color_rtv{};
+        D3D12_CPU_DESCRIPTOR_HANDLE layer_trans_rtv{};
         unsigned scale = 0;
     };
     ReplayMotionTargets replay_motion_{};
@@ -1408,6 +1617,8 @@ private:
     // Targets replaced by an internal-resolution change, until begin_frame
     // has copied their contents into the new ones.
     Microsoft::WRL::ComPtr<ID3D12Resource> efb_carry_color_;
+    // The carried colour is a handed-over picture, kept as a shader resource (its XFB reads it too).
+    bool efb_carry_color_readable_ = false;
     Microsoft::WRL::ComPtr<ID3D12Resource> efb_carry_depth_;
     Microsoft::WRL::ComPtr<ID3D12PipelineState> efb_carry_depth_pso_;
     // Presentation image quality; present() keeps the plain blit while it is
@@ -1534,6 +1745,7 @@ private:
     LARGE_INTEGER qpc_frequency_{};
     std::int64_t telemetry_window_start_qpc_ = 0;
     std::int64_t last_present_qpc_ = 0;
+    std::int64_t swap_present_qpc_ = 0;   // every present's, telemetry or not (last_present_qpc)
     std::uint64_t telemetry_first_serial_start_ = 0;
     std::uint64_t telemetry_xfb_copy_start_ = 0;
     PresentPacer present_pacer_;
@@ -1615,6 +1827,8 @@ private:
     // CPU-only scratch slot. EFB source SRVs occupy an immutable prefix of the
     // active shader-visible heap.
     Microsoft::WRL::ComPtr<ID3D12PipelineState> conv_pipeline_;
+    Microsoft::WRL::ComPtr<ID3D12PipelineState> conv_pipeline_r8_;  // into one-channel copies
+    Microsoft::WRL::ComPtr<ID3D12PipelineState> display_filter_pipeline_;  // 1:1 display copies without gamma
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> conv_rtv_heap_;
     D3D12_CPU_DESCRIPTOR_HANDLE conv_scratch_rtv_{};
     detail::ConversionRtvSlot conv_scratch_rtv_slot_;

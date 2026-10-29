@@ -1,4 +1,6 @@
 #include "Game/Scene/GameScene.hpp"
+#include <JSystem/JUtility/JUTNativeLog.hpp>
+#include <JSystem/J3DGraphBase/J3DNativeState.hpp>
 #ifdef TARGET_PC
 #include "Game/Util/GameLightSignal.hpp"
 #include "Game/Util/MotionSignal.hpp"
@@ -110,6 +112,7 @@ GameScene::GameScene()
 GameScene::~GameScene() {
 #ifdef TARGET_PC
     TicoGalaxy::forgetAll();
+    NebulaArchipelago::endSphereGuard();  // the dome (if it held a green sphere) was left without stopping the game
 #endif
     MR::destroySceneMessage();
     NPCFunction::deleteNPCData();
@@ -375,7 +378,7 @@ void GameScene::draw() const {
             } else if (const GameEventFlag* pFlag = GameEventFlagTable::findFlag(action.stage)) {
                 GameDataFunction::getCurrentGameDataHolder()->mEventFlagChecker->getChunk()->set(pFlag, true);
             } else {
-                OSReport("test: no event flag %s\n", action.stage);
+                JUTNativeLog("test: no event flag %s\n", action.stage);
             }
         } else if (action.kind == NEBULA_TEST_LIST_ACTORS) {
             AllLiveActorGroup* pGroup = MR::getAllLiveActorGroup();
@@ -389,7 +392,7 @@ void GameScene::draw() const {
                 // (ClippingActorInfo::isWantedForLight).
                 const char* pBck = MR::getPlayingBckName(pActor);
                 const ClippingActorInfo* pInfo = MR::getClippingDirector()->mActorHolder->find(pActor);
-                OSReport("actor %s %.0f %.0f %.0f bck=%s frame=%.1f rate=%.2f stopped=%d hidden=%d clipped=%d caster=%d\n",
+                JUTNativeLog("actor %s %.0f %.0f %.0f bck=%s frame=%.1f rate=%.2f stopped=%d hidden=%d clipped=%d caster=%d\n",
                          MR::getModelResName(pActor), pActor->mPosition.x, pActor->mPosition.y, pActor->mPosition.z,
                          pBck != nullptr ? pBck : "none", pBck != nullptr ? MR::getBckFrame(pActor) : 0.0f,
                          pBck != nullptr ? MR::getBckRate(pActor) : 0.0f, pBck != nullptr && MR::isBckStopped(pActor) ? 1 : 0,
@@ -403,7 +406,7 @@ void GameScene::draw() const {
                 LiveActor* pActor = pGroup->getActor(i);
                 if (pActor != nullptr && pActor->mModelManager != nullptr && !MR::isDead(pActor) &&
                     MR::isEqualStringCase(MR::getModelResName(pActor), action.stage)) {
-                    OSReport("test: kill %s %.0f %.0f %.0f\n", action.stage, pActor->mPosition.x, pActor->mPosition.y,
+                    JUTNativeLog("test: kill %s %.0f %.0f %.0f\n", action.stage, pActor->mPosition.x, pActor->mPosition.y,
                              pActor->mPosition.z);
                     pActor->kill();
                 }
@@ -415,7 +418,7 @@ void GameScene::draw() const {
             if (MR::isExistSceneObj(SceneObj_MoviePlayingSequenceHolder)) {
                 MR::startMovie(action.scenario);
             } else {
-                OSReport("test: no movie sequence in this stage\n");
+                JUTNativeLog("test: no movie sequence in this stage\n");
             }
         }
     }
@@ -600,8 +603,8 @@ void GameScene::drawMirror() const {
         PSMTXCopy(MR::getMirrorCameraViewMtx(), j3dSys.mViewMtx);
         MR::loadProjectionMtx();
         CategoryList::entryDrawBufferMirror();
-        GXSetAlphaUpdate(GX_FALSE);
-        GXSetColorUpdate(GX_TRUE);
+        J3DNativeState::setAlphaUpdate(GX_FALSE);
+        J3DNativeState::setColorUpdate(GX_TRUE);
         CategoryList::drawOpa(MR::DrawBufferType_MirrorMapObj);
         CategoryList::drawXlu(MR::DrawBufferType_MirrorMapObj);
         CategoryList::execute(MR::DrawType_CaptureScreenIndirect);
@@ -638,25 +641,25 @@ void GameScene::draw3D() const {
     MR::loadViewMtx();
     MR::loadProjectionMtx();
     MR::setDefaultViewportAndScissor();
-    GXSetColorUpdate(GX_TRUE);
-    GXSetAlphaUpdate(GX_TRUE);
-    GXSetDstAlpha(GX_TRUE, 0);
+    J3DNativeState::setColorUpdate(GX_TRUE);
+    J3DNativeState::setAlphaUpdate(GX_TRUE);
+    J3DNativeState::setDstAlpha(GX_TRUE, 0);
     CategoryList::drawOpa(MR::DrawBufferType_ClippedMapParts);
     CategoryList::execute(MR::DrawType_ClipArea);
     CategoryList::execute(MR::DrawType_FallOutFieldDraw);
     SceneFunction::executeDrawBufferListNormalOpaBeforeVolumeShadow();
-    GXSetAlphaUpdate(GX_TRUE);
+    J3DNativeState::setAlphaUpdate(GX_TRUE);
     CategoryList::execute(MR::DrawType_ShadowVolume);
-    GXSetColorUpdate(GX_TRUE);
-    GXSetDstAlpha(GX_TRUE, 0);
+    J3DNativeState::setColorUpdate(GX_TRUE);
+    J3DNativeState::setDstAlpha(GX_TRUE, 0);
     SceneFunction::executeDrawBufferListNormalOpaBeforeSilhouette();
     CategoryList::execute(MR::DrawType_0x28);
     SceneFunction::executeDrawSilhouetteAndFillShadow();
     SceneFunction::executeDrawAlphaShadow();
     CategoryList::execute(MR::DrawType_BrightSun);
     MR::setLensFlareDrawSyncToken();
-    GXSetAlphaUpdate(GX_FALSE);
-    GXSetDstAlpha(GX_FALSE, 0);
+    J3DNativeState::setAlphaUpdate(GX_FALSE);
+    J3DNativeState::setDstAlpha(GX_FALSE, 0);
     SceneFunction::executeDrawBufferListNormalOpa();
     SceneFunction::executeDrawListOpa();
     CategoryList::drawOpa(MR::DrawBufferType_UNK_0x18);
@@ -673,7 +676,7 @@ void GameScene::draw3D() const {
     MR::setStarPointerDrawSyncToken();
     MR::setTalkDirectorDrawSyncToken();
     SceneFunction::executeDrawImageEffect();
-    GXSetDither(GX_TRUE);
+    J3DNativeState::setDither(GX_TRUE);
     MR::loadViewMtx();
     MR::loadProjectionMtx();
     CategoryList::execute(MR::DrawType_EffectDrawAfterImageEffect);

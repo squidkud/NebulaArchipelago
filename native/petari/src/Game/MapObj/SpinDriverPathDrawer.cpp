@@ -1,4 +1,7 @@
 #include "Game/MapObj/SpinDriverPathDrawer.hpp"
+#include <JSystem/J3DGraphBase/J3DNativeState.hpp>
+#include <JSystem/J3DGraphBase/J3DNativeShape.hpp>
+#include <JSystem/J3DGraphBase/J3DNativeDraw.hpp>
 #include "Game/MapObj/SpinDriverShootPath.hpp"
 #include "Game/Scene/SceneFunction.hpp"
 #include "Game/Scene/SceneObjHolder.hpp"
@@ -51,33 +54,28 @@ SpinDriverPathDrawer::SpinDriverPathDrawer(SpinDriverShootPath* pShootPath)
 void SpinDriverPathDrawInit::initDraw() {
     TDDraw::cameraInit3D();
 
-    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
-    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX0, GX_POS_XYZ, GX_F32, 0);
-    GXClearVtxDesc();
-    GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
-    GXSetVtxDesc(GX_VA_TEX0, GX_DIRECT);
-    GXLoadPosMtxImm(MR::getCameraViewMtx(), 0);
-    GXSetCurrentMtx(0);
-    GXSetNumChans(0);
-    GXSetNumTexGens(2);
-    GXSetTexCoordGen2(GX_TEXCOORD0, GX_TG_MTX2x4, GX_TG_TEX0, 30, GX_FALSE, 125);
-    GXSetTexCoordGen2(GX_TEXCOORD1, GX_TG_MTX2x4, GX_TG_TEX0, 33, GX_FALSE, 125);
-    GXSetNumTevStages(2);
-    GXSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR_NULL);
-    GXSetTevOp(GX_TEVSTAGE0, GX_REPLACE);
-    GXSetTevOrder(GX_TEVSTAGE1, GX_TEXCOORD1, GX_TEXMAP1, GX_COLOR_NULL);
-    GXSetTevColorIn(GX_TEVSTAGE1, GX_CC_CPREV, GX_CC_ZERO, GX_CC_ZERO, GX_CC_ZERO);
-    GXSetTevColorOp(GX_TEVSTAGE1, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
-    GXSetTevAlphaIn(GX_TEVSTAGE1, GX_CA_ZERO, GX_CA_APREV, GX_CA_TEXA, GX_CA_ZERO);
-    GXSetTevAlphaOp(GX_TEVSTAGE1, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
-    GXSetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_ONE, GX_LO_CLEAR);
-    GXSetAlphaCompare(GX_GREATER, 0, GX_AOP_OR, GX_GREATER, 0);
-    GXSetZMode(GX_TRUE, GX_LEQUAL, GX_FALSE);
-    GXSetZCompLoc(GX_TRUE);
-    GXSetCullMode(GX_CULL_NONE);
-    GXSetClipMode(GX_CLIP_ENABLE);
-    GXSetFog(GX_FOG_NONE, 0.0f, 0.0f, 0.0f, 0.0f, Color8(0));
-    GXSetFogRangeAdj(GX_FALSE, 0, nullptr);
+    J3DNativeShape::sendPosition(MR::getCameraViewMtx(), 0);
+    J3DNativeState::setCurrentMtx(0);
+    J3DNativeState::setNumChans(0);
+    J3DNativeState::setNumTexGens(2);
+    J3DNativeState::setTexCoordGen2(GX_TEXCOORD0, GX_TG_MTX2x4, GX_TG_TEX0, 30, GX_FALSE, 125);
+    J3DNativeState::setTexCoordGen2(GX_TEXCOORD1, GX_TG_MTX2x4, GX_TG_TEX0, 33, GX_FALSE, 125);
+    J3DNativeState::setNumTevStages(2);
+    J3DNativeState::setTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR_NULL);
+    J3DNativeState::setTevOp(GX_TEVSTAGE0, GX_REPLACE);
+    J3DNativeState::setTevOrder(GX_TEVSTAGE1, GX_TEXCOORD1, GX_TEXMAP1, GX_COLOR_NULL);
+    J3DNativeState::setTevColorIn(GX_TEVSTAGE1, GX_CC_CPREV, GX_CC_ZERO, GX_CC_ZERO, GX_CC_ZERO);
+    J3DNativeState::setTevColorOp(GX_TEVSTAGE1, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
+    J3DNativeState::setTevAlphaIn(GX_TEVSTAGE1, GX_CA_ZERO, GX_CA_APREV, GX_CA_TEXA, GX_CA_ZERO);
+    J3DNativeState::setTevAlphaOp(GX_TEVSTAGE1, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
+    J3DNativeState::setBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_ONE, GX_LO_CLEAR);
+    J3DNativeState::setAlphaCompare(GX_GREATER, 0, GX_AOP_OR, GX_GREATER, 0);
+    J3DNativeState::setZMode(GX_TRUE, GX_LEQUAL, GX_FALSE);
+    J3DNativeState::setZCompLoc(GX_TRUE);
+    J3DNativeState::setCullMode(GX_CULL_NONE);
+    J3DNativeState::setClipMode(GX_CLIP_ENABLE);
+    J3DNativeState::setFog(GX_FOG_NONE, 0.0f, 0.0f, 0.0f, 0.0f, Color8(0));
+    J3DNativeState::setFogRangeAdj(GX_FALSE, 0, nullptr);
     mMaskTexture->load(GX_TEXMAP1);
 }
 
@@ -318,13 +316,13 @@ void SpinDriverPathDrawer::draw() const {
     mtx[1][1] = -maskSteps;
     mtx[1][3] = 0.5f + maskSteps * drawCode;
 
-    GXLoadTexMtxImm(mtx, 33, GX_MTX2x4);
+    J3DNativeShape::sendTexture(mtx, 33, GX_MTX2x4);
 
     mtx.identity();
     mtx[1][1] = 1.0f / mFadeScale;
     mtx[1][3] = 1.0f - drawBaseCode * mtx[1][1];
 
-    GXLoadTexMtxImm(mtx, 30, GX_MTX2x4);
+    J3DNativeShape::sendTexture(mtx, 30, GX_MTX2x4);
 
     for (u32 i = 1; i < mPositionCount; i++) {
         f32 alpha;
@@ -342,7 +340,7 @@ void SpinDriverPathDrawer::draw() const {
         f32 prevVal = _9C[i - 1];
         f32 val = _9C[i];
 
-        GXBegin(GX_TRIANGLESTRIP, GX_VTXFMT0, 6);
+        J3DNativeDraw::begin(GX_TRIANGLESTRIP, 6, NEBULA_SHAPE_TEXCOORD0);
 
         sendPoint(prev90 - prev98, 0.0f, prevVal);
         sendPoint(curr90 - curr98, 0.0f, val);
@@ -351,7 +349,7 @@ void SpinDriverPathDrawer::draw() const {
         sendPoint(prev90 + prev98, 1.0f, prevVal);
         sendPoint(curr90 + curr98, 1.0f, val);
 
-        GXBegin(GX_TRIANGLESTRIP, GX_VTXFMT0, 6);
+        J3DNativeDraw::begin(GX_TRIANGLESTRIP, 6, NEBULA_SHAPE_TEXCOORD0);
 
         sendPoint(prev90 - prev94, 0.0f, prevVal);
         sendPoint(curr90 - curr94, 0.0f, val);
@@ -363,9 +361,6 @@ void SpinDriverPathDrawer::draw() const {
 }
 
 void SpinDriverPathDrawer::sendPoint(const TVec3f& rA1, f32 a2, f32 a3) const {
-    GXWGFifo.f32 = rA1.x;
-    GXWGFifo.f32 = rA1.y;
-    GXWGFifo.f32 = rA1.z;
-    GXWGFifo.f32 = a2;
-    GXWGFifo.f32 = a3;
+    J3DNativeDraw::position(rA1.x, rA1.y, rA1.z);
+    J3DNativeDraw::texCoord(a2, a3);
 }

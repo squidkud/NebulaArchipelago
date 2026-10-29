@@ -7,7 +7,7 @@ from typing import Any, Dict, Iterable, List, Mapping, NamedTuple, Optional
 
 from . import DOME_NAMES, GRAND_STARS_IN_POOL
 from .Items import GRAND_STAR, GREEN_STAR, POWER_STAR, item_table
-from .Locations import all_stars
+from .Locations import every_star
 from .StarData import GALAXIES
 
 
@@ -67,7 +67,7 @@ def summarize(slot_data: Optional[Mapping[str, Any]], checked_ids: Iterable[int]
     index_of = {stage: i for i, (stage, _n, _d, _c) in enumerate(GALAXIES)}
     names = {stage: name for stage, name, _d, _c in GALAXIES}
     stars_by_stage: Dict[str, List[int]] = {}
-    for star in all_stars:
+    for star in every_star:
         if star.code in known:
             stars_by_stage.setdefault(star.stage, []).append(star.code)
 

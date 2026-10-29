@@ -1,4 +1,7 @@
 #include "Game/Map/Flag.hpp"
+#include <JSystem/J3DGraphBase/J3DNativeState.hpp>
+#include <JSystem/J3DGraphBase/J3DNativeShape.hpp>
+#include <JSystem/J3DGraphBase/J3DNativeDraw.hpp>
 #include "Game/Ride/SwingRopePoint.hpp"
 #include "Game/Scene/SceneFunction.hpp"
 #include "Game/Util/ActorMovementUtil.hpp"
@@ -391,32 +394,28 @@ void Flag::draw() const {
     for (s32 idxV = 0; idxV < mNumPointsV - 1; idxV++) {
         const TVec3f& posA = mFixPoints[idxV + 0].mPos;
         const TVec3f& posB = mFixPoints[idxV + 1].mPos;
-        GXBegin(GX_TRIANGLESTRIP, GX_VTXFMT0, (mNumPointsU + 1) * 2);
+        // Each vertex's colour and texture coordinate are its entries of mColors and mTexST.
+        J3DNativeDraw::begin(GX_TRIANGLESTRIP, (mNumPointsU + 1) * 2, NEBULA_SHAPE_COLOR0 | NEBULA_SHAPE_TEXCOORD0);
         {
-            GXPosition3f32(posB.x, posB.y, posB.z);
-            GXPosition1x8(gxPosB);
-            GXPosition1x8(gxPosB);
-            GXPosition3f32(posA.x, posA.y, posA.z);
-            GXPosition1x8(gxPosA);
-            GXPosition1x8(gxPosA);
+            J3DNativeDraw::position(posB.x, posB.y, posB.z);
+            sendEntry(gxPosB);
+            J3DNativeDraw::position(posA.x, posA.y, posA.z);
+            sendEntry(gxPosA);
             gxPosB++;
             gxPosA++;
 
             for (s32 idxU = 0; idxU < mNumPointsU; idxU++) {
                 const TVec3f& posA = mFixPoints[idxV].mPoints[idxU]->mPosition;
                 const TVec3f& posB = mFixPoints[idxV + 1].mPoints[idxU]->mPosition;
-                GXPosition3f32(posB.x, posB.y, posB.z);
-                GXPosition1x8(gxPosB);
-                GXPosition1x8(gxPosB);
-                GXPosition3f32(posA.x, posA.y, posA.z);
-                GXPosition1x8(gxPosA);
-                GXPosition1x8(gxPosA);
+                J3DNativeDraw::position(posB.x, posB.y, posB.z);
+                sendEntry(gxPosB);
+                J3DNativeDraw::position(posA.x, posA.y, posA.z);
+                sendEntry(gxPosA);
 
                 gxPosB++;
                 gxPosA++;
             }
         }
-        GXEnd();
     }
 
     if (mStickLength > 0.0f) {
@@ -424,8 +423,8 @@ void Flag::draw() const {
 
         const Vec2 stickCoords[] = {{1.0f, 0.0f}, {0.0f, 1.0f}, {-1.0f, 0.0f}, {1.0f, 0.0f}};
 
-        GXSetArray(GX_VA_CLR0, &::sStickColors, ARRAY_SIZE(::sStickColors));
-        GXBegin(GX_TRIANGLESTRIP, GX_VTXFMT0, 8);
+        // The stick's colours are ::sStickColors' entries, its texture coordinate mTexST's first.
+        J3DNativeDraw::begin(GX_TRIANGLESTRIP, 8, NEBULA_SHAPE_COLOR0 | NEBULA_SHAPE_TEXCOORD0);
 
         f32 length = mStickLength + mPointIntervalV * (mNumPointsV - 1);
         for (s32 idx = 0; idx < 4; idx++) {
@@ -441,64 +440,57 @@ void Flag::draw() const {
             posB.add(v1);
             posB.add(v2);
 
-            GXPosition3f32(posA.x, posA.y, posA.z);
-            GXPosition1x8(idx);
-            GXPosition1x8(0);
-            GXPosition3f32(posB.x, posB.y, posB.z);
-            GXPosition1x8(idx);
-            GXPosition1x8(0);
+            J3DNativeDraw::position(posA.x, posA.y, posA.z);
+            J3DNativeDraw::color(::sStickColors[idx].r, ::sStickColors[idx].g, ::sStickColors[idx].b, ::sStickColors[idx].a);
+            J3DNativeDraw::texCoord(mTexST[0], mTexST[1]);
+            J3DNativeDraw::position(posB.x, posB.y, posB.z);
+            J3DNativeDraw::color(::sStickColors[idx].r, ::sStickColors[idx].g, ::sStickColors[idx].b, ::sStickColors[idx].a);
+            J3DNativeDraw::texCoord(mTexST[0], mTexST[1]);
         }
-        GXEnd();
     }
 }
 
+void Flag::sendEntry(u8 index) const {
+    const Color8& rColor = mColors[index];
+    J3DNativeDraw::color(rColor.r, rColor.g, rColor.b, rColor.a);
+    J3DNativeDraw::texCoord(mTexST[2 * index], mTexST[2 * index + 1]);
+}
+
 void Flag::loadMaterial() const {
-    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
-    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_CLR0, GX_CLR_RGBA, GX_RGBA8, 0);
-    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX0, GX_TEX_ST, GX_F32, 0);
+    J3DNativeShape::sendPosition(MR::getCameraViewMtx(), 0);
+    J3DNativeState::setCurrentMtx(0);
 
-    GXClearVtxDesc();
-    GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
-    GXSetVtxDesc(GX_VA_CLR0, GX_INDEX8);
-    GXSetVtxDesc(GX_VA_TEX0, GX_INDEX8);
+    J3DNativeState::setNumChans(1);
+    J3DNativeState::setChanCtrl(GX_COLOR0A0, GX_DISABLE, GX_SRC_VTX, GX_SRC_VTX, 0, GX_DF_NONE, GX_AF_NONE);
 
-    GXSetArray(GX_VA_CLR0, mColors, 4);
-    GXSetArray(GX_VA_TEX0, mTexST, 8);
-
-    GXLoadPosMtxImm(MR::getCameraViewMtx(), 0);
-    GXSetCurrentMtx(0);
-
-    GXSetNumChans(1);
-    GXSetChanCtrl(GX_COLOR0A0, GX_DISABLE, GX_SRC_VTX, GX_SRC_VTX, 0, GX_DF_NONE, GX_AF_NONE);
-
-    GXSetNumTexGens(1);
-    GXSetTexCoordGen2(GX_TEXCOORD0, GX_TG_MTX2x4, GX_TG_TEX0, 60, GX_FALSE, 125);
+    J3DNativeState::setNumTexGens(1);
+    J3DNativeState::setTexCoordGen2(GX_TEXCOORD0, GX_TG_MTX2x4, GX_TG_TEX0, 60, GX_FALSE, 125);
     mTexture->load(GX_TEXMAP0);
 
-    GXSetNumIndStages(0);
+    J3DNativeState::setNumIndStages(0);
 
-    GXSetTevDirect(GX_TEVSTAGE0);
-    GXSetTevDirect(GX_TEVSTAGE1);
-    GXSetTevDirect(GX_TEVSTAGE2);
+    J3DNativeState::setTevDirect(GX_TEVSTAGE0);
+    J3DNativeState::setTevDirect(GX_TEVSTAGE1);
+    J3DNativeState::setTevDirect(GX_TEVSTAGE2);
 
-    GXSetTevColor(GX_TEVREG0, Color8(0xFF, 0xFF, 0xFF, mAlpha));
-    GXSetNumTevStages(1);
-    GXSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR0A0);
-    GXSetTevColorIn(GX_TEVSTAGE0, GX_CC_ZERO, GX_CC_TEXC, GX_CC_RASC, GX_CC_ZERO);
-    GXSetTevColorOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_FALSE, GX_TEVPREV);
-    GXSetTevAlphaIn(GX_TEVSTAGE0, GX_CA_ZERO, GX_CA_TEXA, GX_CA_A0, GX_CA_ZERO);
-    GXSetTevAlphaOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_FALSE, GX_TEVPREV);
+    J3DNativeState::setTevColor(GX_TEVREG0, Color8(0xFF, 0xFF, 0xFF, mAlpha));
+    J3DNativeState::setNumTevStages(1);
+    J3DNativeState::setTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR0A0);
+    J3DNativeState::setTevColorIn(GX_TEVSTAGE0, GX_CC_ZERO, GX_CC_TEXC, GX_CC_RASC, GX_CC_ZERO);
+    J3DNativeState::setTevColorOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_FALSE, GX_TEVPREV);
+    J3DNativeState::setTevAlphaIn(GX_TEVSTAGE0, GX_CA_ZERO, GX_CA_TEXA, GX_CA_A0, GX_CA_ZERO);
+    J3DNativeState::setTevAlphaOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_FALSE, GX_TEVPREV);
 
-    GXSetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA, GX_LO_NOOP);
-    GXSetAlphaCompare(GX_GREATER, 0, GX_AOP_OR, GX_GREATER, 0);
+    J3DNativeState::setBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA, GX_LO_NOOP);
+    J3DNativeState::setAlphaCompare(GX_GREATER, 0, GX_AOP_OR, GX_GREATER, 0);
     if (mAlpha == 0xFF) {
-        GXSetZMode(GX_TRUE, GX_LEQUAL, GX_TRUE);
+        J3DNativeState::setZMode(GX_TRUE, GX_LEQUAL, GX_TRUE);
     } else {
-        GXSetZMode(GX_TRUE, GX_LEQUAL, GX_FALSE);
+        J3DNativeState::setZMode(GX_TRUE, GX_LEQUAL, GX_FALSE);
     }
-    GXSetZCompLoc(GX_FALSE);
-    GXSetCullMode(GX_CULL_NONE);
-    GXSetClipMode(GX_CLIP_ENABLE);
+    J3DNativeState::setZCompLoc(GX_FALSE);
+    J3DNativeState::setCullMode(GX_CULL_NONE);
+    J3DNativeState::setClipMode(GX_CLIP_ENABLE);
 
-    GXSetFog(GX_FOG_NONE, 0.0f, 1.0f, MR::getNearZ(), MR::getFarZ(), Color8(0xFF, 0xFF, 0xFF, 0xFF));
+    J3DNativeState::setFog(GX_FOG_NONE, 0.0f, 1.0f, MR::getNearZ(), MR::getFarZ(), Color8(0xFF, 0xFF, 0xFF, 0xFF));
 }

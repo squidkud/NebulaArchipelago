@@ -22,6 +22,7 @@ ITEMS = [
     (10, "star_bit_thief"),
     (11, "quake_trap"),
     (12, "confusion_trap"),
+    (13, "rainbow_star"),
     (14, "bee_mushroom"),
     (15, "boo_mushroom"),
     (16, "spring_mushroom"),

@@ -28,8 +28,10 @@ namespace detail {
 
 // Decoded vertex: one input layout for every pipeline. uv holds all eight texture coordinates;
 // mtx_indices holds the position/normal matrix index and the eight texture matrix indices
-// that the vertex shader uses to index the XF matrix palette; bend the position's displacement
-// normal for curved surfaces (curved_surfaces.h), zero where it does not bend.
+// that the vertex shader uses to index the XF matrix palette; curve what a curved surface's
+// vertex carries (curved_surfaces.h's Model): its corner's displacement normal and its place's
+// crease normal (both packed, zero for none) and its place with the first crease neighbour
+// (place | neighbour << 16); the second crease neighbour rides in mtx_indices[2]'s high half.
 struct GxVertexOut {
     float position[3];
     float normal[3];
@@ -39,9 +41,14 @@ struct GxVertexOut {
     std::uint32_t color1;           // RGBA8
     float uv[8][2];
     std::uint32_t mtx_indices[3];   // x: pn/tex0-2, y: tex3-6, z: tex7
-    float bend[3];
+    std::uint32_t curve[3];
 };
 static_assert(sizeof(GxVertexOut) == 144, "fixed 144-byte vertex stride");
+// mtx_indices[2] bit 15: the corner is a flat solid's normal shaded soft (curved_surfaces.h PlaceBend::flat); ray
+// tracing shades its face flat (ray_tracing.hlsl kVertexFlatCorner). Bits 0-7 hold texture matrix 7's index, bits
+// 16-31 the second crease neighbour.
+inline constexpr std::uint32_t kVertexFlatCorner = 0x8000u;
+static_assert(offsetof(GxVertexOut, mtx_indices) + 8u == 128u, "ray_tracing.hlsl reads mtx_indices[2] at byte 128");
 static_assert(sizeof(GxVertexOut) % 16u == 0u,
               "vertex upload batching requires 16-byte stride alignment");
 
@@ -59,13 +66,6 @@ struct LoadedPrimitive {
 struct VertexDecodeGuestRange {
     std::uint32_t guest_base = 0;
     std::uint32_t size = 0;
-};
-
-struct DecodedPacketRunVertices {
-    std::uint32_t total_vertices = 0;
-    std::uint32_t total_indices = 0;
-    std::vector<GxVertexOut> vertices;
-    std::vector<VertexDecodeGuestRange> guest_array_reads;
 };
 
 class VertexLoader {
@@ -96,49 +96,8 @@ public:
         std::uint32_t index_batch_base_vertex = 0,
         bool rebase_indices_to_batch_base = false);
 
-    // `record_indexed_read_ranges` fills guest_array_reads, which only the decoded-vertex cache
-    // uses; false skips the range tracking on every indexed attribute read.
-    DecodedPacketRunVertices decode_cached_packet_run_vertices_with_layout(
-        std::span<const std::byte> bytes,
-        std::size_t base_offset,
-        std::span<const CachedDrawPacket> packets,
-        PrimitiveClass primitive,
-        const GxState& state,
-        const VertexDescriptor& desc,
-        std::size_t source_vertex_size,
-        GuestMemory* memory,
-        std::uint32_t precomputed_total_vertices = 0,
-        std::uint32_t precomputed_total_indices = 0,
-        bool record_indexed_read_ranges = true,
-        std::vector<GxVertexOut>* reusable_vertices = nullptr);
 
-    LoadedPrimitive upload_cached_packet_run_vertices(
-        std::span<const GxVertexOut> vertices,
-        std::size_t base_offset,
-        std::span<const CachedDrawPacket> packets,
-        PrimitiveClass primitive,
-        UploadRing& vertex_ring,
-        UploadRing& index_ring,
-        std::uint32_t index_batch_base_vertex = 0,
-        bool rebase_indices_to_batch_base = false,
-        std::uint32_t total_indices = 0,
-        std::span<const std::uint16_t> precomputed_indices = {},
-        ImmutableUploadToken* upload_token = nullptr);
 
-    // The index half of upload_cached_packet_run_vertices, for vertices already on the GPU:
-    // `vertex_count` vertices start at `vertex_byte_offset` in a caller-owned buffer, so
-    // base_vertex = vertex_byte_offset / sizeof(GxVertexOut).
-    LoadedPrimitive upload_cached_packet_run_indices(
-        std::size_t vertex_byte_offset,
-        std::uint32_t vertex_count,
-        std::size_t base_offset,
-        std::span<const CachedDrawPacket> packets,
-        PrimitiveClass primitive,
-        UploadRing& index_ring,
-        std::uint32_t index_batch_base_vertex = 0,
-        bool rebase_indices_to_batch_base = false,
-        std::uint32_t total_indices = 0,
-        std::span<const std::uint16_t> precomputed_indices = {});
 
     // Byte size of one source vertex, so a packet's vertex data is taken as one window.
     [[nodiscard]] static std::size_t source_vertex_size(

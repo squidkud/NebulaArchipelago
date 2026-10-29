@@ -1,7 +1,10 @@
 #include "Game/System/MainLoopFramework.hpp"
+#include <JSystem/J3DGraphBase/J3DNativeTexture.hpp>
+#include <JSystem/J3DGraphBase/J3DNativeState.hpp>
+#include <JSystem/J3DGraphBase/J3DNativeView.hpp>
+#include <JSystem/J3DGraphBase/J3DNativeShape.hpp>
+#include <JSystem/J3DGraphBase/J3DNativeDraw.hpp>
 #include <revolution/os.h>
-#include "Game/System/DrawSyncManager.hpp"
-#include "Game/Util/BothDirList.hpp"
 #include "Game/Util/SchedulerUtil.hpp"
 #include <JSystem/J2DGraph/J2DOrthoGraph.hpp>
 #include <JSystem/JUtility/JUTAssert.hpp>
@@ -14,7 +17,6 @@
 
 MainLoopFramework* MainLoopFramework::sManager;
 
-MR::BothDirList< MainLoopFrameworkAlarm > MainLoopFrameworkAlarm::sList(false);
 
 GXTexObj clear_z_tobj;
 
@@ -36,9 +38,6 @@ namespace {
 
     void waitForTick(u32, u16);
 
-    void waitDrawDoneAndSetAlarm();
-
-    void handleGXAbortAlarm(OSAlarm*, OSContext*);
 };  // namespace
 
 void MainLoopFramework::ctor_subroutine(bool useAlpha) {
@@ -57,8 +56,9 @@ void MainLoopFramework::ctor_subroutine(bool useAlpha) {
     mLastVideoTickDelta = 0;
     mSingleBufferIndex = 0;
     _3E = 0;
-    GXInitTexObj(&clear_z_tobj, clearZTexData, 4, 4, GX_TF_Z24X8, GX_REPEAT, GX_REPEAT, GX_FALSE);
-    GXInitTexObjLOD(&clear_z_tobj, GX_NEAR, GX_NEAR, 0.0f, 0.0f, 0.0f, GX_FALSE, GX_FALSE, GX_ANISO_1);
+    J3DNativeTexture::registerImage(clearZTexData, GX_TF_Z24X8, 4, 4, 1);
+    J3DNativeTexture::init(&clear_z_tobj, clearZTexData, 4, 4, GX_TF_Z24X8, GX_REPEAT, GX_REPEAT, GX_FALSE);
+    J3DNativeTexture::initLOD(&clear_z_tobj, GX_NEAR, GX_NEAR, 0.0f, 0.0f, 0.0f, GX_FALSE, GX_FALSE, GX_ANISO_1);
     mRenderInterval = 1;
     mRenderCounter = 0;
     mDoRenderFrame = false;
@@ -97,21 +97,21 @@ void MainLoopFramework::prepareCopyDisp() {
     u16 fbWidth = JUTVideo::getManager()->getRenderMode()->fbWidth;
     u16 efbHeight = JUTVideo::getManager()->getRenderMode()->efbHeight;
     u16 xfbHeight = JUTVideo::getManager()->getRenderMode()->xfbHeight;
-    f32 yscale = GXGetYScaleFactor(efbHeight, xfbHeight);
-    u16 nlines = GXGetNumXfbLines(efbHeight, yscale);
-    GXSetCopyClear(mClearColor, mClearZ);
-    GXSetDispCopySrc(0, 0, fbWidth, efbHeight);
-    GXSetDispCopyDst(fbWidth, nlines);
-    GXSetDispCopyYScale(yscale);
+    f32 yscale = J3DNativeState::getYScaleFactor(efbHeight, xfbHeight);
+    u16 nlines = J3DNativeState::getNumXfbLines(efbHeight, yscale);
+    J3DNativeState::setCopyClear(mClearColor, mClearZ);
+    J3DNativeState::setDispCopySrc(0, 0, fbWidth, efbHeight);
+    J3DNativeState::setDispCopyDst(fbWidth, nlines);
+    J3DNativeState::setDispCopyYScale(yscale);
     VIFlush();
     GXRenderModeObj* pMode = JUTVideo::getManager()->getRenderMode();
     u8* pVFilter = pMode->vfilter;
-    GXSetCopyFilter(pMode->aa, pMode->sample_pattern, mUseVFilter, pVFilter);
-    GXSetCopyClamp((GXFBClamp)mCopyClamp);
-    GXSetDispCopyGamma((GXGamma)mDispCopyGamma);
-    GXSetZMode(GX_TRUE, GX_LEQUAL, GX_TRUE);
+    J3DNativeState::setCopyFilter(pMode->aa, pMode->sample_pattern, mUseVFilter, pVFilter);
+    J3DNativeState::setCopyClamp((GXFBClamp)mCopyClamp);
+    J3DNativeState::setDispCopyGamma((GXGamma)mDispCopyGamma);
+    J3DNativeState::setZMode(GX_TRUE, GX_LEQUAL, GX_TRUE);
     if (mUseAlpha) {
-        GXSetAlphaUpdate(GX_TRUE);
+        J3DNativeState::setAlphaUpdate(GX_TRUE);
     }
 }
 #pragma pop
@@ -120,7 +120,7 @@ void MainLoopFramework::drawendXfb_single() {
     JUTXfb* pXfbMgr = JUTXfb::sManager;
     if (pXfbMgr->mDrawingXfbIndex >= 0) {
         prepareCopyDisp();
-        ::waitDrawDoneAndSetAlarm();
+        GXDrawDone();
         GXFlush();
         pXfbMgr->mDrawnXfbIndex = pXfbMgr->mDrawingXfbIndex;
     }
@@ -134,7 +134,7 @@ void MainLoopFramework::exchangeXfb_double() {
                 mPreRenderCallback();
             }
             prepareCopyDisp();
-            GXCopyDisp(pXfbMgr->getDrawingXfb(), GX_TRUE);
+            J3DNativeState::copyDisp(pXfbMgr->getDrawingXfb(), GX_TRUE);
             if (!_C) {
                 pXfbMgr->mDrawnXfbIndex = pXfbMgr->mDrawingXfbIndex;
                 GXDrawDone();
@@ -190,23 +190,21 @@ void MainLoopFramework::copyXfb_triple() {
             mPreRenderCallback();
         }
         prepareCopyDisp();
-        GXCopyDisp(pXfbMgr->getDrawingXfb(), GX_FALSE);
-        GXPixModeSync();
+        J3DNativeState::copyDisp(pXfbMgr->getDrawingXfb(), GX_FALSE);
     }
 }
 
 void MainLoopFramework::preGX() {
-    GXInvalidateTexAll();
-    GXInvalidateVtxCache();
+    J3DNativeState::invalidateTexAll();
     if (JUTVideo::getManager()->getRenderMode()->aa) {
-        GXSetPixelFmt(GX_PF_RGB565_Z16, GX_ZC_LINEAR);
-        GXSetDither(GX_TRUE);
+        J3DNativeState::setPixelFmt(GX_PF_RGB565_Z16, GX_ZC_LINEAR);
+        J3DNativeState::setDither(GX_TRUE);
     } else if (mUseAlpha) {
-        GXSetPixelFmt(GX_PF_RGBA6_Z24, GX_ZC_LINEAR);
-        GXSetDither(GX_TRUE);
+        J3DNativeState::setPixelFmt(GX_PF_RGBA6_Z24, GX_ZC_LINEAR);
+        J3DNativeState::setDither(GX_TRUE);
     } else {
-        GXSetPixelFmt(GX_PF_RGB8_Z24, GX_ZC_LINEAR);
-        GXSetDither(GX_FALSE);
+        J3DNativeState::setPixelFmt(GX_PF_RGB8_Z24, GX_ZC_LINEAR);
+        J3DNativeState::setDither(GX_FALSE);
     }
 }
 
@@ -290,11 +288,11 @@ void MainLoopFramework::endFrame() {
         case 1:
             break;
         case 2:
-            ::waitDrawDoneAndSetAlarm();
+            GXDrawDone();
             GXFlush();
             break;
         case 3:
-            ::waitDrawDoneAndSetAlarm();
+            GXDrawDone();
             GXFlush();
             break;
         }
@@ -332,63 +330,61 @@ void MainLoopFramework::clearEfb(int param1, int param2, int param3, int param4,
     u16 efbHeight = JUTVideo::getManager()->getRenderMode()->efbHeight;
     Mtx44 proj;
     C_MTXOrtho(proj, 0.0f, efbHeight, 0.0f, fbWidth, 0.0f, 1.0f);
-    GXSetProjection(proj, GX_ORTHOGRAPHIC);
-    GXSetViewport(0.0f, 0.0f, fbWidth, efbHeight, 0.0f, 1.0f);
-    GXSetScissor(0, 0, fbWidth, efbHeight);
-    GXLoadPosMtxImm(e_mtx, GX_PNMTX0);
-    GXSetCurrentMtx(GX_PNMTX0);
-    GXClearVtxDesc();
-    GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
-    GXSetVtxDesc(GX_VA_TEX0, GX_DIRECT);
-    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XY, GX_U16, 0);
-    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX0, GX_POS_XYZ, GX_U8, 0);
-    GXSetNumChans(0);
-    GXSetChanCtrl(GX_COLOR0A0, GX_FALSE, GX_SRC_REG, GX_SRC_REG, GX_LIGHT_NULL, GX_DF_NONE, GX_AF_NONE);
-    GXSetChanCtrl(GX_COLOR1A1, GX_FALSE, GX_SRC_REG, GX_SRC_REG, GX_LIGHT_NULL, GX_DF_NONE, GX_AF_NONE);
-    GXSetNumTexGens(1);
-    GXSetTexCoordGen2(GX_TEXCOORD0, GX_TG_MTX2x4, GX_TG_TEX0, GX_IDENTITY, GX_FALSE, GX_PTIDENTITY);
-    GXLoadTexObj(&clear_z_tobj, GX_TEXMAP0);
-    GXSetNumTevStages(1);
-    GXSetTevColor(GX_TEVREG0, color);
-    GXSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR_NULL);
-    GXSetTevColorIn(GX_TEVSTAGE0, GX_CC_ZERO, GX_CC_ZERO, GX_CC_ZERO, GX_CC_C0);
-    GXSetTevColorOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
-    GXSetTevAlphaIn(GX_TEVSTAGE0, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO, GX_CA_A0);
-    GXSetTevAlphaOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
-    GXSetAlphaCompare(GX_ALWAYS, 0, GX_AOP_OR, GX_ALWAYS, 0);
-    GXSetZTexture(GX_ZT_REPLACE, GX_TF_Z24X8, 0);
-    GXSetZCompLoc(GX_FALSE);
-    GXSetBlendMode(GX_BM_NONE, GX_BL_ZERO, GX_BL_ZERO, GX_LO_NOOP);
+    J3DNativeView::setProjection(proj, GX_ORTHOGRAPHIC);
+    J3DNativeView::setViewport(0.0f, 0.0f, fbWidth, efbHeight, 0.0f, 1.0f);
+    J3DNativeView::setScissor(0, 0, fbWidth, efbHeight);
+    J3DNativeShape::sendPosition(e_mtx, GX_PNMTX0);
+    J3DNativeState::setCurrentMtx(GX_PNMTX0);
+    J3DNativeState::setNumChans(0);
+    J3DNativeState::setChanCtrl(GX_COLOR0A0, GX_FALSE, GX_SRC_REG, GX_SRC_REG, GX_LIGHT_NULL, GX_DF_NONE, GX_AF_NONE);
+    J3DNativeState::setChanCtrl(GX_COLOR1A1, GX_FALSE, GX_SRC_REG, GX_SRC_REG, GX_LIGHT_NULL, GX_DF_NONE, GX_AF_NONE);
+    J3DNativeState::setNumTexGens(1);
+    J3DNativeState::setTexCoordGen2(GX_TEXCOORD0, GX_TG_MTX2x4, GX_TG_TEX0, GX_IDENTITY, GX_FALSE, GX_PTIDENTITY);
+    J3DNativeTexture::load(&clear_z_tobj, GX_TEXMAP0);
+    J3DNativeState::setNumTevStages(1);
+    J3DNativeState::setTevColor(GX_TEVREG0, color);
+    J3DNativeState::setTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR_NULL);
+    J3DNativeState::setTevColorIn(GX_TEVSTAGE0, GX_CC_ZERO, GX_CC_ZERO, GX_CC_ZERO, GX_CC_C0);
+    J3DNativeState::setTevColorOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
+    J3DNativeState::setTevAlphaIn(GX_TEVSTAGE0, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO, GX_CA_A0);
+    J3DNativeState::setTevAlphaOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
+    J3DNativeState::setAlphaCompare(GX_ALWAYS, 0, GX_AOP_OR, GX_ALWAYS, 0);
+    J3DNativeState::setZTexture(GX_ZT_REPLACE, GX_TF_Z24X8, 0);
+    J3DNativeState::setZCompLoc(GX_FALSE);
+    J3DNativeState::setBlendMode(GX_BM_NONE, GX_BL_ZERO, GX_BL_ZERO, GX_LO_NOOP);
 
     if (mUseAlpha) {
-        GXSetAlphaUpdate(GX_TRUE);
-        GXSetDstAlpha(GX_TRUE, color.a);
+        J3DNativeState::setAlphaUpdate(GX_TRUE);
+        J3DNativeState::setDstAlpha(GX_TRUE, color.a);
     }
 
-    GXSetZMode(GX_TRUE, GX_ALWAYS, GX_TRUE);
-    GXSetCullMode(GX_CULL_BACK);
+    J3DNativeState::setZMode(GX_TRUE, GX_ALWAYS, GX_TRUE);
+    J3DNativeState::setCullMode(GX_CULL_BACK);
 
-    GXBegin(GX_QUADS, GX_VTXFMT0, 4);
+#ifdef TARGET_PC
+    __NebulaGXClearQuadColourMarker(0xFFFFFF, (static_cast< u32 >(color.r) << 24) | (static_cast< u32 >(color.g) << 16) |
+                                                  (static_cast< u32 >(color.b) << 8) | color.a);
+#endif
+    J3DNativeDraw::begin(GX_QUADS, 4, NEBULA_SHAPE_TEXCOORD0);
     {
-        GXPosition2u16(param1, param2);
-        GXTexCoord2u8(0, 0);
+        J3DNativeDraw::position(static_cast< f32 >(static_cast< u16 >(param1)), static_cast< f32 >(static_cast< u16 >(param2)), 0.0f);
+        J3DNativeDraw::texCoord(0.0f, 0.0f);
 
-        GXPosition2u16(param1 + param3, param2);
-        GXTexCoord2u8(1, 0);
+        J3DNativeDraw::position(static_cast< f32 >(static_cast< u16 >(param1 + param3)), static_cast< f32 >(static_cast< u16 >(param2)), 0.0f);
+        J3DNativeDraw::texCoord(1.0f, 0.0f);
 
-        GXPosition2u16(param1 + param3, param2 + param4);
-        GXTexCoord2u8(1, 1);
+        J3DNativeDraw::position(static_cast< f32 >(static_cast< u16 >(param1 + param3)), static_cast< f32 >(static_cast< u16 >(param2 + param4)), 0.0f);
+        J3DNativeDraw::texCoord(1.0f, 1.0f);
 
-        GXPosition2u16(param1, param2 + param4);
-        GXTexCoord2u8(0, 1);
+        J3DNativeDraw::position(static_cast< f32 >(static_cast< u16 >(param1)), static_cast< f32 >(static_cast< u16 >(param2 + param4)), 0.0f);
+        J3DNativeDraw::texCoord(0.0f, 1.0f);
     }
-    GXEnd();
 
-    GXSetZTexture(GX_ZT_DISABLE, GX_TF_Z24X8, 0);
-    GXSetZCompLoc(GX_TRUE);
+    J3DNativeState::setZTexture(GX_ZT_DISABLE, GX_TF_Z24X8, 0);
+    J3DNativeState::setZCompLoc(GX_TRUE);
 
     if (mUseAlpha) {
-        GXSetDstAlpha(GX_FALSE, color.a);
+        J3DNativeState::setDstAlpha(GX_FALSE, color.a);
     }
 }
 
@@ -415,11 +411,6 @@ u32 MainLoopFramework::frameToTick(f32 frame) {
 }
 
 void MainLoopFramework::setForOSResetSystem() {
-    MR::BothDirPtrLink* pLink = MainLoopFrameworkAlarm::sList.mHead;
-    while (pLink) {
-        OSCancelAlarm((MainLoopFrameworkAlarm*)pLink->mValue);
-        pLink = pLink->mNextLink;
-    }
     JUTVideo::destroyManager();
     VISetBlack(TRUE);
     VIFlush();
@@ -476,37 +467,4 @@ namespace {
         }
     }
 
-    void waitDrawDoneAndSetAlarm() {
-        MainLoopFrameworkAlarm alarm;
-        {
-            MR::ProhibitSchedulerAndInterrupts prohibit(false);
-            OSCreateAlarm(&alarm);
-            MainLoopFrameworkAlarm::sList.append(&alarm.mLink);
-        }
-        OSTime tick = __cvt_dbl_usll(OS_BUS_CLOCK / 4 * 0.5);
-        OSSetAlarm(&alarm, tick, &handleGXAbortAlarm);
-        GXDrawDone();
-        DrawSyncManager::resetIfAborted();
-        {
-            MR::ProhibitSchedulerAndInterrupts prohibit(false);
-            OSCancelAlarm(&alarm);
-            MainLoopFrameworkAlarm::sList.remove(&alarm.mLink);
-        }
-    }
-
-    void handleGXAbortAlarm(OSAlarm* alarm, OSContext* context) {
-        u32 ras_busy2, clocks2, xf_wait_in2, xf_wait_out2;
-        u32 ras_busy, clocks, xf_wait_in, xf_wait_out;
-        GXReadXfRasMetric(&xf_wait_in, &xf_wait_out, &ras_busy, &clocks);
-        GXReadXfRasMetric(&xf_wait_in2, &xf_wait_out2, &ras_busy2, &clocks2);
-        GXBool brkpt, cmdIdle, readIdle, underlow, overhi;
-        GXGetGPStatus(&overhi, &underlow, &readIdle, &cmdIdle, &brkpt);
-        GXDisableBreakPt();
-        GXAbortFrame();
-        DrawSyncManager::sInstance->clearFifo();
-        GX_WRITE_U8(0x61);
-        GX_WRITE_U32(0x5800000f);
-        GXSetDrawDone();
-        DrawSyncManager::prepareReset();
-    }
 };  // namespace

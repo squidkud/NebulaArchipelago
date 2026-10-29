@@ -1,4 +1,6 @@
 #include "Game/Screen/HomeButtonLayout.hpp"
+#include <JSystem/J3DGraphBase/J3DNativeState.hpp>
+#include <JSystem/J3DGraphBase/J3DNativeView.hpp>
 #include "Game/AudioLib/AudSystem.hpp"
 #include "Game/AudioLib/AudWrap.hpp"
 #include "Game/LiveActor/Nerve.hpp"
@@ -197,25 +199,20 @@ void HomeButtonLayout::draw() const {
         return;
     }
 
-    GXClearVtxDesc();
-    GXSetVtxAttrFmt(GX_VTXFMT4, GX_VA_POS, GX_POS_XY, GX_F32, 0);
-    GXSetVtxAttrFmt(GX_VTXFMT4, GX_VA_CLR0, GX_CLR_RGB, GX_S8, 0);
-    GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
-    GXSetVtxDesc(GX_VA_CLR0, GX_DIRECT);
-    GXSetNumChans(1);
-    GXSetNumTexGens(0);
-    GXSetNumTevStages(1);
-    GXSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD_NULL, GX_TEXMAP_NULL, GX_COLOR0A0);
-    GXSetTevOp(GX_TEVSTAGE0, GX_PASSCLR);
+    J3DNativeState::setNumChans(1);
+    J3DNativeState::setNumTexGens(0);
+    J3DNativeState::setNumTevStages(1);
+    J3DNativeState::setTevOrder(GX_TEVSTAGE0, GX_TEXCOORD_NULL, GX_TEXMAP_NULL, GX_COLOR0A0);
+    J3DNativeState::setTevOp(GX_TEVSTAGE0, GX_PASSCLR);
 
     Mtx44 projectionMtx;
     f32 screenHalfHeight = static_cast< s32 >(JUTGetVideoManager()->getEfbHeight()) / 2.0f;
     f32 screenHalfWidth = MR::getScreenWidth() / 2.0f;
     C_MTXOrtho(projectionMtx, screenHalfHeight, -screenHalfHeight, -screenHalfWidth, screenHalfWidth, 0.0f, 500.0f);
-    GXSetProjection(projectionMtx, GX_ORTHOGRAPHIC);
+    J3DNativeView::setProjection(projectionMtx, GX_ORTHOGRAPHIC);
 
-    GXSetCullMode(GX_CULL_NONE);
-    GXSetZMode(GX_FALSE, GX_NEVER, GX_FALSE);
+    J3DNativeState::setCullMode(GX_CULL_NONE);
+    J3DNativeState::setZMode(GX_FALSE, GX_NEVER, GX_FALSE);
     RSO::HBMDraw();
 }
 

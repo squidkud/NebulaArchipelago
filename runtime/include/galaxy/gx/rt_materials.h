@@ -27,6 +27,9 @@
 //   unlit-only: only the draws the game does not light emit (a lamp's glass beside its lit housing in one texture).
 //   painted: its brightness changes are the material's own (a face, lettering, a picture), so it is never de-lit
 //   (rt_delight.hlsl).
+//   delight: its texture carries light painted into it (bevel highlights, groove shadows, a metal band's sheen) that the
+//   traced light replaces, so it is de-lit (rt_delight.hlsl). Only these: a texture's own detail (stone, sand, wood
+//   grain, painted tiles) is its colour, and taking it out flattens the texture and turns it into false relief.
 //   traced: a clear surface the engine traces (rt_engine.hlsl EngineClearCS) whose game draw paints a fake
 //   reflection; the draw is hidden under the engine, its geometry still traced.
 //   seen: a light source's surface that shows its radiance while the game's own point light there is its light.
@@ -49,6 +52,16 @@ namespace galaxy::gx {
 
 enum class RtEmission : std::uint8_t { None = 0, Point = 1, Area = 2 };
 
+// The share of their art's tint clear ice and the crystal cages keep under physical ray tracing (the owner, 27 October
+// 2026: ice 20 to 25 % of its blue, crystals 5 to 10 %; never darker). Their tint is in the colours their materials
+// multiply and add (TEV and konst registers, material and vertex colours: Freezeflame's rink filters what shows through
+// it by (0, 40, 65), its sheen by (55, 77, 92)); their textures are grey and what shows through them (the screen
+// capture the ice refracts, its reflection) keeps its own colours. Those colours keep that share of their chroma, their
+// luminance kept: GxBackend clears the registers in a draw's constants, the pixel shaders its rasterized colours
+// (ztex_params.w = kept - 1).
+inline constexpr float kRtIceTintKept = 0.225f;
+inline constexpr float kRtCrystalTintKept = 0.075f;
+
 struct RtMaterial {
     std::uint8_t surface_class = 0xFFu;   // RtSurfaceClass; 0xFF: as the GX state shows it
     RtEmission emission = RtEmission::None;
@@ -58,21 +71,33 @@ struct RtMaterial {
     bool hide = false;                    // a faked light effect: not drawn under the traced lighting
     bool unlit_only = false;              // only unlit draws of the texture emit
     bool particle = false;                // smoke, steam, sparks: never traced geometry or water
+    bool luminous = false;                // an effect that is light (sparkles, glows, flashes, fire, electricity,
+                                          // beams): drawn as the game draws it, never lit by the traced light
     bool waterfall = false;               // falling water: water whose streaks run down it
+    float white = 1.0f;                   // falling water: the share of its painted white water drawn (`white<n>`;
+                                          // `unpainted` 0: clear water throughout; rt_engine.hlsl fall_water)
+    bool mist = false;                    // an effect's sprites are spray: puffs of drops under the engine, the
+                                          // sprites hidden (rt_engine.hlsl MistLightCS)
     bool mirror = false;                  // glass the water pass reflects as a mirror (the Observatory fountain)
+    bool ice = false;                     // ice: clear as glass (its own look as the game draws it, a traced
+                                          // reflection) yet shaded by the traced sun's shadow
+    float tint_kept = 1.0f;               // the share of its art's tint kept under physical light: `ice` and
+                                          // `icetint` kRtIceTintKept, `crystaltint` kRtCrystalTintKept
     bool foliage = false;                 // leaves, grass and flower cards (alpha-cut)
     bool lens = false;                    // a black hole's lens draw: the finish bends light around it
     bool matte = false;                   // foliage, cloth: absorbs light, no highlight or reflection
     bool sky = false;                     // a sky or backdrop mesh: drawn, never in the traced scene
     bool strip = false;                   // a long emitter (a cable): a light per stretch of it
     bool painted = false;                 // its detail is the material's, not light: never de-lit
+    bool delight = false;                 // its texture carries painted light (`delight`): the only textures de-lit
     bool star = false;                    // a star's burning surface (the star core, the suns): its own colour,
                                           // brighter and more textured (rt_lighting.hlsl CompositePS)
     bool traced = false;                  // a clear surface the engine traces; its game draw not shown
     bool solid = false;                   // with `traced`: a closed clear solid (a crystal), traced through from the
                                           // scene's own geometry (rt_engine.hlsl clear_solid); color: what it passes
                                           // after `range` world units (0: it absorbs nothing)
-    float ior = 0.0f;                     // a solid's index of refraction (token ior<n>, 1 to 5; 0: quartz's)
+    float ior = 0.0f;                     // index of refraction (token ior<n>, 1 to 5; 0: none): a dielectric's
+                                          // reflectance; a solid's refraction (0: quartz's)
     bool seen = false;                    // shows its radiance; its light is the game's point light there
     bool recolour = false;                // a light source's sprite shown in the table's colour (its luminance kept)
     bool near_glow = false;               // a light source only near its glow light (the game's sprite of it)
@@ -84,6 +109,9 @@ struct RtMaterial {
     float color[3] = {1.0f, 1.0f, 1.0f};
     float intensity = 0.0f;               // relative to a Luma
     float range = 0.0f;
+    // Falling water: the share of its clear water's light its bubbles scatter (the table's `aeration`; < 0: the
+    // default, kFallAeration).
+    float aeration = -1.0f;
     float pulse = 0.0f;
     float cone = 0.0f;                    // degrees; 0: a point light
     float glow = -1.0f;                   // < 0: the intensity

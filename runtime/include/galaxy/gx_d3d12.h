@@ -4,6 +4,7 @@
 // presentation, the game's scene and light reports, and the native settings overlay.
 
 #include "galaxy/gx/frame_completion.h"
+#include "galaxy/gx/native_shapes.h"
 #include "galaxy/gx/render_config.h"
 #include "galaxy/gx/pointer_response.h"
 #include "galaxy/controller_roster.h"
@@ -188,6 +189,8 @@ std::size_t game_world_lights(std::span<GameLight> out, std::uint64_t max_age_ms
 // strip vertices follow. The next render_frame submission carries it.
 void attach_stripe_particle(std::size_t stream_offset, std::uint32_t particle, std::uint32_t age_lifetime,
                             std::uint8_t strip);
+// Simulation thread: a native shape record (native_shapes.h) at its offset into the next submitted FIFO.
+void attach_shape_record(shapes::Record record);
 // Simulation thread: the THP movie frame the game draws (movie_replacement.h); every later submission carries it
 // until the movie closes (frame -1).
 void attach_movie_frame(const char* name, std::int32_t frame, float frame_rate, std::uint32_t y, std::uint32_t u,
@@ -212,10 +215,6 @@ void set_safety_scene_surround(float intensity) noexcept;
     EfbPeekKind kind,
     std::uint16_t token,
     std::uint32_t& value);
-
-// The native game builds the arrays LOAD_INDX reads (matrices, lights) in host byte order; the host sets this
-// before the first frame. Everything else the GPU reads stays big-endian.
-void set_indexed_load_host_order(bool host_order) noexcept;
 
 void notify_guest_memory_write(
     std::uint32_t address,
@@ -328,6 +327,10 @@ void native_settings_wait_saved_for_tests();
 // the device marked active.
 void native_settings_set_controllers_for_tests(std::span<const input::ControllerInfo> controllers,
                                                std::optional<input::DeviceKey> active);
+// The Joy-Con halves connected, for tests.
+void native_settings_set_joycons_for_tests(unsigned lefts, unsigned rights);
+// Whether a Wii Remote is connected, for tests.
+void native_settings_set_wii_remote_for_tests(bool present);
 // The text of a row of the open page as drawn.
 [[nodiscard]] std::string native_settings_row_text_for_tests(unsigned row);
 // The settings the menu would apply (its draft), for tests.
@@ -349,6 +352,7 @@ struct NativeSettingsViewRow {
     bool buttons = false;     // its value is its buttons' words, '|' between them
     unsigned mod_list = 0u;   // the MODS page's lists: 1 off, 2 on (a mod, or the list's title)
     bool held = false;        // a mod picked up to move
+    bool shared = false;      // a binding with an input another control is bound to as well (both act together)
     unsigned slider_steps = 0u;  // a setting along a range: its steps, and the one it is at
     unsigned slider_at = 0u;
 };
@@ -371,6 +375,8 @@ enum class NativeSettingsStatus : unsigned {
     Leave,            // leaving with changes not applied: apply or discard them first
     ModsRestartAsk,   // mod changes applied: restart now? (yes: Apply, later: Close)
     JoyCon,           // Pair Joy-Con: status_number has the halves (kJoyCon* bits); Close leaves
+    RtRestartAsk,     // ray tracing turned on before its shaders are prepared: restart now? (yes: Apply, later: Close)
+    DiagnosticsAsk,   // restart and record a diagnostics run? (yes: Apply, no: Close)
 };
 // The Pair Joy-Con screen's status_number (nebula_game_api.h's NEBULA_JOYCON_*, checked alike in host_main.cpp).
 inline constexpr int kJoyConLeftBit = 1;       // a left half is connected

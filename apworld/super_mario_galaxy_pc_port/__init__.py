@@ -12,22 +12,35 @@ from .Items import (
     GRAND_STAR,
     ONE_UP,
     POWER_STAR,
+    FULL_HEAL,
+    ONE_UP_BURST,
     RAINBOW_STAR,
     STAR_BITS,
+    STAR_BITS_200,
     TRANSFORMATIONS,
     TRAPS,
+    COMPLETE,
     VICTORY,
+    VICTORY_LUIGI,
     SMGItem,
     item_name_groups,
     item_table,
 )
-from .Locations import BOO_BONEYARD, GATEWAY, REACTOR, SHOP_FIRST, SMGLocation, Star, all_stars, galaxy_names, location_table, shop_location_name
+from .Locations import (BOO_BONEYARD, CHARACTERS, GATEWAY, REACTOR, SHOP_FIRST, SMGLocation, Star, all_stars, galaxy_names,
+                        location_table, shop_location_name)
 from .Forms import FORM_STARS
-from .Options import SMGOptions
+from .Options import COLOR_OPTION_NAMES, GROUPS, SMGOptions, parse_color
 from .StarData import GALAXIES
 
 DOME_NAMES = {1: "Terrace", 2: "Fountain", 3: "Kitchen", 4: "Bedroom", 5: "Engine Room", 6: "Garden"}
 
+# The filler is not an option: it is the same in every world. Each share is a part of what the ones before it left.
+RAINBOW_SHARE = 4   # Rainbow Stars, of the filler after the traps
+PACK_SHARE = 10     # 200 Star Bits
+BURST_SHARE = 8     # three 1-Ups at once
+HEAL_SHARE = 8      # Full Heal
+ONE_UP_SHARE = 50   # 1-Up Mushrooms (the rest: 50 Star Bits)
+POWER_STAR_SHARE = 80  # the share of the other locations that holds a Power Star (at least what the galaxies ask)
 GRAND_STARS_IN_POOL = 5  # the first one is given at the start (the game starts in the Observatory)
 GREEN_STARS_IN_POOL = 3
 COMET_STAR_COUNT = 13  # the stars the game asks before the Prankster Comets show up
@@ -35,19 +48,20 @@ COMET_STAR_COUNT = 13  # the stars the game asks before the Prankster Comets sho
 # Galaxies outside the domes (and a few inside) open with more than the stars they ask: Grand Stars, the three Green
 # Stars, or a particular star collected: only the planets of the Observatory (the four galaxies of the domes that asked a
 # particular star - Buoy Base, Honeyclimb, Bonefin, Matter Splatter - open with the star count alone in this port).
-# (Grand Stars needed, locations that must be reached.) The game's own rules,
-# read from its event flag table (GameEventFlagTable.cpp).
+# (Grand Stars needed, locations that must be reached.) Read from the game's event flag table (GameEventFlagTable.cpp), then
+# relaxed for the Hungry Lumas, see below.
 EXTRA_REQUIREMENTS = {
+    # The game also asks a particular star of another galaxy before each of these Hungry Lumas appears (Space Junk's third
+    # star for Sling Pod, Ghostly's Luigi star for Sand Spiral, the Gateway's Purple Coin star for Boo's Boneyard...). This
+    # port drops that: every Luma is there as soon as its dome is open (NebulaArchipelago::overrideLumaAppear), so only the
+    # Grand Stars count here.
     "BeltConveyerExGalaxy": (1, []),
-    "CocoonExGalaxy": (2, ["Space Junk Galaxy - Tarantox's Tangled Web"]),
-    "TearDropGalaxy": (3, ["Beach Bowl Galaxy - Sunken Treasure"]),
-    "FishTunnelGalaxy": (4, ["Dusty Dune Galaxy - Soaring on the Desert Winds"]),
-    "TransformationExGalaxy": (
-        5,
-        ["Ghostly Galaxy - Luigi and the Haunted Mansion", "Sea Slide Galaxy - Faster Than a Speeding Penguin"],
-    ),
-    "TeresaMario2DGalaxy": (6, ["Ghostly Galaxy - Luigi and the Haunted Mansion", "Gateway Galaxy - Gateway's Purple Coins"]),
-    "SnowCapsuleGalaxy": (6, ["Melty Molten Galaxy - The Sinking Lava Spire"]),
+    "CocoonExGalaxy": (2, []),
+    "TearDropGalaxy": (3, []),
+    "FishTunnelGalaxy": (4, []),
+    "TransformationExGalaxy": (5, []),
+    "TeresaMario2DGalaxy": (6, []),
+    "SnowCapsuleGalaxy": (6, []),
 }
 # The galaxies of the domes by kind, for the galaxy shuffle: a Boss miniature is another kind of object in the game, so the
 # Bosses only stand in each other's places.
@@ -69,6 +83,7 @@ SPECIAL_GALAXIES = [
     "BeltConveyerExGalaxy", "CocoonExGalaxy", "TearDropGalaxy", "FishTunnelGalaxy", "TransformationExGalaxy",
     "TeresaMario2DGalaxy", "SnowCapsuleGalaxy", "TamakoroExLv2Galaxy", "SurfingLv2Galaxy", "CubeBubbleExLv2Galaxy",
 ]
+DOME_WITH_ALL_ITEMS = 4  # the door (by Grand Stars) from which all the transformation items must be in hand
 MIN_SLACK = 6  # the room to leave (the game's own layout has about 3; see SMGWorld._exploration_slack)
 TRIAL_GALAXIES = {"TamakoroExLv2Galaxy", "SurfingLv2Galaxy", "CubeBubbleExLv2Galaxy"}  # all three Green Stars
 
@@ -85,6 +100,7 @@ components.append(Component("Super Mario Galaxy PC Port Client", func=launch_cli
 
 class SMGWebWorld(WebWorld):
     theme = "partyTime"
+    option_groups = GROUPS
     tutorials = [
         Tutorial(
             "Multiworld Setup Guide",
@@ -127,6 +143,7 @@ class SMGWorld(World):
     ut_can_gen_without_yaml = True  # the Universal Tracker rebuilds the logic from the slot data, without the YAML
 
     stars: List[Star]
+    characters: List[str]  # whose saves the world plays: ["Mario"], ["Luigi"] or both
     open_position: Dict[int, int]
     content: Dict[str, str]
     power_stars: int
@@ -146,10 +163,8 @@ class SMGWorld(World):
             return bool(self.options.include_comet_stars)
         if star.kind == "purple":
             return bool(self.options.include_purple_coin_stars)
-        if star.stage == BOO_BONEYARD:
-            return bool(self.options.include_purple_coin_stars)  # it opens with the Gateway's Purple Coin star
-        if star.kind == "luigi" or (star.kind == "green" and star.stage == "BattleShipGalaxy"):
-            return bool(self.options.include_luigi_stars)
+        if star.kind == "festival":
+            return self.options.goal.value == self.options.goal.option_242_stars  # the 121st star, only for that goal
         return True
 
     def _dome_offset_counts(self, limit: int) -> Dict[str, int]:
@@ -230,9 +245,7 @@ class SMGWorld(World):
         majors = list(MAJOR_GALAXIES) if "Dome Majors" in chosen else []
         minors = list(MINOR_GALAXIES) if "Dome Minors" in chosen else []
         bosses = list(BOSS_GALAXIES) if "Bosses" in chosen else []
-        # Boo's Boneyard has no locations without the Purple Coin stars: it stays where it is, empty.
-        specials = ([g for g in SPECIAL_GALAXIES if g != BOO_BONEYARD or self.options.include_purple_coin_stars]
-                    if "Observatory Specials" in chosen else [])
+        specials = list(SPECIAL_GALAXIES) if "Observatory Specials" in chosen else []
         if kind == self.options.galaxy_shuffle_type.option_full:
             # Everything chosen in one pool: a dome can hold no boss or three, and the Observatory's galaxies (they have no
             # miniature of their own: a green sphere stands for them) can stand in a dome, a dome's galaxy in an Observatory planet.
@@ -318,9 +331,10 @@ class SMGWorld(World):
         self.options.include_comet_stars.value = int(options.get("include_comet_stars", self.options.include_comet_stars.value))
         self.options.include_purple_coin_stars.value = int(
             options.get("include_purple_coin_stars", self.options.include_purple_coin_stars.value))
-        self.options.include_luigi_stars.value = int(options.get("include_luigi_stars", self.options.include_luigi_stars.value))
+        self.options.character.value = int(options.get("character", 0))
         self.options.dome_shuffle.value = int(options.get("dome_shuffle", 0))
         self.options.transformation_items.value = int(options.get("transformation_items", 0))
+        self.options.goal.value = int(options.get("goal", 0))
         order = slot_data.get("dome_order", [room - 1 for room in DOME_NAMES])
         self.open_position = {room: int(order[room - 1]) + 1 for room in DOME_NAMES}
         caps = slot_data.get("galaxy_caps", [])
@@ -348,7 +362,19 @@ class SMGWorld(World):
 
     def generate_early(self) -> None:
         regenerated = self._regenerate_from_slot_data()
-        self.stars = [star for star in all_stars if self._star_enabled(star)]
+        if not regenerated and self.options.goal.value in (self.options.goal.option_bowser_and_120_stars,
+                                                           self.options.goal.option_242_stars):
+            # Every star is in: Stars to Finish, Include Comet Stars and Include Purple Coin Stars do not apply. The Reactor
+            # asks the game's own 60 stars (the Purple Coin stars come after the ending, they cannot be needed before it).
+            self.options.include_comet_stars.value = 1
+            self.options.include_purple_coin_stars.value = 1
+            self.options.stars_to_finish.value = 60
+        who = self.options.character.value
+        self.characters = ["Mario"] if who == self.options.character.option_mario else \
+            ["Luigi"] if who == self.options.character.option_luigi else list(CHARACTERS)
+        # One location for each star of each character's saves.
+        self.stars = [star._replace(character=character) for character in self.characters for star in all_stars
+                      if self._star_enabled(star)]
         rest = len(self.stars) - GRAND_STARS_IN_POOL - GREEN_STARS_IN_POOL
         if self.options.transformation_items:
             rest -= len(TRANSFORMATIONS)  # their six items fill places too
@@ -365,7 +391,7 @@ class SMGWorld(World):
         highest = max(self.need[stage] for stage, content in self.content.items() if content in used_stages)
         # Enough Power Stars to reach the most demanding galaxy (the counter also holds the Green and Grand Stars).
         needed = max(0, highest - GRAND_STARS_IN_POOL - GREEN_STARS_IN_POOL)
-        wanted = round(rest * self.options.power_star_percentage.value / 100)
+        wanted = round(rest * POWER_STAR_SHARE / 100)
         self.power_stars = min(rest, max(wanted, needed))
         if self.power_stars < needed:
             raise OptionError(f"Super Mario Galaxy PC Port ({self.player_name}): too few locations ({len(self.stars)}) to hold the "
@@ -381,6 +407,10 @@ class SMGWorld(World):
     def _cap(self, stage: str, cap: int) -> int:
         return self.stars_to_finish if stage == REACTOR else self.need.get(stage, cap)
 
+    def _has_gear(self, state: CollectionState) -> bool:
+        """All the transformations that are items."""
+        return not self.options.transformation_items or state.has_all(TRANSFORMATIONS, self.player)
+
     def create_regions(self) -> None:
         player = self.player
         menu = Region("Menu", player, self.multiworld)
@@ -393,8 +423,11 @@ class SMGWorld(World):
             region = Region(f"Dome {dome}: {name}", player, self.multiworld)
             domes[dome] = region
             regions.append(region)
+            # From the fourth door on, the transformations that are items must have been found: the logic only knows the stars
+            # whose whole mission is a transformation, so it asks for all of them before the player leaves the first three domes.
             observatory.connect(region, f"Dome {dome}",
-                                lambda state, d=self.open_position[dome]: grand_total(state, player) >= d)
+                                lambda state, d=self.open_position[dome]: grand_total(state, player) >= d
+                                and (d < DOME_WITH_ALL_ITEMS or self._has_gear(state)))
 
         by_stage: Dict[str, List[Star]] = {}
         for star in self.stars:
@@ -433,12 +466,13 @@ class SMGWorld(World):
 
         for stage, region in galaxy_regions.items():
             for star in by_stage.get(stage, []):
-                location = SMGLocation(player, star.name, star.code, region)
+                location = SMGLocation(player, star.location_name, star.code, region)
                 region.locations.append(location)
                 if star.kind == "comet":
                     add_rule(location, lambda state: stars_total(state, player) >= COMET_STAR_COUNT)
                 elif star.kind == "purple":
-                    add_rule(location, lambda state: state.has(VICTORY, player))
+                    # After the ending of the character whose save it is in.
+                    add_rule(location, lambda state, event=VICTORY_LUIGI if star.character == "Luigi" else VICTORY: state.has(event, player))
                 # Luigi's stars need nothing more than their galaxy: the game puts Luigi in the scenario of his star.
                 forms = FORM_STARS.get(star.name)
                 if forms and self.options.transformation_items:
@@ -449,12 +483,39 @@ class SMGWorld(World):
         for n in range(1, len(self.shop_prices) + 1):
             observatory.locations.append(SMGLocation(player, shop_location_name(n), location_table[shop_location_name(n)], observatory))
 
-        # The goal is an event: the multiworld is complete when the player has "Victory". The game tells the client
-        # when its goal is reached (the client sends the goal status).
+        # The ending of each character is an event ("Victory"); the multiworld is complete when the player has them all (the
+        # goal All Stars: when every star location can be reached too). The game tells the client when its goal is reached
+        # (the client sends the goal status).
         reactor = galaxy_regions[REACTOR]
-        victory = SMGLocation(player, "Goal", None, reactor)
-        victory.place_locked_item(SMGItem(VICTORY, ItemClassification.progression, None, player))
-        reactor.locations.append(victory)
+        goal = self.options.goal
+        for character in self.characters:
+            event = VICTORY_LUIGI if character == "Luigi" else VICTORY
+            victory = SMGLocation(player, f"Goal ({character})", None, reactor)
+            victory.place_locked_item(SMGItem(event, ItemClassification.progression, None, player))
+            reactor.locations.append(victory)
+            if goal.value == goal.option_bowser_and_120_stars:
+                # The save must also hold every star that exists before the ending (the Purple Coin stars open after it):
+                # all those star locations of this character have to be reachable.
+                before_ending = {star.code for star in self.stars if star.kind != "purple" and star.character == character}
+                star_locations = [location for region in galaxy_regions.values() for location in region.locations
+                                  if location.address in before_ending]
+                add_rule(victory, lambda state, locations=star_locations: all(location.can_reach(state) for location in locations))
+        if goal.value == goal.option_242_stars:
+            complete = SMGLocation(player, "All Stars", None, reactor)
+            complete.place_locked_item(SMGItem(COMPLETE, ItemClassification.progression, None, player))
+            reactor.locations.append(complete)
+            everything = {star.code for star in self.stars}
+            all_locations = [location for region in galaxy_regions.values() for location in region.locations
+                             if location.address in everything]
+            add_rule(complete, lambda state, locations=all_locations: all(location.can_reach(state) for location in locations))
+            # The Grand Finale Galaxy's Star Festival is the last star of each character: the logic asks every other star of the
+            # character (the game's own entrance needs Mario and Luigi at 120 stars; the settings' menu goes there at any time).
+            for character in self.characters:
+                festival = next(star for star in self.stars if star.character == character and star.kind == "festival")
+                others_codes = {star.code for star in self.stars if star.character == character and star.code != festival.code}
+                others = [location for location in all_locations if location.address in others_codes]
+                add_rule(self.get_location(festival.location_name),
+                         lambda state, locations=others: all(location.can_reach(state) for location in locations))
 
         self.multiworld.regions += regions
 
@@ -471,7 +532,11 @@ class SMGWorld(World):
             for entrance, reach in self._extra_entrances:
                 for name in reach:
                     register(self.get_location(name).parent_region, entrance)
-        self.multiworld.completion_condition[self.player] = lambda state: state.has(VICTORY, self.player)
+        if self.options.goal.value == self.options.goal.option_242_stars:
+            self.multiworld.completion_condition[self.player] = lambda state: state.has(COMPLETE, self.player)
+        else:
+            events = [VICTORY_LUIGI if character == "Luigi" else VICTORY for character in self.characters]
+            self.multiworld.completion_condition[self.player] = lambda state: all(state.has(e, self.player) for e in events)
 
     # ---- the items ----
 
@@ -486,13 +551,22 @@ class SMGWorld(World):
             pool += list(TRANSFORMATIONS)
         filler = count - len(pool)
         traps = round(filler * self.options.trap_percentage.value / 100)
-        rainbows = round((filler - traps) * self.options.rainbow_star_percentage.value / 100)
+        rainbows = round((filler - traps) * RAINBOW_SHARE / 100)
         pool += [RAINBOW_STAR] * rainbows
         filler -= rainbows
-        one_ups = round((filler - traps) * self.options.one_up_percentage.value / 100)
+        # What is left (after the traps) is shared out: each share is a part of what the ones before it left.
+        left = filler - traps
+        packs = round(left * PACK_SHARE / 100)
+        left -= packs
+        bursts = round(left * BURST_SHARE / 100)
+        left -= bursts
+        heals = round(left * HEAL_SHARE / 100)
+        left -= heals
+        one_ups = round(left * ONE_UP_SHARE / 100)
         kinds = [name for name in TRAPS if name in self.options.trap_types.value] or list(TRAPS)
         pool += [kinds[self.random.randrange(len(kinds))] for _ in range(traps)]
-        pool += [ONE_UP] * one_ups + [STAR_BITS] * (filler - traps - one_ups)
+        pool += [STAR_BITS_200] * packs + [ONE_UP_BURST] * bursts + [FULL_HEAL] * heals
+        pool += [ONE_UP] * one_ups + [STAR_BITS] * (left - one_ups)
         # Only the Power Stars the logic can ever ask for count as progression (the star counter also holds the Green and
         # Grand Stars); the others are still stars the game counts, but the fill need not place them with care.
         required = max(0, max(self.stars_to_finish, max(self.need.values())) - GRAND_STARS_IN_POOL - GREEN_STARS_IN_POOL)
@@ -512,10 +586,6 @@ class SMGWorld(World):
         early = self.multiworld.early_items[self.player]
         if self.options.dome_shuffle or self.content_shuffled():
             early[POWER_STAR] = max(early.get(POWER_STAR, 0), 1)
-        if self.options.transformation_items:
-            # Forms.py lists only the stars whose mission is the transformation: have all of them early as well.
-            for name in TRANSFORMATIONS:
-                early[name] = max(early.get(name, 0), 1)
 
     def content_shuffled(self) -> bool:
         return any(content != stage for stage, content in self.content.items())
@@ -530,18 +600,18 @@ class SMGWorld(World):
         # galaxy asks (the game uses the smaller of that and its own requirement, so this logic never asks less than
         # the game does), the dome order.
         slot_data: Dict[str, Any] = {
-            "goal": 0,
+            "goal": int(self.options.goal.value),
             "galaxy_caps": [self._cap(stage, cap) for stage, _name, _dome, cap in GALAXIES],
             "dome_order": [self.open_position[room] - 1 for room in DOME_NAMES],
             "options": {
-                "goal": 0,
+                "goal": int(self.options.goal.value),
+                "character": int(self.options.character.value),
                 "star_items": 1,
                 "start_at_observatory": 1,
                 "dome_shuffle": int(bool(self.options.dome_shuffle)),
                 "stars_to_finish": self.stars_to_finish,
                 "include_comet_stars": int(bool(self.options.include_comet_stars)),
                 "include_purple_coin_stars": int(bool(self.options.include_purple_coin_stars)),
-                "include_luigi_stars": int(bool(self.options.include_luigi_stars)),
                 "exact_requirements": int(self.options.star_requirements.value == self.options.star_requirements.option_dome_offsets
                                           or bool(self.options.dome_shuffle)),
                 "luma_counts_set": 1 if self.luma_counts else 0,
@@ -551,8 +621,17 @@ class SMGWorld(World):
                 "trap_percentage": int(self.options.trap_percentage.value),
                 "music_shuffle": int(bool(self.options.music_shuffle)),
                 "enemy_shuffle": int(bool(self.options.enemy_shuffle)),
+                "skybox_shuffle": int(bool(self.options.skybox_shuffle)),
             },
         }
+        # Mario's and Luigi's colours (color_0 .. color_9): 0x01000000 | 0xRRGGBB, or 0 for the game's own.
+        for number, option_name in enumerate(COLOR_OPTION_NAMES):
+            try:
+                color = parse_color(getattr(self.options, option_name).value)
+            except ValueError:
+                raise OptionError(f"{self.player_name}: {option_name} is not a colour: "
+                                  f"{getattr(self.options, option_name).value!r} (a name like red, a hex code like ff8000, or 255,128,0)")
+            slot_data["options"][f"color_{number}"] = 0 if color is None else (0x01000000 | color)
         if self.content_shuffled():
             index = {stage: number for number, (stage, _n, _d, _c) in enumerate(GALAXIES)}
             slot_data["galaxy_shuffle"] = [index[self.content[stage]] for stage, _n, _d, _c in GALAXIES]

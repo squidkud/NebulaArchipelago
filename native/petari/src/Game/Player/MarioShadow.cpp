@@ -1,4 +1,7 @@
 #include "Game/Player/MarioShadow.hpp"
+#include <JSystem/J3DGraphBase/J3DNativeState.hpp>
+#include <JSystem/J3DGraphBase/J3DNativeView.hpp>
+#include <JSystem/J3DGraphBase/J3DNativeDraw.hpp>
 #include "Game/Map/HitInfo.hpp"
 #include "Game/Player/J3DModelX.hpp"
 #include "Game/Util/CameraUtil.hpp"
@@ -16,7 +19,6 @@
 #include <JSystem/JUtility/JUTTexture.hpp>
 #include <JSystem/JUtility/JUTVideo.hpp>
 #include <cstring>
-#include <revolution/gd.h>
 
 void MarioShadow_FORCE_MATCH_SDATA2() {
     (void)1.0f;
@@ -74,8 +76,6 @@ CollisionShadow::CollisionShadow(f32 radius, f32 length) : NameObj("\223\212\211
     _33A = 0;
     _33C = 0;
     _340 = nullptr;
-    _344 = nullptr;
-    _348 = 0;
     _308 = 0;
     _E = 0;
     _14 = radius;
@@ -283,14 +283,14 @@ void CollisionShadow::draw1() const {
     }
 
     TDDraw::setup(1, 1, 0);
-    GXSetZMode(GX_TRUE, GX_GEQUAL, GX_FALSE);
+    J3DNativeState::setZMode(GX_TRUE, GX_GEQUAL, GX_FALSE);
     _300->load(GX_TEXMAP0);
-    GXSetTevColorIn(GX_TEVSTAGE0, GX_CC_ZERO, GX_CC_ZERO, GX_CC_ZERO, GX_CC_ZERO);
-    GXSetAlphaUpdate(GX_TRUE);
-    GXSetAlphaCompare(GX_GREATER, 1, GX_AOP_AND, GX_ALWAYS, 0);
-    GXSetDstAlpha(GX_TRUE, 64);
+    J3DNativeState::setTevColorIn(GX_TEVSTAGE0, GX_CC_ZERO, GX_CC_ZERO, GX_CC_ZERO, GX_CC_ZERO);
+    J3DNativeState::setAlphaUpdate(GX_TRUE);
+    J3DNativeState::setAlphaCompare(GX_GREATER, 1, GX_AOP_AND, GX_ALWAYS, 0);
+    J3DNativeState::setDstAlpha(GX_TRUE, 64);
     sendVtx();
-    GXSetDstAlpha(GX_FALSE, 0);
+    J3DNativeState::setDstAlpha(GX_FALSE, 0);
 }
 
 void CollisionShadow::sendVtx() const {
@@ -300,9 +300,9 @@ void CollisionShadow::sendVtx() const {
 
     u16 vertexCount = _54 * _5A;
     if (_5A == 4) {
-        GXBegin(GX_QUADS, GX_VTXFMT0, vertexCount);
+        J3DNativeDraw::begin(GX_QUADS, vertexCount, NEBULA_SHAPE_TEXCOORD0);
     } else {
-        GXBegin(GX_TRIANGLES, GX_VTXFMT0, vertexCount);
+        J3DNativeDraw::begin(GX_TRIANGLES, vertexCount, NEBULA_SHAPE_TEXCOORD0);
     }
 
     const TVec2f* pTex;
@@ -312,8 +312,8 @@ void CollisionShadow::sendVtx() const {
             const TVec3f& point = getDrawPos(index);
             pTex = &_64[_68[index]];
             index++;
-            GXPosition3f32(point.x, point.y, point.z);
-            GXTexCoord2f32(pTex->x, pTex->y);
+            J3DNativeDraw::position(point.x, point.y, point.z);
+            J3DNativeDraw::texCoord(pTex->x, pTex->y);
         }
     }
 }
@@ -321,9 +321,9 @@ void CollisionShadow::sendVtx() const {
 void CollisionShadow::sendZsortedVtx(bool offset) const {
     u16 vertexCount = _54 * _5A;
     if (_5A == 4) {
-        GXBegin(GX_QUADS, GX_VTXFMT0, vertexCount);
+        J3DNativeDraw::begin(GX_QUADS, vertexCount, NEBULA_SHAPE_TEXCOORD0);
     } else {
-        GXBegin(GX_TRIANGLES, GX_VTXFMT0, vertexCount);
+        J3DNativeDraw::begin(GX_TRIANGLES, vertexCount, NEBULA_SHAPE_TEXCOORD0);
     }
 
     TVec3f shift(-_24 * 5.0f);
@@ -332,12 +332,12 @@ void CollisionShadow::sendZsortedVtx(bool offset) const {
             const TVec3f& point = getDrawPos(i, j);
             const TVec2f& tex = getDrawTx(i, j);
             if (offset) {
-                GXPosition3f32(point.x + shift.x, point.y + shift.y, point.z + shift.z);
+                J3DNativeDraw::position(point.x + shift.x, point.y + shift.y, point.z + shift.z);
             } else {
-                GXPosition3f32(point.x, point.y, point.z);
+                J3DNativeDraw::position(point.x, point.y, point.z);
             }
 
-            GXTexCoord2f32(tex.x, tex.y);
+            J3DNativeDraw::texCoord(tex.x, tex.y);
         }
     }
 }
@@ -421,11 +421,11 @@ void CollisionShadow::drawAndCaptureTex(J3DModelX* pModel, const TVec3f& rPositi
         TDDraw::setup(0, 0, 1);
         Mtx44 projection;
         C_MTXOrtho(projection, -150.0f, 150.0f, 150.0f, -150.0f, 10.0f, 100000.0f);
-        GXSetProjection(projection, GX_ORTHOGRAPHIC);
+        J3DNativeView::setProjection(projection, GX_ORTHOGRAPHIC);
         if (_307) {
-            GXSetViewport(608 - (_2FC + 32), -32.0f, 64.0f + _2FC, 64.0f + _2FE, 0.0f, 1.0f);
+            J3DNativeView::setViewport(608 - (_2FC + 32), -32.0f, 64.0f + _2FC, 64.0f + _2FE, 0.0f, 1.0f);
             s32 left = 608 - _2FC;
-            GXSetScissor(left + 1, 1, _2FC - 2, _2FE - 2);
+            J3DNativeView::setScissor(left + 1, 1, _2FC - 2, _2FE - 2);
             pModel->setDrawView(2);
             pModel->mFlags.clear();
             pModel->mFlags._11 = true;
@@ -433,9 +433,9 @@ void CollisionShadow::drawAndCaptureTex(J3DModelX* pModel, const TVec3f& rPositi
             pModel->directDraw(nullptr);
         }
 
-        GXSetViewport(608 - _2FC, 0.0f, _2FC, _2FE, 0.0f, 1.0f);
+        J3DNativeView::setViewport(608 - _2FC, 0.0f, _2FC, _2FE, 0.0f, 1.0f);
         s32 left = 608 - _2FC;
-        GXSetScissor(left + 1, 1, _2FC - 2, _2FE - 2);
+        J3DNativeView::setScissor(left + 1, 1, _2FC - 2, _2FE - 2);
         pModel->setDrawView(2);
         pModel->mFlags.clear();
         pModel->mFlags._1E = true;
@@ -451,10 +451,10 @@ void CollisionShadow::drawAndCaptureTex(J3DModelX* pModel, const TVec3f& rPositi
 #ifdef TARGET_PC
         MR::endWiiScreenWidth();
 #endif
-        GXSetColorUpdate(GX_FALSE);
-        GXSetAlphaUpdate(GX_TRUE);
-        GXSetBlendMode(GX_BM_BLEND, GX_BL_DSTALPHA, GX_BL_ZERO, GX_LO_NOOP);
-        GXSetDstAlpha(GX_FALSE, 0);
+        J3DNativeState::setColorUpdate(GX_FALSE);
+        J3DNativeState::setAlphaUpdate(GX_TRUE);
+        J3DNativeState::setBlendMode(GX_BM_BLEND, GX_BL_DSTALPHA, GX_BL_ZERO, GX_LO_NOOP);
+        J3DNativeState::setDstAlpha(GX_FALSE, 0);
         f32 y = _2FE / 2;
         f32 x = 608 - _2FC / 2;
         TVec3f center(x, y, 0.0f);
@@ -469,18 +469,17 @@ void CollisionShadow::drawAndCaptureTex(J3DModelX* pModel, const TVec3f& rPositi
         const ResTIMG* image = _300->getTexInfo();
         void* destination = const_cast< u8* >(reinterpret_cast< const u8* >(image) + image->mImageDataOffset);
         GXRenderModeObj* mode = JUTVideo::getManager()->getRenderMode();
-        GXSetCopyFilter(GX_FALSE, mode->sample_pattern, GX_FALSE, mode->vfilter);
+        J3DNativeState::setCopyFilter(GX_FALSE, mode->sample_pattern, GX_FALSE, mode->vfilter);
         JUTTexture::captureDolTexture(destination, _2FC, _2FE, 608 - _2FC, 0, false, GX_CTF_A8);
-        GXSetCopyFilter(GX_FALSE, mode->sample_pattern, GX_TRUE, mode->vfilter);
-        GXInvalidateTexAll();
+        J3DNativeState::setCopyFilter(GX_FALSE, mode->sample_pattern, GX_TRUE, mode->vfilter);
+        J3DNativeState::invalidateTexAll();
     }
 
-    GXSetAlphaUpdate(GX_FALSE);
-    GXSetColorUpdate(GX_TRUE);
-    J3DShape::resetVcdVatCache();
+    J3DNativeState::setAlphaUpdate(GX_FALSE);
+    J3DNativeState::setColorUpdate(GX_TRUE);
     MR::setDefaultViewportAndScissor();
     TDDraw::cameraInit3D();
-    GXSetDstAlpha(GX_FALSE, 0);
+    J3DNativeState::setDstAlpha(GX_FALSE, 0);
 }
 
 void CollisionShadow::clearAlphaBuffer() {
@@ -497,24 +496,21 @@ void CollisionShadow::drawVolumeBox(const TVec3f& rPosition, const TVec3f& rDept
     side.cross(_24, up);
     MR::normalizeOrZero(&side);
     TDDraw::setup(0, 1, 0);
-    GXSetZMode(GX_TRUE, GX_LEQUAL, GX_FALSE);
-    GXSetAlphaUpdate(GX_TRUE);
-    GXSetColorUpdate(GX_FALSE);
-    GXSetDstAlpha(GX_FALSE, 0);
-    GXClearVtxDesc();
-    GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
-    GXSetVtxDesc(GX_VA_CLR0, GX_DIRECT);
-    GXSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD_NULL, GX_TEXMAP_NULL, GX_COLOR0A0);
-    GXSetTevOp(GX_TEVSTAGE0, GX_PASSCLR);
-    GXSetTevAlphaIn(GX_TEVSTAGE0, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO, GX_CA_A0);
-    GXSetTevAlphaOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
+    J3DNativeState::setZMode(GX_TRUE, GX_LEQUAL, GX_FALSE);
+    J3DNativeState::setAlphaUpdate(GX_TRUE);
+    J3DNativeState::setColorUpdate(GX_FALSE);
+    J3DNativeState::setDstAlpha(GX_FALSE, 0);
+    J3DNativeState::setTevOrder(GX_TEVSTAGE0, GX_TEXCOORD_NULL, GX_TEXMAP_NULL, GX_COLOR0A0);
+    J3DNativeState::setTevOp(GX_TEVSTAGE0, GX_PASSCLR);
+    J3DNativeState::setTevAlphaIn(GX_TEVSTAGE0, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO, GX_CA_A0);
+    J3DNativeState::setTevAlphaOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
     GXColorS10 color = {255, 255, 255, 255};
-    GXSetTevColorS10(GX_TEVREG0, color);
-    GXSetBlendMode(GX_BM_BLEND, GX_BL_ONE, GX_BL_ONE, GX_LO_NOOP);
-    GXSetCullMode(GX_CULL_BACK);
+    J3DNativeState::setTevColorS10(GX_TEVREG0, color);
+    J3DNativeState::setBlendMode(GX_BM_BLEND, GX_BL_ONE, GX_BL_ONE, GX_LO_NOOP);
+    J3DNativeState::setCullMode(GX_CULL_BACK);
     TDDraw::drawFillBox3D(rPosition, rDepth * 2.0f, side * _1C, up * _18, 0xFFFFFF01);
-    GXSetBlendMode(GX_BM_SUBTRACT, GX_BL_ONE, GX_BL_ONE, GX_LO_NOOP);
-    GXSetCullMode(GX_CULL_FRONT);
+    J3DNativeState::setBlendMode(GX_BM_SUBTRACT, GX_BL_ONE, GX_BL_ONE, GX_LO_NOOP);
+    J3DNativeState::setCullMode(GX_CULL_FRONT);
     TDDraw::drawFillBox3D(rPosition, rDepth * 2.0f, side * _1C, up * _18, 0xFFFFFF01);
 }
 
@@ -536,8 +532,8 @@ void CollisionShadow::draw() const {
         break;
     }
 
-    GXSetColorUpdate(GX_TRUE);
-    GXSetAlphaUpdate(GX_FALSE);
+    J3DNativeState::setColorUpdate(GX_TRUE);
+    J3DNativeState::setAlphaUpdate(GX_FALSE);
 }
 
 void CollisionShadow::draw2() const {
@@ -548,16 +544,16 @@ void CollisionShadow::draw2() const {
     TVec3f position(_2F0 - _24 * _30C);
     drawVolumeBox(position, _24 * _20);
     TDDraw::setup(1, 1, 0);
-    GXSetZMode(GX_FALSE, GX_ALWAYS, GX_FALSE);
-    GXSetAlphaUpdate(GX_TRUE);
-    GXSetColorUpdate(GX_TRUE);
-    GXSetBlendMode(GX_BM_BLEND, GX_BL_DSTALPHA, GX_BL_INVDSTALPHA, GX_LO_NOOP);
-    GXSetAlphaCompare(GX_GREATER, 1, GX_AOP_AND, GX_ALWAYS, 0);
-    GXSetDstAlpha(GX_TRUE, 0);
+    J3DNativeState::setZMode(GX_FALSE, GX_ALWAYS, GX_FALSE);
+    J3DNativeState::setAlphaUpdate(GX_TRUE);
+    J3DNativeState::setColorUpdate(GX_TRUE);
+    J3DNativeState::setBlendMode(GX_BM_BLEND, GX_BL_DSTALPHA, GX_BL_INVDSTALPHA, GX_LO_NOOP);
+    J3DNativeState::setAlphaCompare(GX_GREATER, 1, GX_AOP_AND, GX_ALWAYS, 0);
+    J3DNativeState::setDstAlpha(GX_TRUE, 0);
     _300->load(GX_TEXMAP0);
-    GXSetTevColorIn(GX_TEVSTAGE0, GX_CC_ZERO, GX_CC_ZERO, GX_CC_ZERO, GX_CC_ZERO);
+    J3DNativeState::setTevColorIn(GX_TEVSTAGE0, GX_CC_ZERO, GX_CC_ZERO, GX_CC_ZERO, GX_CC_ZERO);
     sendVtx();
-    GXSetDstAlpha(GX_FALSE, 0);
+    J3DNativeState::setDstAlpha(GX_FALSE, 0);
 }
 
 void CollisionShadow::draw3() const {
@@ -568,92 +564,79 @@ void CollisionShadow::draw3() const {
     TVec3f position(_2F0 - _24 * _30C);
     drawVolumeBox(position, _24 * _20);
     TDDraw::setup(1, 1, 0);
-    GXSetZMode(GX_TRUE, GX_LEQUAL, GX_FALSE);
-    GXSetAlphaUpdate(GX_TRUE);
-    GXSetColorUpdate(GX_FALSE);
-    GXSetBlendMode(GX_BM_NONE, GX_BL_ZERO, GX_BL_ZERO, GX_LO_NOOP);
-    GXSetAlphaCompare(GX_EQUAL, 0, GX_AOP_AND, GX_EQUAL, 0);
-    GXSetDstAlpha(GX_TRUE, 0);
+    J3DNativeState::setZMode(GX_TRUE, GX_LEQUAL, GX_FALSE);
+    J3DNativeState::setAlphaUpdate(GX_TRUE);
+    J3DNativeState::setColorUpdate(GX_FALSE);
+    J3DNativeState::setBlendMode(GX_BM_NONE, GX_BL_ZERO, GX_BL_ZERO, GX_LO_NOOP);
+    J3DNativeState::setAlphaCompare(GX_EQUAL, 0, GX_AOP_AND, GX_EQUAL, 0);
+    J3DNativeState::setDstAlpha(GX_TRUE, 0);
     _300->load(GX_TEXMAP0);
-    GXSetTevColorIn(GX_TEVSTAGE0, GX_CC_ZERO, GX_CC_ZERO, GX_CC_ZERO, GX_CC_ZERO);
+    J3DNativeState::setTevColorIn(GX_TEVSTAGE0, GX_CC_ZERO, GX_CC_ZERO, GX_CC_ZERO, GX_CC_ZERO);
     sendZsortedVtx(true);
     if (_6E) {
-        GXSetTevAlphaIn(GX_TEVSTAGE0, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO);
-        GXBegin(GX_TRIANGLES, GX_VTXFMT0, _6E * 3);
+        J3DNativeState::setTevAlphaIn(GX_TEVSTAGE0, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO);
+        J3DNativeDraw::begin(GX_TRIANGLES, _6E * 3, NEBULA_SHAPE_TEXCOORD0);
         for (u32 i = 0; i < _6E; i++) {
             for (u32 j = 0; j < 3; j++) {
                 const TVec3f& point = *_32C[_70[i]].getPos(j);
-                GXPosition3f32(point.x, point.y, point.z);
-                GXTexCoord2f32(-1.0f, -1.0f);
+                J3DNativeDraw::position(point.x, point.y, point.z);
+                J3DNativeDraw::texCoord(-1.0f, -1.0f);
             }
         }
     }
 
-    GXSetTevAlphaIn(GX_TEVSTAGE0, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO, GX_CA_TEXA);
-    GXSetZMode(GX_FALSE, GX_ALWAYS, GX_FALSE);
-    GXSetAlphaUpdate(GX_TRUE);
-    GXSetColorUpdate(GX_TRUE);
-    GXSetBlendMode(GX_BM_BLEND, GX_BL_DSTALPHA, GX_BL_INVDSTALPHA, GX_LO_NOOP);
-    GXSetAlphaCompare(GX_NEQUAL, 0, GX_AOP_AND, GX_NEQUAL, 0);
-    GXSetMisc(GX_MT_XF_FLUSH, 8);
+    J3DNativeState::setTevAlphaIn(GX_TEVSTAGE0, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO, GX_CA_TEXA);
+    J3DNativeState::setZMode(GX_FALSE, GX_ALWAYS, GX_FALSE);
+    J3DNativeState::setAlphaUpdate(GX_TRUE);
+    J3DNativeState::setColorUpdate(GX_TRUE);
+    J3DNativeState::setBlendMode(GX_BM_BLEND, GX_BL_DSTALPHA, GX_BL_INVDSTALPHA, GX_LO_NOOP);
+    J3DNativeState::setAlphaCompare(GX_NEQUAL, 0, GX_AOP_AND, GX_NEQUAL, 0);
     for (u32 i = 0; i < _54; i++) {
-        GXSetColorUpdate(GX_FALSE);
-        GXSetDstAlpha(GX_FALSE, 0);
+        J3DNativeState::setColorUpdate(GX_FALSE);
+        J3DNativeState::setDstAlpha(GX_FALSE, 0);
         if (_5A == 4) {
-            GXBegin(GX_QUADS, GX_VTXFMT0, _5A);
+            J3DNativeDraw::begin(GX_QUADS, _5A, NEBULA_SHAPE_TEXCOORD0);
         } else {
-            GXBegin(GX_TRIANGLES, GX_VTXFMT0, _5A);
+            J3DNativeDraw::begin(GX_TRIANGLES, _5A, NEBULA_SHAPE_TEXCOORD0);
         }
 
         for (u32 j = 0; j < _5A; j++) {
             const TVec3f& point = getDrawPos(i, j);
             const TVec2f& tex = getDrawTx(i, j);
-            GXPosition3f32(point.x, point.y, point.z);
-            GXTexCoord2f32(tex.x, tex.y);
+            J3DNativeDraw::position(point.x, point.y, point.z);
+            J3DNativeDraw::texCoord(tex.x, tex.y);
         }
 
-        GXSetColorUpdate(GX_TRUE);
-        GXSetDstAlpha(GX_TRUE, 0);
+        J3DNativeState::setColorUpdate(GX_TRUE);
+        J3DNativeState::setDstAlpha(GX_TRUE, 0);
         if (_5A == 4) {
-            GXBegin(GX_QUADS, GX_VTXFMT0, _5A);
+            J3DNativeDraw::begin(GX_QUADS, _5A, NEBULA_SHAPE_TEXCOORD0);
         } else {
-            GXBegin(GX_TRIANGLES, GX_VTXFMT0, _5A);
+            J3DNativeDraw::begin(GX_TRIANGLES, _5A, NEBULA_SHAPE_TEXCOORD0);
         }
 
         for (u32 j = 0; j < _5A; j++) {
             const TVec3f& point = getDrawPos(i, j);
             const TVec2f& tex = getDrawTx(i, j);
-            GXPosition3f32(point.x, point.y, point.z);
-            GXTexCoord2f32(tex.x, tex.y);
+            J3DNativeDraw::position(point.x, point.y, point.z);
+            J3DNativeDraw::texCoord(tex.x, tex.y);
         }
     }
 
-    GXSetMisc(GX_MT_XF_FLUSH, 0);
-    GXSetDstAlpha(GX_FALSE, 0);
+    J3DNativeState::setDstAlpha(GX_FALSE, 0);
 }
 
 void CollisionShadow::createDL() {
-    u8 buffer[512] ATTRIBUTE_ALIGN(32);
-    GDLObj displayList;
-    MR::ProhibitSchedulerAndInterrupts guard(false);
-    GDInitGDLObj(&displayList, buffer, sizeof(buffer));
-    GDSetCurrent(&displayList);
-    GDSetAlphaCompare(GX_ALWAYS, 0, GX_AOP_OR, GX_ALWAYS, 0);
-    GDSetZMode(GX_TRUE, GX_LEQUAL, GX_FALSE);
-    GDSetTevDirect(GX_TEVSTAGE0);
-    GDSetGenMode(0, 1, 1);
-    GDSetChanCtrl(GX_COLOR0A0, GX_FALSE, GX_SRC_REG, GX_SRC_REG, 0, GX_DF_CLAMP, GX_AF_NONE);
-    GDSetTevAlphaCalcAndSwap(GX_TEVSTAGE0, GX_CA_A0, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV,
-                             GX_TEV_SWAP0, GX_TEV_SWAP0);
+    _344.reserve(7);
+    _344.setAlphaCompare(GX_ALWAYS, 0, GX_AOP_OR, GX_ALWAYS, 0);
+    _344.setZMode(GX_TRUE, GX_LEQUAL, GX_FALSE);
+    _344.setTevDirect(GX_TEVSTAGE0);
+    _344.setGenMode(0, 1, 1);
+    _344.setChanCtrl(GX_COLOR0A0, GX_FALSE, GX_SRC_REG, GX_SRC_REG, 0, GX_DF_CLAMP, GX_AF_NONE);
+    _344.setTevAlphaCalcAndSwap(GX_TEVSTAGE0, GX_CA_A0, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE,
+                                GX_TEVPREV, GX_TEV_SWAP0, GX_TEV_SWAP0);
     GXColor color = {0, 0, 0, 4};
-    GDSetTevColor(GX_TEVREG0, color);
-    GDPadCurr32();
-    u32 size = GDGetGDLObjOffset(&displayList);
-    _348 = size;
-    size = (size + 31) & ~31;
-    _344 = new (32) u8[size];
-    MR::copyMemory(_344, buffer, size);
-    DCStoreRange(_344, size);
+    _344.setTevColor(GX_TEVREG0, color);
 }
 
 void CollisionShadow::drawVolume() const {
@@ -667,7 +650,7 @@ void CollisionShadow::drawVolume() const {
     _340->mFlags.clear();
     _340->mFlags._15 = true;
     _340->directDraw(nullptr);
-    GXSetDstAlpha(GX_FALSE, 0);
+    J3DNativeState::setDstAlpha(GX_FALSE, 0);
 }
 
 void CollisionShadow::doSortPolygons() {

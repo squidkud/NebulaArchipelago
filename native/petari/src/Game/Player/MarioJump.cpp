@@ -18,6 +18,7 @@
 #include "Game/Util/SoundUtil.hpp"
 #ifdef TARGET_PC
 #include "Game/System/NebulaAchievements.hpp"
+#include "Game/System/NebulaArchipelago.hpp"
 #endif
 
 namespace {
@@ -154,6 +155,13 @@ void Mario::tryJump() {
         _430 = 0;
     }
 
+#ifdef TARGET_PC
+    // Movement items: without the Triple Jump the chain stops at the second jump.
+    if (_430 == 2 && NebulaArchipelago::isSkillLocked(NebulaArchipelago::Skill_TripleJump)) {
+        _430 = 0;
+    }
+#endif
+
     if (_430 == 2 && mWalkSpeed < mActor->getConst().getTable()->mJumpConnectSpeed) {
         _430 = 0;
     }
@@ -183,7 +191,12 @@ void Mario::tryJump() {
     forceStopTornado();
 
     u32 floorCode = getFloorCode();
-    if (floorCode != 0x20 && getPlayerMode() != 4 && (((mMovementStates._4) != 0) || (_3D2 != 0 && static_cast< u8 >(checkStickFrontBack()) == 2))) {
+#ifdef TARGET_PC
+    const bool sideFlipLocked = NebulaArchipelago::isSkillLocked(NebulaArchipelago::Skill_SideFlip);
+#else
+    const bool sideFlipLocked = false;
+#endif
+    if (!sideFlipLocked && floorCode != 0x20 && getPlayerMode() != 4 && (((mMovementStates._4) != 0) || (_3D2 != 0 && static_cast< u8 >(checkStickFrontBack()) == 2))) {
         if ((mActor->mConst->getTable()->mTurnSlipTime - _3D0) >= mActor->getConst().getTable()->mTurnJumpInhibitTime) {
             tryTurnJump();
             return;
@@ -241,12 +254,19 @@ void Mario::tryJump() {
 
     floorCode = getFloorCode();
     if (floorCode != 0x20 && getPlayerMode() != 4 && _430 != 3) {
-        if (isSquat && mWalkSpeed > 0.3f && ((mMovementStates._23) == 0)) {
+#ifdef TARGET_PC
+        const bool longJumpLocked = NebulaArchipelago::isSkillLocked(NebulaArchipelago::Skill_LongJump);
+        const bool backflipLocked = NebulaArchipelago::isSkillLocked(NebulaArchipelago::Skill_Backflip);
+#else
+        const bool longJumpLocked = false;
+        const bool backflipLocked = false;
+#endif
+        if (!longJumpLocked && isSquat && mWalkSpeed > 0.3f && ((mMovementStates._23) == 0)) {
             trySquatJump();
             return;
         }
 
-        if ((mMovementStates._A) && ((mMovementStates._23) == 0)) {
+        if (!backflipLocked && (mMovementStates._A) && ((mMovementStates._23) == 0)) {
             tryBackJump();
             return;
         }

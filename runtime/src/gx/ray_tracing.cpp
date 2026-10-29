@@ -2,6 +2,7 @@
 // SceneRayTracer (ray_tracing.h): scene geometry and acceleration structures, the lighting trace, the picture capture
 // and the composite. The camera, engine, reflection and water passes are in ray_tracing_*.cpp.
 #include "galaxy/gx/ray_tracing.h"
+#include "galaxy/gx/pso_jobs.h"
 #include "galaxy/gx/rt_materials.h"
 #include "galaxy/gx/rt_surfaces.h"
 #include "galaxy/gx/render_config.h"
@@ -15,6 +16,7 @@
 #include "rt_sky_light_sh_cs.h"
 #include "rt_light_texture_ps.h"
 #include "rt_clear_composite_ps.h"
+#include "rt_mist_composite_ps.h"
 #include "rt_emit_merge_cs.h"
 #include "rt_glow_base_cs.h"
 #include "rt_glow_emit_cs.h"
@@ -132,7 +134,7 @@ struct RtLightConstants {
     float light_fit[4];                   // physical: the camera's exposure, the light fitted to the baked light (1)
     RtEngineConstants engine;             // the ray tracing engine (ray_tracing_engine.cpp)
 };
-static_assert(sizeof(RtLightConstants) == 1408u);
+static_assert(sizeof(RtLightConstants) == 1424u);
 
 // Mirrors cbuffer RtEmit in rt_lighting.hlsl (root constants).
 struct RtEmitConstants {
@@ -186,6 +188,14 @@ constexpr std::uint32_t kDrawTableUnseen = 512u;
 // g_draws word 6 (rt_lighting.hlsl kDrawTableSolid): a clear solid the clear pass traces through (the table's `traced
 // solid`, drawn unseen); bits 16-31 its row's range, the world units its colour is the transmittance after.
 constexpr std::uint32_t kDrawTableSolid = 1024u;
+// g_draws word 6 (rt_engine.hlsl kDrawTableFall): with kDrawTableSolid, falling water the clear pass traces (a `traced
+// solid` waterfall: the game's opaque sheet hidden), its sheet's thickness (eye units) in place of a solid's reach.
+constexpr std::uint32_t kDrawTableFall = 2048u;
+// g_draws word 6 (rt_engine.hlsl kDrawTableIce): ice (the table's `ice`), clear as glass, shaded by the traced sun.
+constexpr std::uint32_t kDrawTableIce = 4096u;
+// g_draws word 6 bits 13-15 (rt_engine.hlsl fall_white): falling water's share of its painted white water drawn, 1 +
+// sixths (0: all of it; the table's `white<n>`, `unpainted`).
+constexpr std::uint32_t kDrawTableWhiteShift = 13u;
 constexpr float kDrawGlowScale = 16.0f;
 // AuthoredLight.flags (rt_lighting.hlsl kAuthored*): the colour the draw shows; a spot light.
 constexpr std::uint32_t kAuthoredTint = 1u;
@@ -609,10 +619,7 @@ bool SceneRayTracer::initialize(ID3D12Device* device, std::uint64_t timestamp_fr
     D3D12_ROOT_SIGNATURE_DESC rsd{};
     rsd.NumParameters = kRootCount;
     rsd.pParameters = params;
-    ComPtr<ID3DBlob> blob, error;
-    if (FAILED(D3D12SerializeRootSignature(&rsd, D3D_ROOT_SIGNATURE_VERSION_1, &blob, &error)) ||
-        FAILED(device_->CreateRootSignature(0, blob->GetBufferPointer(), blob->GetBufferSize(),
-                                            IID_PPV_ARGS(&root_)))) {
+    if (!rt_prepare::root_signature(device_.Get(), rsd, root_)) {
         std::cerr << "[rt] root signature failed\n";
         shutdown();
         return false;
@@ -620,13 +627,13 @@ bool SceneRayTracer::initialize(ID3D12Device* device, std::uint64_t timestamp_fr
     D3D12_COMPUTE_PIPELINE_STATE_DESC pso{};
     pso.pRootSignature = root_.Get();
     pso.CS = {g_rt_geometry_cs, sizeof(g_rt_geometry_cs)};
-    if (FAILED(device_->CreateComputePipelineState(&pso, IID_PPV_ARGS(&geometry_pso_)))) {
+    if (!rt_prepare::compute(device_.Get(), pso, geometry_pso_)) {
         std::cerr << "[rt] geometry pipeline failed\n";
         shutdown();
         return false;
     }
     pso.CS = {g_rt_validate_cs, sizeof(g_rt_validate_cs)};
-    if (FAILED(device_->CreateComputePipelineState(&pso, IID_PPV_ARGS(&validate_pso_)))) {
+    if (!rt_prepare::compute(device_.Get(), pso, validate_pso_)) {
         std::cerr << "[rt] validation pipeline failed\n";
         shutdown();
         return false;
@@ -680,6 +687,7 @@ bool SceneRayTracer::initialize(ID3D12Device* device, std::uint64_t timestamp_fr
     }
     pass_entries_ = {};
     next_pass_entry_ = 0u;
+    kernel_timing_ = env_float("GALAXY_RT_PASS_TIMING", 0.0f) >= 2.0f;
     if (timestamp_frequency != 0u && env_float("GALAXY_RT_PASS_TIMING", 0.0f) != 0.0f) {
         query.Count = kPassEntries * 2u;
         if (FAILED(device_->CreateQueryHeap(&query, IID_PPV_ARGS(&pass_timestamps_))) ||
@@ -811,7 +819,12 @@ bool SceneRayTracer::initialize(ID3D12Device* device, std::uint64_t timestamp_fr
         lighting_enabled_ = false;
     }
     if (lighting_enabled_) {
-        static_cast<void>(reflections_.initialize(device_.Get(), timestamp_frequency, scene_format));
+        static_cast<void>(reflections_.initialize(device_.Get(), timestamp_frequency, scene_format, quality_));
+        // A start that prepares the pipeline library makes the reflections' pipelines of the other qualities too (High
+        // samples the hits' textures, the others do not), so every quality loads from it after (rt_prepare.h).
+        if (!rt_prepare::prepared()) {
+            static_cast<void>(RtReflections::prepare_pipelines(device_.Get(), scene_format, high_quality_ ? 0u : 1u));
+        }
     }
     // The renderer draws the scene into the HDR scene EFB only with a camera to bring it back.
     if (!create_camera_pipelines(scene_format, display_format)) {
@@ -939,6 +952,9 @@ void SceneRayTracer::shutdown() noexcept {
     engine_direct_spatial_pso_.Reset();
     engine_light_grid_pso_.Reset();
     engine_light_grid_.Reset();
+    engine_paint_clear_pso_.Reset();
+    engine_paint_pso_.Reset();
+    engine_paint_.Reset();
     engine_shadow_blur_pso_.Reset();
     engine_shadow_post_pso_.Reset();
     engine_shadow_stabilize_pso_.Reset();
@@ -981,6 +997,11 @@ void SceneRayTracer::shutdown() noexcept {
     clear_composite_pso_.Reset();
     engine_clear_pso_.Reset();
     for (auto& buffer : engine_clear_) buffer.Reset();
+    engine_mist_pso_.Reset();
+    mist_composite_pso_.Reset();
+    for (auto& buffer : mist_records_) buffer.Reset();
+    mist_puffs_.clear();
+    mist_slot_ = -1;
     engine_clear_valid_ = {};
     engine_bind_ = {};
     water_clear_.clear();
@@ -1342,6 +1363,17 @@ void SceneRayTracer::begin_frame(std::uint64_t frame_index) {
                              static_cast<unsigned long long>(taken), probe_pixel_[0], probe_pixel_[1], probe[0],
                              static_cast<int>(probe[1]), material(probe[1]), probe[2], probe[3] & 0xFFFFu,
                              probe[3] >> 16u, t, picture, z, facing);
+            // [rt-probe-material]: its albedo and metallic, the metal test's colour and decision (bit 0 a metal tested,
+            // 1 taken for paint, 2 its environment stage evaluated, 3 decided by its material's votes over its
+            // triangles), its reflectance and roughness, the picture's
+            // colour and the painted colour's luminance (-1: no environment stage).
+            float f[16];
+            std::memcpy(f, &probe[44], sizeof(f));
+            std::fprintf(stderr,
+                         "[rt-probe-material] frame=%llu albedo=%.3f,%.3f,%.3f metallic=%.2f test=%.3f,%.3f,%.3f bits=%u "
+                         "reflectance=%.3f,%.3f,%.3f roughness=%.2f picture=%.3f,%.3f,%.3f painted=%.4f\n",
+                         static_cast<unsigned long long>(taken), f[0], f[1], f[2], f[3], f[4], f[5], f[6], probe[51],
+                         f[8], f[9], f[10], f[11], f[12], f[13], f[14], f[15]);
             float region_u = 0.0f;
             float region_v = 0.0f;
             std::memcpy(&region_u, &probe[12], 4u);
@@ -1359,6 +1391,25 @@ void SceneRayTracer::begin_frame(std::uint64_t frame_index) {
                          static_cast<unsigned long long>(taken), probe[28],
                          sun_draw == 0xFFFFu ? -1 : static_cast<int>(sun_draw),
                          sun_draw == 0xFFFFu ? -1 : material(sun_draw), probe[29] >> 16u, sun_t, sun_water);
+            // Falling water in front there (rt_engine.hlsl water_light): the sun's light on its sheet (m), the
+            // sheet's distance, its cosine to the sun, and whether the surface behind lent its light.
+            if ((probe[35] & 2u) != 0u) {
+                const auto r11 = [](std::uint32_t v, unsigned shift, unsigned mantissa) {
+                    const std::uint32_t bits = (v >> shift) & ((1u << (mantissa + 5u)) - 1u);
+                    const std::uint32_t e = bits >> mantissa;
+                    const std::uint32_t m = bits & ((1u << mantissa) - 1u);
+                    return e == 0u ? std::ldexp(static_cast<float>(m), -14 - static_cast<int>(mantissa))
+                                   : std::ldexp(1.0f + static_cast<float>(m) / static_cast<float>(1u << mantissa),
+                                                static_cast<int>(e) - 15);
+                };
+                float fall_t = 0.0f;
+                float fall_nl = 0.0f;
+                std::memcpy(&fall_t, &probe[33], 4u);
+                std::memcpy(&fall_nl, &probe[34], 4u);
+                std::fprintf(stderr, "[rt-probe-fall] frame=%llu sun=%.3f,%.3f,%.3f t=%.1f sun-cos=%.3f behind=%u\n",
+                             static_cast<unsigned long long>(taken), r11(probe[32], 0u, 6u), r11(probe[32], 11u, 6u),
+                             r11(probe[32], 22u, 5u), fall_t, fall_nl, probe[35] & 1u);
+            }
             } else
             std::fprintf(stderr,
                          "[rt-probe] frame=%llu pixel=%u,%u seen-tri=%u draw=%d material=%d sun-blocker-tri=%u draw=%d "
@@ -1377,6 +1428,22 @@ void SceneRayTracer::begin_frame(std::uint64_t frame_index) {
                          static_cast<unsigned long long>(taken), probe[16] / 256.0 / n, probe[17] / 256.0 / n,
                          probe[18] / 256.0 / n, probe[20] / 256.0 / n, probe[21] / 256.0 / n, probe[23] / 16.0 / n,
                          probe[19]);
+        }
+        // [rt-spec-meter]: the means over the meter's disc of the specular history's length (frames), the share of it
+        // reprojected by the reflection's motion, and the light change the histories take.
+        if (light_meter_ && probe[39] != 0u) {
+            const double n = static_cast<double>(probe[39]);
+            std::fprintf(stderr, "[rt-spec-meter] frame=%llu history=%.2f virtual=%.3f change=%.4f pixels=%u\n",
+                         static_cast<unsigned long long>(taken), probe[36] / 16.0 / n, probe[37] / 256.0 / n,
+                         probe[38] / 256.0 / n, probe[39]);
+        }
+        // [rt-spec-noise]: the means over the meter's disc of the specular samples' relative deviation (their history's
+        // moments), the a-trous's reflection radius (pixels) and the perceptual roughness.
+        if (light_meter_ && probe[43] != 0u) {
+            const double n = static_cast<double>(probe[43]);
+            std::fprintf(stderr, "[rt-spec-noise] frame=%llu deviation=%.3f radius=%.2f roughness=%.3f pixels=%u\n",
+                         static_cast<unsigned long long>(taken), probe[40] / 256.0 / n, probe[41] / 16.0 / n,
+                         probe[42] / 1024.0 / n, probe[43]);
         }
         // [rt-motion-meter]: where the raster's motion takes the disc's pixels against the camera's reprojection (mean
         // x, y and distance, render pixels) and the share the histories follow it for (more than half a pixel off).
@@ -1809,7 +1876,7 @@ void SceneRayTracer::report() {
                   "max-triangles=%llu capacity=%u build-ms=%.3f validate-ms=%.3f light-ms=%.3f point-lights=%.2f composites=%llu captures=%llu validated=%llu "
                   "geometry-pixels=%.2f%% match-0.1%%=%.3f%% match-1%%=%.3f%% hit-nearer=%.3f%% hit-farther=%.3f%% "
                   "miss=%.3f%% background-hit=%.3f%% glow-draws=%.1f glow-triangles=%.0f late-triangles=%.0f "
-                  "exposure=%.3f adaptation=%.3f\n",
+                  "water-triangles=%.0f water-dropped=%llu exposure=%.3f adaptation=%.3f\n",
                   static_cast<unsigned long long>(window_.scenes), static_cast<unsigned long long>(window_.skipped),
                   per(static_cast<double>(window_.draws), window_.scenes),
                   per(static_cast<double>(window_.triangles), window_.scenes),
@@ -1823,7 +1890,9 @@ void SceneRayTracer::report() {
                   per(static_cast<double>(window_.glow_draws), window_.captures),
                   per(static_cast<double>(window_.glow_triangles), window_.captures),
                   per(static_cast<double>(window_.late_triangles), window_.scenes),
-                  static_cast<double>(physical_exposure_), static_cast<double>(adaptation_cpu_));
+                  per(static_cast<double>(window_.water_triangles), window_.scenes),
+                  static_cast<unsigned long long>(window_.water_dropped), static_cast<double>(physical_exposure_),
+                  static_cast<double>(adaptation_cpu_));
     std::cerr << line;
     if (delight_pso_) {
         // Texture de-lighting: maps made, maps held and their memory.
@@ -1858,7 +1927,7 @@ void SceneRayTracer::report() {
         // inside the lighting's.
         for (unsigned p = 0; p < kPassCount; ++p) {
             if (p != kPassLights && p != kPassBloomBlur && p != kPassEmit && p != kPassMerge &&
-                (p < kPassEngineGBuffer || p == kPassEngineClear)) {
+                (p < kPassEngineGBuffer || p >= kPassEngineClear) && p < kPassEngineKernel) {
                 passes_ms += ms[p];
             }
         }
@@ -1887,11 +1956,27 @@ void SceneRayTracer::report() {
                                      call_ms(kPassEngineFinal);
             std::snprintf(line, sizeof(line),
                           "[rt-engine-pass] gbuffer-ms=%.3f direct-ms=%.3f shadow-ms=%.3f indirect-ms=%.3f "
-                          "specular-ms=%.3f denoise-ms=%.3f final-ms=%.3f engine-ms=%.3f clear-ms=%.3f clears=%.2f\n",
+                          "specular-ms=%.3f denoise-ms=%.3f final-ms=%.3f engine-ms=%.3f clear-ms=%.3f clears=%.2f "
+                          "mist-light-ms=%.3f mist-composite-ms=%.3f mist-composites=%.2f\n",
                           call_ms(kPassEngineGBuffer), call_ms(kPassEngineDirect), call_ms(kPassEngineShadow),
                           call_ms(kPassEngineIndirect), call_ms(kPassEngineSpecular), call_ms(kPassEngineDenoise),
-                          call_ms(kPassEngineFinal), engine_ms, call_ms(kPassEngineClear), calls(kPassEngineClear));
+                          call_ms(kPassEngineFinal), engine_ms, call_ms(kPassEngineClear), calls(kPassEngineClear),
+                          call_ms(kPassEngineMist), call_ms(kPassMistComposite), calls(kPassMistComposite));
             std::cerr << line;
+        }
+        if (kernel_timing_ && n[kPassEngineKernel] != 0u) {
+            std::string kernels = "[rt-engine-kernels]";
+            for (unsigned k = 0; k < kEngineKernels && kernel_names_[k] != nullptr; ++k) {
+                const auto pass = static_cast<Pass>(kPassEngineKernel + k);
+                kernels += ' ';
+                for (const wchar_t* c = kernel_names_[k]; *c != L'\0'; ++c) {
+                    kernels += static_cast<char>(*c);
+                }
+                char value[24];
+                std::snprintf(value, sizeof(value), "=%.3f", call_ms(pass));
+                kernels += value;
+            }
+            std::cerr << kernels << '\n';
         }
     }
     window_ = {};
@@ -2095,6 +2180,8 @@ void SceneRayTracer::begin_scene() noexcept {
     water_draws_.clear();
     water_waves_.clear();
     water_clear_.clear();
+    mist_puffs_.clear();
+    mist_slot_ = -1;
     water_game_waves_ = false;
     water_triangles_ = 0u;
     water_flushed_draws_ = 0u;
@@ -2154,6 +2241,29 @@ void SceneRayTracer::note_tev(const RtDrawInfo& info, std::vector<RtTevMaterial>
         }
     }
     stages.insert(stages.end(), info.tev_stages.begin(), info.tev_stages.begin() + count);
+    // A program with indirect stages (RtTevStage.pad[1] bit 31): its RtTevIndirect past its stages.
+    if (count != 0u && (info.tev_stages[0].pad[1] & (1u << 31u)) != 0u) {
+        std::array<RtTevStage, kRtTevIndirectEntries> block{};
+        std::memcpy(block.data(), &info.tev_indirect, sizeof(RtTevIndirect));
+        stages.insert(stages.end(), block.begin(), block.end());
+        if (log_tev != 0u && info.rt_material == log_tev) [[unlikely]] {
+            static bool logged = false;
+            if (!logged) {
+                logged = true;
+                const RtTevIndirect& ind = info.tev_indirect;
+                std::fprintf(stderr, "[rt-tev]   indirect order=%08X scale=%g,%g,%g,%g matrix=", ind.order, ind.scale[0],
+                             ind.scale[1], ind.scale[2], ind.scale[3]);
+                for (const std::uint32_t word : ind.matrix) {
+                    std::fprintf(stderr, "%08X ", word);
+                }
+                std::fprintf(stderr, "\n");
+                for (unsigned s = 0; s < count; ++s) {
+                    std::fprintf(stderr, "[rt-tev]   stage %u indirect=%06X\n", s,
+                                 (info.tev_stages[s].pad[1] >> 8u) & 0x1FFFFFu);
+                }
+            }
+        }
+    }
     for (unsigned m = 0; m < 8u; ++m) {
         record.maps[m] = info.tev_maps[m].resource != nullptr ? texture_view(info.tev_maps[m]) : 0xFFFFFFFFu;
     }
@@ -2611,6 +2721,9 @@ void SceneRayTracer::add_draw(const RtDraw& draw, const RtDrawInfo& info) {
         return;
     }
     if ((info.surface & kRtDrawWater) != 0u) {
+        if (water_open_ && draw.triangle_count != 0u && water_triangles_ + draw.triangle_count > kWaterMaxTriangles) {
+            ++window_.water_dropped;
+        }
         if (water_open_ && draw.triangle_count != 0u && water_triangles_ + draw.triangle_count <= kWaterMaxTriangles) {
             RtDraw& entry = water_draws_.emplace_back(draw);
             entry.first_triangle = water_triangles_;
@@ -2618,18 +2731,25 @@ void SceneRayTracer::add_draw(const RtDraw& draw, const RtDrawInfo& info) {
             entry.flags = (entry.flags & 0xFFFFu) |
                           (static_cast<std::uint32_t>(std::min<std::size_t>(water_draws_.size() - 1u, 0xFFFFu)) << 16u);
             water_triangles_ += draw.triangle_count;
-            // Its clear record: the table's roughness; the engine's glass (glass or crystal, not mirror glass).
+            // Its clear record: the table's roughness; the engine's glass (glass or crystal, not mirror glass); ice
+            // (rt_engine.hlsl kClearIce) and its row's index of refraction ((n - 1) x 4096 in bits 18-31).
             {
                 const RtMaterial* const clear = rt_material(info.rt_material);
                 const auto surface_class = (info.surface >> kRtDrawClassShift) & 15u;
                 const float roughness = clear != nullptr ? clear->roughness : -1.0f;
+                const bool ice = clear != nullptr && clear->ice;
+                const std::uint32_t ior =
+                    ice && clear->ior >= 1.0f
+                        ? static_cast<std::uint32_t>(std::lround(std::clamp((clear->ior - 1.0f) * 4096.0f, 0.0f, 16383.0f)))
+                        : 0u;
                 water_clear_.push_back(
                     (roughness >= 0.0f ? static_cast<std::uint32_t>(std::lround(std::min(roughness, 1.0f) * 65534.0f))
                                        : 0xFFFFu) |
                     (surface_class == static_cast<std::uint32_t>(RtSurfaceClass::Crystal) &&
                              (info.surface & kRtDrawWaterMirror) == 0u
                          ? 0x10000u
-                         : 0u));
+                         : 0u) |
+                    (ice ? 0x20000u : 0u) | (ior << 18u));
             }
             std::array<std::uint32_t, 12> waves{};
             waves[0] = 0xFFFFFFFFu;
@@ -2674,9 +2794,12 @@ void SceneRayTracer::add_draw(const RtDraw& draw, const RtDrawInfo& info) {
     std::uint32_t flags = 0u;
     if (material != nullptr) {
         const auto unit = [](float v) { return static_cast<std::uint32_t>(std::lround(std::clamp(v, 0.0f, 1.0f) * 255.0f)); };
+        // Bits 4-7: falling water's aeration (rt_engine.hlsl fall_aeration: 1 + 14ths; 0: the default).
+        const std::uint32_t aeration =
+            material->aeration >= 0.0f ? 1u + static_cast<std::uint32_t>(std::lround(material->aeration * 14.0f)) : 0u;
         emission = (unit(material->color[0]) << 24u) | (unit(material->color[1]) << 16u) |
                    (unit(material->color[2]) << 8u) | static_cast<std::uint32_t>(material->emission) | 4u |
-                   (material->no_light ? 8u : 0u);
+                   (material->no_light ? 8u : 0u) | (aeration << 4u);
         intensity = material->intensity;
         surface = unit_pair(material->matte ? 1.0f : material->roughness, material->metallic);
         if (material->star && star_draws_ < kStarSlots) {
@@ -2685,20 +2808,29 @@ void SceneRayTracer::add_draw(const RtDraw& draw, const RtDrawInfo& info) {
             ++star_draws_;
         }
         flags = (material->tint ? kDrawTableTint : 0u) | (material->foliage ? kDrawTableFoliage : 0u) |
+                (material->ice ? kDrawTableIce : 0u) |
                 (material->star ? kDrawTableStar : 0u) |
                 ((info.surface & kRtDrawCard) != 0u ? kDrawTableCard : 0u) |
                 (material->mirror ? kDrawTableMirror : 0u) | (material->recolour ? kDrawTableRecolour : 0u) |
-                (material->near_glow ? kDrawTableNearGlow : 0u);
+                (material->near_glow ? kDrawTableNearGlow : 0u) |
+                (material->white < 1.0f
+                     ? (1u + static_cast<std::uint32_t>(std::lround(std::clamp(material->white, 0.0f, 1.0f) * 6.0f)))
+                           << kDrawTableWhiteShift
+                     : 0u);
         if (material->glow >= 0.0f) {
             flags |= kDrawTableGlow |
                      (static_cast<std::uint32_t>(std::lround(std::min(material->glow / kDrawGlowScale, 1.0f) * 65535.0f))
                       << 16u);
         }
-        // A clear solid the camera's rays pass (the game's draw hidden): the clear pass traces through it.
+        // A clear solid the camera's rays pass (the game's draw hidden): the clear pass traces through it. A fall the
+        // frame shows (the game's draw kept): the engine's final pass makes it water where the frame shows it.
         if (material->solid && (info.surface & kRtDrawUnseen) != 0u) {
-            flags = (flags & 0xFFFFu) | kDrawTableSolid |
+            flags = (flags & 0xFFFFu) | kDrawTableSolid | (material->waterfall ? kDrawTableFall : 0u) |
                     (static_cast<std::uint32_t>(std::lround(std::clamp(material->range, 0.0f, 65535.0f))) << 16u);
             ++solid_draws_;
+        } else if (material->waterfall && (info.surface & kRtDrawUnseen) == 0u) {
+            flags = (flags & 0xFFFFu) | kDrawTableFall |
+                    (static_cast<std::uint32_t>(std::lround(std::clamp(material->range, 0.0f, 65535.0f))) << 16u);
         }
         // A lamp's lit housing in its glass's texture: only the glass emits.
         const bool emits = !material->unlit_only || (info.surface & kRtDrawLit) == 0u;
@@ -2742,9 +2874,12 @@ void SceneRayTracer::add_draw(const RtDraw& draw, const RtDrawInfo& info) {
     const XfChannelCtrl channel = decode_xf_channel_ctrl(info.channel);
     const bool light0 = info.light_index[0] == 0u && (channel.atten_func == 0u || channel.atten_func == 2u);
     std::uint32_t light_kind = !light0 ? 0u : channel.diffuse_func == 0u ? 1u : 2u;
-    // A clear solid's index of refraction in the word's upper half (1 + bits / 16384; 0: quartz's, rt_engine.hlsl
-    // solid_ior).
-    if (material != nullptr && material->solid && material->ior >= 1.0f) {
+    // The draw's GX cull mode in bits 4-5 (0 none, 1 front faces culled, 2 back faces, 3 all): the faces the raster
+    // can show (rt_lighting.hlsl raster_facing).
+    light_kind |= (static_cast<std::uint32_t>(info.cull) & 3u) << 4u;
+    // The table's index of refraction in the word's upper half (1 + bits / 16384; 0: none): a dielectric's reflectance
+    // (rt_engine.hlsl specular_f0), and a clear solid's refraction (solid_ior; none: quartz's).
+    if (material != nullptr && material->ior >= 1.0f) {
         light_kind |= static_cast<std::uint32_t>(std::lround(std::min((material->ior - 1.0f) * 16384.0f, 65535.0f)))
                       << 16u;
     }
@@ -2777,17 +2912,19 @@ void SceneRayTracer::add_draw(const RtDraw& draw, const RtDrawInfo& info) {
                             std::bit_cast<std::uint32_t>(info.light[0][1]),
                             std::bit_cast<std::uint32_t>(info.light[0][2]), light_kind, info.fog[0], info.fog[1],
                             info.fog[2], info.fog[3]});
-    // Physical: the material texture's de-light map, for opaque surfaces the game lights or bakes (not water, clear
-    // crystal or glass, the sky, effects, light sources: their colour is light, not paint over a surface).
+    // Physical: the de-light map of a material texture the table names as carrying painted light (`delight`), for an
+    // opaque surface the game lights (not water, clear crystal or glass, the sky, effects, light sources: their colour is
+    // light, not paint over a surface). Retinex cannot tell painted light from the texture's own detail of one colour
+    // (stone speckle, sand, wood grain, painted tiles): de-lit by default, every such texture lost its detail and the
+    // relief taken from it shaded each repeat of a tile the same way.
     std::uint32_t delight = 0xFFFFFFFFu;
     {
         const std::uint32_t surface_class = (info.surface & kRtDrawClassMask) >> kRtDrawClassShift;
         const bool paint = surface_class != static_cast<std::uint32_t>(RtSurfaceClass::Water) &&
                            surface_class != static_cast<std::uint32_t>(RtSurfaceClass::Crystal) &&
-                           (material == nullptr ||
-                            (!material->particle && !material->sky && !material->star && !material->lens &&
-                             !material->hide && !material->mirror && !material->helper && !material->painted &&
-                             material->emission == RtEmission::None));
+                           material != nullptr && material->delight && !material->particle && !material->sky &&
+                           !material->star && !material->lens && !material->hide && !material->mirror &&
+                           !material->helper && !material->painted && material->emission == RtEmission::None;
         ++delight_seen_[0];
         if (!paint) {
             ++delight_seen_[1];
@@ -2805,6 +2942,28 @@ void SceneRayTracer::add_draw(const RtDraw& draw, const RtDrawInfo& info) {
     if (dump_scene_ != 0u && scene_serial_ == dump_scene_) {
         infos_.push_back(info);
     }
+}
+
+void SceneRayTracer::adopt_inputs(const SceneRayTracer& from) noexcept {
+    set_texture_views(from.texture_view_cpu_, from.texture_view_first_, from.texture_view_increment_);
+    set_delight_views(from.delight_view_cpu_, from.delight_view_first_, from.delight_view_increment_);
+    stage_sun_ = from.stage_sun_;
+    scene_up_ = from.scene_up_;
+    scene_untraced_ = from.scene_untraced_;
+    sun_held_ = from.sun_held_;
+    key_valid_ = from.key_valid_;
+    key_shown_ = from.key_shown_;
+    key_direction_ = from.key_direction_;
+    key_color_ = from.key_color_;
+    key_strength_ = from.key_strength_;
+    view_ = from.view_;
+    view_known_ = from.view_known_;
+    camera_ = from.camera_;
+    camera_known_ = from.camera_known_;
+    surface_reflections_ = from.surface_reflections_;
+    presents_ = from.presents_;
+    ab_original_ = ab_ && from.ab_original_;
+    log_seq_ = from.log_seq_;
 }
 
 void SceneRayTracer::set_view(const RtView& view) noexcept {
@@ -2994,17 +3153,16 @@ std::uint32_t SceneRayTracer::sample_factor(std::uint32_t width, std::uint32_t h
 
 bool SceneRayTracer::create_lighting_pipelines(DXGI_FORMAT scene_format) {
     const auto serialize = [&](const D3D12_ROOT_SIGNATURE_DESC& desc, ComPtr<ID3D12RootSignature>& out) {
-        ComPtr<ID3DBlob> blob, error;
-        return SUCCEEDED(D3D12SerializeRootSignature(&desc, D3D_ROOT_SIGNATURE_VERSION_1, &blob, &error)) &&
-               SUCCEEDED(device_->CreateRootSignature(0, blob->GetBufferPointer(), blob->GetBufferSize(),
-                                                      IID_PPV_ARGS(&out)));
+        return rt_prepare::root_signature(device_.Get(), desc, out);
     };
+    // Compiled in parallel (pso_jobs.h), each group's failure handled once they are joined (after the emit root's):
+    // 1 the star sphere, 2 de-lighting, 3 the emitting triangles, 4 the traced sky, 5 the capture, 6 the emitters.
+    PsoJobs jobs;
+    unsigned group = 0u;
     const auto compute = [&](ID3D12RootSignature* root, const void* code, std::size_t bytes,
                              ComPtr<ID3D12PipelineState>& out) {
-        D3D12_COMPUTE_PIPELINE_STATE_DESC desc{};
-        desc.pRootSignature = root;
-        desc.CS = {code, bytes};
-        return SUCCEEDED(device_->CreateComputePipelineState(&desc, IID_PPV_ARGS(&out)));
+        jobs.compute(device_.Get(), root, code, bytes, out, group);
+        return true;
     };
 
     D3D12_DESCRIPTOR_RANGE depth_range{};
@@ -3087,6 +3245,7 @@ bool SceneRayTracer::create_lighting_pipelines(DXGI_FORMAT scene_format) {
         return false;
     }
     rsd.Flags = D3D12_ROOT_SIGNATURE_FLAG_CBV_SRV_UAV_HEAP_DIRECTLY_INDEXED;
+    group = 1u;
     if (!serialize(rsd, light_root_) ||
         !compute(light_root_.Get(), g_rt_star_sphere_cs, sizeof(g_rt_star_sphere_cs), star_sphere_pso_)) {
         return false;
@@ -3105,6 +3264,7 @@ bool SceneRayTracer::create_lighting_pipelines(DXGI_FORMAT scene_format) {
         delight_desc.NumParameters = 2u;
         delight_desc.pParameters = delight_params;
         delight_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_CBV_SRV_UAV_HEAP_DIRECTLY_INDEXED;
+        group = 2u;
         if (!serialize(delight_desc, delight_root_) ||
             !compute(delight_root_.Get(), g_rt_delight_cs, sizeof(g_rt_delight_cs), delight_pso_) ||
             !compute(delight_root_.Get(), g_rt_delight_mip_cs, sizeof(g_rt_delight_mip_cs), delight_mip_pso_)) {
@@ -3114,6 +3274,7 @@ bool SceneRayTracer::create_lighting_pipelines(DXGI_FORMAT scene_format) {
         }
     }
     // Physical emitters: their radiance from their draws' TEV programs, read from the descriptor heap.
+    group = 3u;
     if (!light_textured_ ||
         !compute(light_root_.Get(), g_rt_emit_triangle_cs, sizeof(g_rt_emit_triangle_cs), emit_triangle_pso_) ||
         !compute(light_root_.Get(), g_rt_emit_scan_cs, sizeof(g_rt_emit_scan_cs), emit_scan_pso_)) {
@@ -3121,6 +3282,7 @@ bool SceneRayTracer::create_lighting_pipelines(DXGI_FORMAT scene_format) {
         emit_scan_pso_.Reset();
     }
     // The traced sky reads its draws' textures from the descriptor heap.
+    group = 4u;
     if (!light_textured_ ||
         !compute(light_root_.Get(), g_rt_sky_probe_tex_cs, sizeof(g_rt_sky_probe_tex_cs), sky_probe_pso_) ||
         !compute(light_root_.Get(), g_rt_sky_trace_sh_cs, sizeof(g_rt_sky_trace_sh_cs), sky_trace_sh_pso_)) {
@@ -3168,6 +3330,7 @@ bool SceneRayTracer::create_lighting_pipelines(DXGI_FORMAT scene_format) {
     D3D12_ROOT_SIGNATURE_DESC capture_rsd{};
     capture_rsd.NumParameters = kCaptureCount;
     capture_rsd.pParameters = capture_params;
+    group = 5u;
     if (!serialize(capture_rsd, capture_root_) ||
         !compute(capture_root_.Get(), g_rt_capture_cs, sizeof(g_rt_capture_cs), capture_pso_) ||
         !compute(capture_root_.Get(), g_rt_glow_base_cs, sizeof(g_rt_glow_base_cs), glow_base_pso_) ||
@@ -3206,6 +3369,7 @@ bool SceneRayTracer::create_lighting_pipelines(DXGI_FORMAT scene_format) {
     // The glow light sources read their textures from the frame's heap (GlowEmitterCS).
     emit_rsd.Flags = light_textured_ ? D3D12_ROOT_SIGNATURE_FLAG_CBV_SRV_UAV_HEAP_DIRECTLY_INDEXED
                                      : D3D12_ROOT_SIGNATURE_FLAG_NONE;
+    group = 6u;
     if (!serialize(emit_rsd, emit_root_) ||
         !compute(emit_root_.Get(), g_rt_glow_emit_cs, sizeof(g_rt_glow_emit_cs), glow_emit_pso_) ||
         (light_textured_ &&
@@ -3213,6 +3377,25 @@ bool SceneRayTracer::create_lighting_pipelines(DXGI_FORMAT scene_format) {
         !compute(emit_root_.Get(), g_rt_authored_emit_cs, sizeof(g_rt_authored_emit_cs), authored_emit_pso_) ||
         !compute(emit_root_.Get(), g_rt_emit_merge_cs, sizeof(g_rt_emit_merge_cs), emit_merge_pso_)) {
         return false;
+    }
+    {
+        const std::uint64_t failed = jobs.wait();
+        if ((failed & ((1u << 1u) | (1u << 5u) | (1u << 6u))) != 0u) {
+            return false;
+        }
+        if ((failed & (1u << 2u)) != 0u) {
+            delight_root_.Reset();
+            delight_pso_.Reset();
+            delight_mip_pso_.Reset();
+        }
+        if ((failed & (1u << 3u)) != 0u) {
+            emit_triangle_pso_.Reset();
+            emit_scan_pso_.Reset();
+        }
+        if ((failed & (1u << 4u)) != 0u) {
+            sky_probe_pso_.Reset();
+            sky_trace_sh_pso_.Reset();
+        }
     }
 
     {
@@ -3242,7 +3425,7 @@ bool SceneRayTracer::create_lighting_pipelines(DXGI_FORMAT scene_format) {
         light_tex.NumRenderTargets = 1u;
         light_tex.RTVFormats[0] = DXGI_FORMAT_R16G16B16A16_FLOAT;
         light_tex.SampleDesc.Count = 1u;
-        if (FAILED(device_->CreateGraphicsPipelineState(&light_tex, IID_PPV_ARGS(&light_tex_pso_)))) {
+        if (!rt_prepare::graphics(device_.Get(), light_tex, light_tex_pso_)) {
             return false;
         }
         D3D12_DESCRIPTOR_HEAP_DESC rtv_heap{};
@@ -3266,7 +3449,11 @@ bool SceneRayTracer::create_lighting_pipelines(DXGI_FORMAT scene_format) {
     composite_color.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
     composite_color.NumDescriptors = 1u;
     composite_color.BaseShaderRegister = 3u;
-    D3D12_ROOT_PARAMETER composite_params[6]{};
+    // The effects layer's colour and transmittance (t5, t6; the clear composite).
+    D3D12_DESCRIPTOR_RANGE composite_layer = composite_color;
+    composite_layer.NumDescriptors = 2u;
+    composite_layer.BaseShaderRegister = 5u;
+    D3D12_ROOT_PARAMETER composite_params[7]{};
     composite_params[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
     composite_params[0].Constants.Num32BitValues = sizeof(RtCompositeConstants) / 4u;
     composite_params[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
@@ -3280,11 +3467,14 @@ bool SceneRayTracer::create_lighting_pipelines(DXGI_FORMAT scene_format) {
     composite_params[4].DescriptorTable.pDescriptorRanges = &composite_color;
     composite_params[5].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
     composite_params[5].Descriptor.ShaderRegister = 4u;
+    composite_params[6].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    composite_params[6].DescriptorTable.NumDescriptorRanges = 1u;
+    composite_params[6].DescriptorTable.pDescriptorRanges = &composite_layer;
     for (auto& param : composite_params) {
         param.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
     }
     D3D12_ROOT_SIGNATURE_DESC composite_rsd{};
-    composite_rsd.NumParameters = 6u;
+    composite_rsd.NumParameters = 7u;
     composite_rsd.pParameters = composite_params;
     if (!serialize(composite_rsd, composite_root_)) {
         return false;
@@ -3308,13 +3498,18 @@ bool SceneRayTracer::create_lighting_pipelines(DXGI_FORMAT scene_format) {
     graphics.NumRenderTargets = 1u;
     graphics.RTVFormats[0] = scene_format;
     graphics.SampleDesc.Count = 1u;
-    if (FAILED(device_->CreateGraphicsPipelineState(&graphics, IID_PPV_ARGS(&composite_pso_)))) {
+    if (!rt_prepare::graphics(device_.Get(), graphics, composite_pso_)) {
         return false;
     }
     // The engine's clear surfaces over the picture (rt_lighting.hlsl ClearCompositePS): none without it.
     graphics.PS = {g_rt_clear_composite_ps, sizeof(g_rt_clear_composite_ps)};
-    if (FAILED(device_->CreateGraphicsPipelineState(&graphics, IID_PPV_ARGS(&clear_composite_pso_)))) {
+    if (!rt_prepare::graphics(device_.Get(), graphics, clear_composite_pso_)) {
         clear_composite_pso_.Reset();
+    }
+    // The waterfall mist over the picture (rt_lighting.hlsl MistCompositePS): none without it.
+    graphics.PS = {g_rt_mist_composite_ps, sizeof(g_rt_mist_composite_ps)};
+    if (!rt_prepare::graphics(device_.Get(), graphics, mist_composite_pso_)) {
+        mist_composite_pso_.Reset();
     }
     if (!create_buffer(kReprojectEntryBytes, D3D12_HEAP_TYPE_DEFAULT, D3D12_RESOURCE_STATE_COPY_DEST,
                        D3D12_RESOURCE_FLAG_NONE, reproject_, L"rt light reprojection") ||
@@ -3399,7 +3594,8 @@ bool SceneRayTracer::ensure_lighting_buffers(std::uint32_t samples) {
         light_z_state_[i] = state;
     }
     for (unsigned i = 0; ok && i < kLightSlots; ++i) {
-        ok = make((n + kStarSlots + kProbeRecords) * 16u, light_final_[i], L"rt light result");
+        // The samples, the stars, the probe's records, then per sample the light at the water in front of it.
+        ok = make((2u * n + kStarSlots + kProbeRecords) * 16u, light_final_[i], L"rt light result");
         light_final_state_[i] = state;
     }
     picture_state_ = state;
@@ -4087,6 +4283,8 @@ void SceneRayTracer::trace_lighting(ID3D12GraphicsCommandList* list, Allocate al
         const float water_depth = camera_water_depth();
         c.engine.water[0] = water_depth >= 0.0f ? 1.0f : 0.0f;
         c.engine.water[1] = std::max(water_depth, 0.0f);
+        // The traced scene's triangles, for the table metals' painted colour (rt_engine.hlsl EnginePaintCS).
+        c.engine.paint[1] = triangles_;
         const bool ran = light_pixels_[next] && engine_prepare(width, height, next, c.engine, c.flags);
         light_remap_commit(ran);
         if (!ran) {
@@ -4317,6 +4515,7 @@ void SceneRayTracer::trace_lighting(ID3D12GraphicsCommandList* list, Allocate al
     info.factor = factor;
     info.near_plane = c.near_plane;
     info.pixels = true;
+    info.physical = physical_active_;
     for (unsigned i = 0; i < 3u; ++i) {
         info.sun[i] = c.sun[i];
         info.sun_visible[i] = sun_visible_eye_[i];
@@ -4835,7 +5034,9 @@ void SceneRayTracer::write_light_texture(ID3D12GraphicsCommandList* list, int sl
         heap.Type = D3D12_HEAP_TYPE_DEFAULT;
         D3D12_RESOURCE_DESC desc{};
         desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
-        desc.Width = info.sample_width;
+        // Three thirds side by side (rt_lighting.hlsl LightTexturePS): the surface behind's light, the effects', falling
+        // water's.
+        desc.Width = 3u * static_cast<UINT64>(info.sample_width);
         desc.Height = info.sample_height;
         desc.DepthOrArraySize = 1u;
         desc.MipLevels = 1u;
@@ -4861,9 +5062,9 @@ void SceneRayTracer::write_light_texture(ID3D12GraphicsCommandList* list, int sl
     to_state(list, light_tex_.Get(), light_tex_state_, D3D12_RESOURCE_STATE_RENDER_TARGET);
     const D3D12_CPU_DESCRIPTOR_HANDLE rtv = light_tex_rtv_heap_->GetCPUDescriptorHandleForHeapStart();
     list->OMSetRenderTargets(1u, &rtv, FALSE, nullptr);
-    const D3D12_VIEWPORT viewport{0.0f, 0.0f, static_cast<float>(light_tex_width_),
+    const D3D12_VIEWPORT viewport{0.0f, 0.0f, static_cast<float>(3u * light_tex_width_),
                                   static_cast<float>(light_tex_height_), 0.0f, 1.0f};
-    const D3D12_RECT scissor{0, 0, static_cast<LONG>(light_tex_width_), static_cast<LONG>(light_tex_height_)};
+    const D3D12_RECT scissor{0, 0, static_cast<LONG>(3u * light_tex_width_), static_cast<LONG>(light_tex_height_)};
     list->RSSetViewports(1u, &viewport);
     list->RSSetScissorRects(1u, &scissor);
     list->SetGraphicsRootSignature(light_tex_root_.Get());
@@ -4871,7 +5072,8 @@ void SceneRayTracer::write_light_texture(ID3D12GraphicsCommandList* list, int sl
     list->SetPipelineState(light_tex_pso_.Get());
     // The translucent draws are drawn in the game's own light: the traced light relative to the stage's full light.
     const std::array<float, 3>& full = light_slot_full_[static_cast<unsigned>(slot)];
-    const std::uint32_t constants[8] = {light_tex_width_, light_tex_height_, 0u, 0u, std::bit_cast<std::uint32_t>(full[0]),
+    const std::uint32_t front = light_tex_width_ * light_tex_height_ + kStarSlots + kProbeRecords;
+    const std::uint32_t constants[8] = {light_tex_width_, light_tex_height_, front, 0u, std::bit_cast<std::uint32_t>(full[0]),
                                         std::bit_cast<std::uint32_t>(full[1]), std::bit_cast<std::uint32_t>(full[2]), 0u};
     list->SetGraphicsRoot32BitConstants(0u, 8u, constants, 0u);
     list->SetGraphicsRootShaderResourceView(1u, light_final_[static_cast<unsigned>(slot)]->GetGPUVirtualAddress());
@@ -4911,7 +5113,7 @@ void SceneRayTracer::composite(ID3D12GraphicsCommandList* list, D3D12_CPU_DESCRI
     const bool per_pixel = info.pixels && light_pixels_[index];
     // The engine's result (full resolution, its own record: rt_engine.hlsl EngineFinalCS).
     const bool engine = per_pixel && engine_slot(index, width, height);
-    c.flags = (reproject ? 1u : 0u) | (show_lighting_ ? 2u : 0u) | (physical_active_ ? 4u : 0u) |
+    c.flags = (reproject ? 1u : 0u) | (show_lighting_ ? 2u : 0u) | (info.physical ? 4u : 0u) |
               (per_pixel ? 8u : 0u) | (surface_reflections_active() ? 16u : 0u) | (engine ? 32u : 0u);
     if (engine) {
         c.sample_size[0] = width;
@@ -5058,8 +5260,24 @@ bool SceneRayTracer::trace_engine_clear(ID3D12GraphicsCommandList* list, Allocat
     // rt_engine.hlsl kClearHasGlass, kClearHasSolids.
     engine->info[1] = (glass ? 1u : 0u) | (solid_draws_ != 0u ? 2u : 0u);
     engine->info[2] = slot;
-    constexpr D3D12_RESOURCE_STATES kRead = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
     to_state(list, engine_clear_[slot].Get(), engine_clear_state_[slot], D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    bind_engine_end(list, upload.gpu, depth_table);
+    dred_marker(list, L"engine_clear");
+    list->SetPipelineState(engine_clear_pso_.Get());
+    const int timed = begin_pass(list);
+    list->Dispatch((engine_width_ + 7u) / 8u, (engine_height_ + 7u) / 8u, 1u);
+    end_pass(list, timed, kPassEngineClear);
+    const D3D12_RESOURCE_BARRIER barrier = uav_barrier(engine_clear_[slot].Get());
+    list->ResourceBarrier(1u, &barrier);
+    to_state(list, engine_clear_[slot].Get(), engine_clear_state_[slot],
+             D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+    engine_clear_valid_[slot] = true;
+    return true;
+}
+
+void SceneRayTracer::bind_engine_end(ID3D12GraphicsCommandList* list, D3D12_GPU_VIRTUAL_ADDRESS constants,
+                                     D3D12_GPU_DESCRIPTOR_HANDLE depth_table) {
+    constexpr D3D12_RESOURCE_STATES kRead = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
     to_state(list, picture_.Get(), picture_state_, kRead);
     to_state(list, picture_sums_.Get(), picture_sums_state_, kRead);
     to_state(list, emit_list_.Get(), emit_list_state_, kRead);
@@ -5072,12 +5290,12 @@ bool SceneRayTracer::trace_engine_clear(ID3D12GraphicsCommandList* list, Allocat
     if (emit_tris_) {
         to_state(list, emit_tris_.Get(), emit_tris_state_, kRead);
     }
-    // The lighting's root as the trace bound it (the clear pass reads the scene, its draws, TEV records, textures,
-    // emitters and sky; nothing writes the lighting's own buffers).
+    // The lighting's root as the trace bound it (the passes read the scene, its draws, TEV records, textures, emitters
+    // and sky; nothing writes the lighting's own buffers).
     const D3D12_GPU_VIRTUAL_ADDRESS spare = positions_->GetGPUVirtualAddress();
     const D3D12_GPU_VIRTUAL_ADDRESS scratch = light_raw_->GetGPUVirtualAddress();
     list->SetComputeRootSignature(light_root_.Get());
-    list->SetComputeRootConstantBufferView(kLightFrame, upload.gpu);
+    list->SetComputeRootConstantBufferView(kLightFrame, constants);
     list->SetComputeRootShaderResourceView(kLightScene, tlas_->GetGPUVirtualAddress());
     list->SetComputeRootDescriptorTable(kLightDepth, depth_table);
     list->SetComputeRootShaderResourceView(kLightPrevZ, spare);
@@ -5107,22 +5325,84 @@ bool SceneRayTracer::trace_engine_clear(ID3D12GraphicsCommandList* list, Allocat
     list->SetComputeRootShaderResourceView(kLightEmitTris, engine_bind_.emit_tris);
     list->SetComputeRootShaderResourceView(kLightReservoirIn, spare);
     list->SetComputeRootUnorderedAccessView(kLightReservoirOut, scratch);
-    dred_marker(list, L"engine_clear");
-    list->SetPipelineState(engine_clear_pso_.Get());
+}
+
+void SceneRayTracer::note_mist(const float centre[3], float sigma, float depth, float white) {
+    if (mist_puffs_.size() >= static_cast<std::size_t>(kMistMost) * 8u || !(sigma > 0.0f) || !(depth > 0.0f) ||
+        !std::isfinite(centre[0] + centre[1] + centre[2] + sigma + depth)) {
+        return;
+    }
+    mist_puffs_.insert(mist_puffs_.end(),
+                       {centre[0], centre[1], centre[2], sigma, depth, std::clamp(white, 0.0f, 1.0f), 0.0f, 0.0f});
+}
+
+void SceneRayTracer::trace_mist(ID3D12GraphicsCommandList* list, Allocate allocate, void* allocate_context,
+                                D3D12_GPU_DESCRIPTOR_HANDLE depth_table, bool water) {
+    mist_slot_ = -1;
+    if (mist_puffs_.empty() || list == nullptr || allocate == nullptr || !engine_mist_pso_ || !mist_composite_pso_ ||
+        light_slot_ < 0 || depth_table.ptr == 0u) {
+        return;
+    }
+    const auto slot = static_cast<unsigned>(light_slot_);
+    if (!engine_bind_.valid || engine_bind_.slot != slot || slot >= kLightSlots ||
+        !engine_slot(slot, engine_width_, engine_height_)) {
+        return;
+    }
+    // rt_lighting.hlsl kMistHeader + 3 records a puff (uint4).
+    constexpr std::uint64_t kRecordBytes = (kMistHeader + 3ull * kMistMost) * 16ull;
+    if (!mist_records_[slot]) {
+        if (!create_buffer(kRecordBytes, D3D12_HEAP_TYPE_DEFAULT, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                           D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, mist_records_[slot], L"rt mist records")) {
+            return;
+        }
+        mist_records_state_[slot] = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+    }
+    const std::size_t puff_bytes = mist_puffs_.size() * sizeof(float);
+    const RtUpload puffs = allocate(allocate_context, puff_bytes, 256u);
+    const RtUpload upload = allocate(allocate_context, engine_bind_.constants.size(), 256u);
+    if (puffs.cpu == nullptr || upload.cpu == nullptr) {
+        return;
+    }
+    std::memcpy(puffs.cpu, mist_puffs_.data(), puff_bytes);
+    // rt_engine.hlsl kEvMistIn, kEvMistOut.
+    constexpr std::uint32_t kEvMistIn = 30u;
+    constexpr std::uint32_t kEvMistOut = 31u;
+    const std::uint32_t in = buffer_view(puffs.resource, puffs.offset, puff_bytes);
+    const std::uint32_t out = buffer_uav(mist_records_[slot].Get(), kRecordBytes);
+    // The water under the puffs (rt_engine.hlsl kEvWaterScene, the clear pass's view of it).
+    const std::uint32_t surface = water && water_tlas_ ? tlas_view(water_tlas_->GetGPUVirtualAddress()) : 0xFFFFFFFFu;
+    if (in == 0xFFFFFFFFu || out == 0xFFFFFFFFu) {
+        return;
+    }
+    std::memcpy(upload.cpu, engine_bind_.constants.data(), engine_bind_.constants.size());
+    auto* const engine = reinterpret_cast<RtEngineConstants*>(static_cast<std::byte*>(upload.cpu) + engine_bind_.engine_at);
+    engine->views[kEvMistIn] = in;
+    engine->views[kEvMistOut] = out;
+    if (surface != 0xFFFFFFFFu) {
+        engine->views[kEngineClearViews] = surface;
+    }
+    const auto count = static_cast<std::uint32_t>(mist_puffs_.size() / 8u);
+    engine->info[1] = count;
+    engine->info[2] = slot;
+    engine->info[3] = surface != 0xFFFFFFFFu ? 1u : 0u;
+    to_state(list, mist_records_[slot].Get(), mist_records_state_[slot], D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    bind_engine_end(list, upload.gpu, depth_table);
+    dred_marker(list, L"engine_mist");
+    list->SetPipelineState(engine_mist_pso_.Get());
     const int timed = begin_pass(list);
-    list->Dispatch((engine_width_ + 7u) / 8u, (engine_height_ + 7u) / 8u, 1u);
-    end_pass(list, timed, kPassEngineClear);
-    const D3D12_RESOURCE_BARRIER barrier = uav_barrier(engine_clear_[slot].Get());
+    list->Dispatch((count + 63u) / 64u, 1u, 1u);
+    end_pass(list, timed, kPassEngineMist);
+    const D3D12_RESOURCE_BARRIER barrier = uav_barrier(mist_records_[slot].Get());
     list->ResourceBarrier(1u, &barrier);
-    to_state(list, engine_clear_[slot].Get(), engine_clear_state_[slot],
+    to_state(list, mist_records_[slot].Get(), mist_records_state_[slot],
              D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-    engine_clear_valid_[slot] = true;
-    return true;
+    mist_slot_ = static_cast<int>(slot);
 }
 
 void SceneRayTracer::composite_clear(ID3D12GraphicsCommandList* list, D3D12_CPU_DESCRIPTOR_HANDLE target,
                                      D3D12_GPU_DESCRIPTOR_HANDLE depth_srv, std::uint32_t width, std::uint32_t height,
-                                     unsigned slot, bool reproject, D3D12_GPU_DESCRIPTOR_HANDLE scene_srv) {
+                                     unsigned slot, bool reproject, D3D12_GPU_DESCRIPTOR_HANDLE scene_srv,
+                                     D3D12_GPU_DESCRIPTOR_HANDLE layer_srv) {
     if (slot >= kLightSlots || !engine_clear_valid_[slot] || !engine_clear_[slot] || !clear_composite_pso_ ||
         scene_srv.ptr == 0u || width != engine_width_ || height != engine_height_) {
         static const bool log_clear = env_float("GALAXY_RT_LOG_CLEAR", 0.0f) != 0.0f;
@@ -5153,7 +5433,8 @@ void SceneRayTracer::composite_clear(ID3D12GraphicsCommandList* list, D3D12_CPU_
     c.sample_size[0] = width;
     c.sample_size[1] = height;
     c.factor = 1u;
-    c.flags = (reproject ? 1u : 0u) | (engine_view_ == 5u ? 4u : 0u) | (engine_view_ == 6u ? 8u : 0u);
+    c.flags = (reproject ? 1u : 0u) | (engine_view_ == 5u ? 4u : 0u) | (engine_view_ == 6u ? 8u : 0u) |
+              (layer_srv.ptr != 0u ? 64u : 0u);
     c.slot = slot;
     c.near_plane = info.near_plane;
     c.target_size[0] = width;
@@ -5173,8 +5454,103 @@ void SceneRayTracer::composite_clear(ID3D12GraphicsCommandList* list, D3D12_CPU_
                                                           : engine_clear_[slot]->GetGPUVirtualAddress());
     list->SetGraphicsRootDescriptorTable(4u, scene_srv);
     list->SetGraphicsRootShaderResourceView(5u, engine_clear_[slot]->GetGPUVirtualAddress());
+    list->SetGraphicsRootDescriptorTable(6u, layer_srv.ptr != 0u ? layer_srv : scene_srv);
     list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     list->DrawInstanced(3u, 1u, 0u, 0u);
+}
+
+void SceneRayTracer::composite_mist(ID3D12GraphicsCommandList* list, D3D12_CPU_DESCRIPTOR_HANDLE target,
+                                    D3D12_GPU_DESCRIPTOR_HANDLE depth_srv, std::uint32_t width, std::uint32_t height,
+                                    unsigned slot, bool reproject, D3D12_GPU_DESCRIPTOR_HANDLE scene_srv,
+                                    D3D12_GPU_DESCRIPTOR_HANDLE layer_srv) {
+    if (list == nullptr || slot >= kLightSlots || !mist_records_[slot] || !mist_composite_pso_ || scene_srv.ptr == 0u ||
+        depth_srv.ptr == 0u || show_lighting_) {
+        return;
+    }
+    const LightSlot& info = light_slots_[slot];
+    if (info.width != width || info.height != height) {
+        return;
+    }
+    reproject = reproject && reproject_;
+    RtCompositeConstants c{};
+    std::copy(info.view.projection.begin(), info.view.projection.end(), c.projection);
+    c.depth[0] = info.view.z_scale;
+    c.depth[1] = info.view.z_offset;
+    c.depth[2] = info.view.min_depth;
+    c.depth[3] = info.view.max_depth;
+    std::copy(info.view.viewport.begin(), info.view.viewport.end(), c.viewport);
+    c.sample_size[0] = width;
+    c.sample_size[1] = height;
+    c.factor = 1u;
+    c.flags = (reproject ? 1u : 0u) | (layer_srv.ptr != 0u ? 64u : 0u) | (mist_view_ == 1u ? 2u : 0u) |
+              (mist_view_ == 2u ? 4u : 0u);
+    c.slot = slot;
+    c.near_plane = info.near_plane;
+    c.target_size[0] = width;
+    c.target_size[1] = height;
+    for (unsigned i = 0; i < 3u; ++i) {
+        c.sun[i] = info.sun[i];
+        c.sun_light[i] = info.sun_light[i];
+    }
+    std::copy(info.water.begin(), info.water.end(), c.water);
+    // The frame's own composite draws where its puffs reach (each a sphere of three widths, projected); a sub-frame's
+    // camera has moved, and its puffs may be the next frame's: everywhere.
+    D3D12_RECT scissor{0, 0, static_cast<LONG>(width), static_cast<LONG>(height)};
+    if (!reproject && !mist_puffs_.empty()) {
+        float lo[2] = {1.0e9f, 1.0e9f};
+        float hi[2] = {-1.0e9f, -1.0e9f};
+        bool whole = false;
+        const auto& p = info.view.projection;
+        const auto& v = info.view.viewport;
+        for (std::size_t i = 0; i + 8u <= mist_puffs_.size() && !whole; i += 8u) {
+            const float reach = 3.0f * mist_puffs_[i + 3u];
+            if (mist_puffs_[i + 2u] + reach >= -info.near_plane) {
+                whole = true;
+                break;
+            }
+            for (unsigned k = 0; k < 8u; ++k) {
+                const float x = mist_puffs_[i] + ((k & 1u) != 0u ? reach : -reach);
+                const float y = mist_puffs_[i + 1u] + ((k & 2u) != 0u ? reach : -reach);
+                const float z = mist_puffs_[i + 2u] + ((k & 4u) != 0u ? reach : -reach);
+                const float ndc_x = (p[0] * x + p[1] * z) / -z;
+                const float ndc_y = (p[2] * y + p[3] * z) / -z;
+                const float px = v[0] + (ndc_x + 1.0f) * 0.5f * v[2];
+                const float py = v[1] + (1.0f - ndc_y) * 0.5f * v[3];
+                lo[0] = std::min(lo[0], px);
+                lo[1] = std::min(lo[1], py);
+                hi[0] = std::max(hi[0], px);
+                hi[1] = std::max(hi[1], py);
+            }
+        }
+        if (!whole) {
+            scissor.left = static_cast<LONG>(std::clamp(std::floor(lo[0]) - 2.0f, 0.0f, static_cast<float>(width)));
+            scissor.top = static_cast<LONG>(std::clamp(std::floor(lo[1]) - 2.0f, 0.0f, static_cast<float>(height)));
+            scissor.right = static_cast<LONG>(std::clamp(std::ceil(hi[0]) + 2.0f, 0.0f, static_cast<float>(width)));
+            scissor.bottom = static_cast<LONG>(std::clamp(std::ceil(hi[1]) + 2.0f, 0.0f, static_cast<float>(height)));
+            if (scissor.right <= scissor.left || scissor.bottom <= scissor.top) {
+                return;
+            }
+        }
+    }
+    const int timed = begin_pass(list);
+    list->OMSetRenderTargets(1u, &target, FALSE, nullptr);
+    const D3D12_VIEWPORT viewport{0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height), 0.0f, 1.0f};
+    list->RSSetViewports(1u, &viewport);
+    list->RSSetScissorRects(1u, &scissor);
+    list->SetGraphicsRootSignature(composite_root_.Get());
+    dred_marker(list, L"mist_composite");
+    list->SetPipelineState(mist_composite_pso_.Get());
+    list->SetGraphicsRoot32BitConstants(0u, sizeof(c) / 4u, &c, 0u);
+    const D3D12_GPU_VIRTUAL_ADDRESS records = mist_records_[slot]->GetGPUVirtualAddress();
+    list->SetGraphicsRootShaderResourceView(1u, records);
+    list->SetGraphicsRootDescriptorTable(2u, depth_srv);
+    list->SetGraphicsRootShaderResourceView(3u, reproject ? reproject_->GetGPUVirtualAddress() : records);
+    list->SetGraphicsRootDescriptorTable(4u, scene_srv);
+    list->SetGraphicsRootShaderResourceView(5u, records);
+    list->SetGraphicsRootDescriptorTable(6u, layer_srv.ptr != 0u ? layer_srv : scene_srv);
+    list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    list->DrawInstanced(3u, 1u, 0u, 0u);
+    end_pass(list, timed, kPassMistComposite);
 }
 
 RtReflectScene SceneRayTracer::reflect_scene(unsigned slot) const {
@@ -5254,26 +5630,44 @@ void SceneRayTracer::trace_reflections(ID3D12GraphicsCommandList* list, Allocate
     reflections_.trace(list, scene, slot, upload.cpu, upload.gpu, color_depth_table);
 }
 
-void SceneRayTracer::write_reprojection(ID3D12GraphicsCommandList* list, const std::array<float, 12>& camera_t) {
+void SceneRayTracer::write_reprojection(ID3D12GraphicsCommandList* list, const std::array<float, 12>& camera_t,
+                                        const RtView* own_view) {
     if (list == nullptr || !lighting_active() || !reproject_ || reproject_mapped_ == nullptr) {
         return;
     }
+    // Per slot the sub-frame's eye space into the traced frame's (3x4 rows), then the sub-frame's own view
+    // (rt_lighting.hlsl and rt_reflections.hlsl kSubframeView: projection A, B, C, D; z_scale, z_offset, known).
+    struct Entry {
+        float rows[kLightSlots][12];
+        float projection[4];
+        float depth[4];
+    };
+    static_assert(kLightSlots * 3u == 12u, "rt_lighting.hlsl and rt_reflections.hlsl kSubframeView");
+    static_assert(sizeof(Entry) <= kReprojectEntryBytes);
+    Entry entry{};
     std::array<float, 12> inverse{};
     const bool invertible = affine_inverse(camera_t, inverse);
-    float rows[kLightSlots][12]{};
     for (unsigned slot = 0; slot < kLightSlots; ++slot) {
         const LightSlot& info = light_slots_[slot];
         const std::array<float, 12> m =
             invertible && info.camera_known ? affine_multiply(info.camera, inverse) : kIdentity34;
-        std::memcpy(rows[slot], m.data(), sizeof(rows[slot]));
+        std::memcpy(entry.rows[slot], m.data(), sizeof(entry.rows[slot]));
     }
-    static_assert(sizeof(rows) <= kReprojectEntryBytes);
+    if (own_view != nullptr) {
+        std::copy(own_view->projection.begin(), own_view->projection.end(), entry.projection);
+        entry.depth[0] = own_view->z_scale;
+        entry.depth[1] = own_view->z_offset;
+        entry.depth[2] = 1.0f;
+    }
     const UINT64 offset = static_cast<UINT64>(reproject_entry_) * kReprojectEntryBytes;
     reproject_entry_ = (reproject_entry_ + 1u) % kReprojectEntries;
-    std::memcpy(reproject_mapped_ + offset, rows, sizeof(rows));
+    std::memcpy(reproject_mapped_ + offset, &entry, sizeof(entry));
     to_state(list, reproject_.Get(), reproject_state_, D3D12_RESOURCE_STATE_COPY_DEST);
-    list->CopyBufferRegion(reproject_.Get(), 0u, reproject_upload_.Get(), offset, sizeof(rows));
-    to_state(list, reproject_.Get(), reproject_state_, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+    list->CopyBufferRegion(reproject_.Get(), 0u, reproject_upload_.Get(), offset, sizeof(entry));
+    // Read by the composites (pixel) and the camera's shafts (compute) of the replay that follows, which is recorded
+    // once for every sub-frame of its sequence and so takes it in this state without a transition of its own.
+    to_state(list, reproject_.Get(), reproject_state_,
+             D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 }
 
 bool SceneRayTracer::fill_constants(const RtSources& sources, Allocate allocate, void* allocate_context,

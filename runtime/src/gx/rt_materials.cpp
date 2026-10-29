@@ -145,11 +145,17 @@ void apply_class(const std::string& text, RtMaterial& m) {
         else if (token == "hide") m.hide = true;
         else if (token == "unlit-only") m.unlit_only = true;
         else if (token == "particle") m.particle = true;
+        // An ice layer of another class (the rink's additive cracks), a crystal's (a cage's cracks): their tint cleared
+        // as ice's and the crystals', their class kept.
+        else if (token == "icetint") m.tint_kept = std::min(m.tint_kept, kRtIceTintKept);
+        else if (token == "crystaltint") m.tint_kept = std::min(m.tint_kept, kRtCrystalTintKept);
+        else if (token == "luminous") m.luminous = true;
         else if (token == "lens") m.lens = true;
         else if (token == "mirror") m.mirror = true;
         else if (token == "star") m.star = true;
         else if (token == "strip") m.strip = true;
         else if (token == "painted") m.painted = true;
+        else if (token == "delight") m.delight = true;
         else if (token == "traced") m.traced = true;
         else if (token == "solid") m.solid = true;
         else if (token.rfind("ior", 0) == 0 && token.size() > 3u) {
@@ -160,6 +166,13 @@ void apply_class(const std::string& text, RtMaterial& m) {
         else if (token == "recolour") m.recolour = true;
         else if (token == "near-glow") m.near_glow = true;
         else if (token == "volume") m.volume = true;
+        else if (token == "unpainted") m.white = 0.0f;
+        else if (token.rfind("white", 0) == 0 && token.size() > 5u) {
+            char* end = nullptr;
+            const float v = std::strtof(token.c_str() + 5, &end);
+            if (end != token.c_str() + 5 && std::isfinite(v)) m.white = std::clamp(v, 0.0f, 1.0f);
+        }
+        else if (token == "mist") m.mist = true;
         else if (token == "seen") {
             m.seen = true;
             if (m.emission == RtEmission::None) m.emission = RtEmission::Point;
@@ -177,6 +190,10 @@ void apply_class(const std::string& text, RtMaterial& m) {
         } else if (token == "ice" || token == "water") {
             set(RtSurfaceClass::Water);
             m.relief = 0.0f;
+            m.ice = m.ice || token == "ice";
+            if (token == "ice") {
+                m.tint_kept = std::min(m.tint_kept, kRtIceTintKept);
+            }
         } else if (token == "diffuse" || token == "foliage" || token == "fabric" || token == "skin") {
             set(RtSurfaceClass::Diffuse);
             m.relief = token == "diffuse" ? 1.0f : token == "foliage" ? 0.7f : 0.0f;
@@ -253,7 +270,7 @@ std::size_t RtMaterialTable::read(std::istream& in) {
     bool header_read = false;
     int hash_col = -1, class_col = -1, rough_col = -1, metal_col = -1, r_col = -1, g_col = -1, b_col = -1,
         intensity_col = -1, range_col = -1, pulse_col = -1, cone_col = -1, shadow_col = -1, glow_col = -1,
-        stage_col = -1, region_col = -1, object_col = -1, material_col = -1;
+        stage_col = -1, region_col = -1, object_col = -1, material_col = -1, aeration_col = -1;
     std::size_t rows = 0u;
     while (std::getline(in, line)) {
         if (line.empty() || line[0] == '#') {
@@ -271,7 +288,8 @@ std::size_t RtMaterialTable::read(std::istream& in) {
                                 : name == "pulse" ? &pulse_col : name == "cone" ? &cone_col
                                 : name == "shadow" ? &shadow_col : name == "glow" ? &glow_col
                                 : name == "stage" ? &stage_col : name == "region" ? &region_col
-                                : name == "object" ? &object_col : name == "material" ? &material_col : nullptr;
+                                : name == "object" ? &object_col : name == "material" ? &material_col
+                                : name == "aeration" ? &aeration_col : nullptr;
                 if (slot != nullptr) *slot = static_cast<int>(i);
             }
             continue;
@@ -357,6 +375,7 @@ std::size_t RtMaterialTable::read(std::istream& in) {
             m.intensity = 1.0f;
         }
         if (number(row, range_col, v)) m.range = std::clamp(v, 0.0f, 1.0e5f);
+        if (number(row, aeration_col, v)) m.aeration = std::clamp(v, 0.0f, 1.0f);
         if (number(row, pulse_col, v)) m.pulse = std::clamp(v, 0.0f, 30.0f);
         if (number(row, cone_col, v)) m.cone = std::clamp(v, 0.0f, 90.0f);
         if (number(row, shadow_col, v)) m.shadow = v != 0.0f;

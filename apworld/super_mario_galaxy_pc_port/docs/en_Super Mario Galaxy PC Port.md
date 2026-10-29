@@ -16,13 +16,16 @@ the ones the multiworld sends you:
 - **Grand Stars open the Observatory's domes.** You start with the first one, which opens the Terrace dome but does not
   count in the star counter; the five in the item pool open the Fountain, Kitchen, Bedroom, Engine Room and Garden
   domes in that order, and count as stars.
-- You start in the Comet Observatory as soon as you pick a save file, with no need for a finished game. Luigi can be
-  chosen on any save file (option "Luigi Available from the Start").
+- You start in the Comet Observatory as soon as you pick a save file, with no need for a finished game.
+- **`character`** (Mario, Luigi or Both) says who you play. Each star exists once per character and is named after it
+  ("Good Egg Galaxy - Dino Piranha (Mario)", "... (Luigi)"). With Mario or Luigi the game forces that character on every
+  save file and the Mario/Luigi switch at the file select is hidden; with Both, the switch stays and both characters'
+  stars are locations. Mario's and Luigi's saves share the same received items and star counter.
 
 ## What is considered a location check?
 
-Each star of the 41 galaxies, by name: the normal stars, the Green Stars, and the Prankster Comet stars (optional).
-Purple Coin stars (optional) and Luigi's hide-and-seek stars (on by default; Luigi is there as soon as you pick the star) can be added. The Grand Stars
+Each star of the 41 galaxies, by name and character: the normal stars, the Green Stars, and the Prankster Comet stars (optional).
+Purple Coin stars (optional, goal Bowser only) can be added. The kinds that are off (comet, Purple Coin) are not shown in the game's star select. The Grand Stars
 you collect in the game are locations too, except the first one and the ending.
 
 ## Which items can be in another world's pool?
@@ -32,6 +35,12 @@ above 0, seven traps: Fire (Mario burns), Shock (an electric shock), Freeze (Mar
 costing a health point, so one can take a life; Star Bit Thief (up to 50 Star Bits are taken); Quake (the camera shakes
 for ten seconds) and Confusion (the control stick is inverted for twenty seconds). `trap_types` picks which can come.
 A trap that cannot start yet waits until it can.
+
+The rest of the filler is fixed (not an option): mostly 1-Up Mushrooms and Star Bits, with a few packs of 200 Star Bits,
+bursts of three 1-Up Mushrooms, Full Heals (health filled at once) and Rainbow Stars (Mario turns rainbow for a while),
+all rare.
+
+The moves (Spin, Wall Jump...) are not items in this version: the option was taken out until the logic knows which star needs which move.
 
 ## What happens when I receive an item?
 
@@ -44,14 +53,22 @@ Take the star of the final boss in Bowser's Galaxy Reactor. The goal is sent the
 the epilogue and the credits). The number of stars set by "Stars to Finish" only opens that last galaxy (Rosetta's talk
 about harmony); no Grand Star is needed.
 
+With `goal: bowser_and_120_stars` the game also needs every star that exists before the ending (Comet, Secret, Green and
+Grand stars). The Purple Coin stars only open after the ending, so they are not asked. With this goal Stars to Finish, Include Comet Stars and Include Purple Coin Stars are ignored (everything is on).
+
+With `goal: 242_stars` the game needs every star location of the characters you play, Purple Coin stars included (the ending
+goal is not enough on its own). With `character: both` this is the 242 star run. The goal is sent when every chosen
+character has finished it. The last star of each character is Grand Finale Galaxy - The Star Festival (the 121st star, a location only with this goal): the game's own entrance is
+unchanged (it opens only once both Mario and Luigi have their 120 stars), the logic asks every other star of the character, and
+the galaxy can also be entered from the ADVANCED galaxy select of the settings. The goal is sent by whoever takes theirs last. These two goals also ignore the three star options above.
+
 ## Extra options
 
-`rainbow_star_percentage` turns that share of your filler into Rainbow Stars (Mario turns rainbow for a while), the only
-bonus item. `enemy_shuffle` (experimental, untested in play) swaps plain enemies for other kinds, never bosses or enemies a mission counts or that follow a path or switch. `music_shuffle` plays another theme for each stage and boss theme (jingles, cutscene songs and sound effects
+`enemy_shuffle` (experimental, untested in play) swaps plain enemies for other kinds, never bosses or enemies a mission counts or that follow a path or switch. `music_shuffle` plays another theme for each stage and boss theme (jingles, cutscene songs and sound effects
 stay). With `galaxy_shuffle_type: full` every chosen kind of galaxy is in one pool, so a dome can hold no boss or three
 and the Observatory's galaxies can stand in the domes (the place keeps its own miniature model, with the name, stars and launch of the galaxy that stands in it). A dome's galaxies are always shown (no "???") and the four that
 asked for a particular star (Buoy Base, Honeyclimb, Bonefin, Matter Splatter) open with their star count alone.
-`star_colors` paints each star after the class of the item it hides (green normal, blue useful, gold progression, red
+`skybox_shuffle` (experimental, untested in play) swaps the skies of the stages for other skies. `star_colors` paints each star after the class of the item it hides (light blue `#5CBEFF` normal, blue `#6D8BE8` useful, purple `#897EC9` progression, red
 trap; Grand Stars unchanged). `death_link` turns on DeathLink: a life lost is sent to the other DeathLink players, and
 their deaths kill Mario here.
 
@@ -92,3 +109,12 @@ The Mario/Luigi colours, Hide Galaxy, Star Colors, and the by-sphere Luma mode o
 original Dolphin world are not in this version.
 
 Use a new save file for each multiworld.
+
+## Mario's and Luigi's colours
+
+`mario_cap_color`, `mario_shirt_color`, `mario_overalls_color`, `mario_gloves_color`, `mario_shoes_color` and the same with
+`luigi_` recolour the character for you only. Each takes a name (`red`, `orange`, `yellow`, `green`, `azure`, `blue`, `purple`,
+`pink`, `brown`, `white`, `black`, `gold`...), a hex code (`ff8000`, `#ff8000`) or `255,128,0`; empty keeps the game's own colour.
+The game recolours the character's pictures in memory: the cap and the shirt are what is red on Mario (green on Luigi), the overalls
+what is blue; the gloves and shoes are recoloured whole, found by the name of their picture. The cap and the shirt share a picture,
+so the cap colour is used for both unless the game keeps them apart. Not tested in play.

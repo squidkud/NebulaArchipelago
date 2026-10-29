@@ -274,6 +274,7 @@ void RendererVk::begin_replay_record() {
     recording_log_.clear();
     recording_log_.segment = ring_segment_;
     replay_scene_count_ = 0u;
+    replay_screen_frame_ = false;
     recording_log_valid_ = true;
     if (start_clear_valid_) {
         start_clear_valid_ = false;
@@ -284,9 +285,10 @@ void RendererVk::begin_replay_record() {
 
 void RendererVk::close_replay_log(std::uint32_t xfb_addr) {
     recording_log_valid_ = false;
-    // One 3D scene: a frame without one (menus between scenes) or with two is shown as it is.
-    const bool valid = replay_scene_count_ == 1u;
-    replay_reject_ = replay_scene_count_ == 0u ? 1u : replay_scene_count_ > 1u ? 2u : 0u;
+    // One 3D scene, or none in a frame recorded as its screen layer alone (the pause menu): a frame without one
+    // otherwise (menus between scenes), or with two, is shown as it is.
+    const bool valid = replay_scene_count_ == 1u || (replay_scene_count_ == 0u && replay_screen_frame_);
+    replay_reject_ = valid ? 0u : replay_scene_count_ == 0u ? 1u : 2u;
     ++replay_serial_;
     replay_xfb_addr_ = xfb_addr;
     if (valid) {
@@ -1507,6 +1509,17 @@ void RendererVk::release_replay_resources() noexcept {
     eval_layout_ = VK_NULL_HANDLE;
     eval_set_layout_ = VK_NULL_HANDLE;
     eval_pool_ = VK_NULL_HANDLE;
+    for (VkPipeline pipeline : {curve_classify_, curve_offsets_, curve_scatter_}) {
+        if (pipeline != VK_NULL_HANDLE) vkDestroyPipeline(device, pipeline, nullptr);
+    }
+    curve_classify_ = curve_offsets_ = curve_scatter_ = VK_NULL_HANDLE;
+    if (curve_layout_ != VK_NULL_HANDLE) vkDestroyPipelineLayout(device, curve_layout_, nullptr);
+    if (curve_set_layout_ != VK_NULL_HANDLE) vkDestroyDescriptorSetLayout(device, curve_set_layout_, nullptr);
+    if (curve_pool_ != VK_NULL_HANDLE) vkDestroyDescriptorPool(device, curve_pool_, nullptr);
+    curve_layout_ = VK_NULL_HANDLE;
+    curve_set_layout_ = VK_NULL_HANDLE;
+    curve_pool_ = VK_NULL_HANDLE;
+    curve_sort_ = {};
     program_buffers_ = {};
     interp_output_.reset();
     interp_retired_.clear();

@@ -23,7 +23,10 @@ Mario Galaxy dans un multiworld. Il suppose que vous n'avez jamais compilé de p
   Terrasse mais **ne compte pas** dans le compteur d'étoiles ; les 5 autres ouvrent la Fontaine, la Cuisine, la Chambre,
   la Salle des machines et le Jardin dans cet ordre et comptent comme des étoiles).
 - **Démarrage à l'Observatoire** dès que vous choisissez une sauvegarde, sans avoir fini le jeu.
-- **Luigi** est toujours disponible sur n'importe quelle sauvegarde (bouton Luigi au choix du fichier), sans option.
+- **Personnage** (`character: mario`, `luigi` ou `both`, défaut `mario`) : chaque étoile existe une fois par personnage
+  (« Good Egg Galaxy - Dino Piranha (Mario) » / « (Luigi) »). Avec `mario` ou `luigi`, le jeu impose ce personnage sur tous
+  les fichiers et le bouton de bascule Mario/Luigi du choix de fichier est caché ; avec `both` le bouton reste. Les deux
+  sauvegardes partagent les mêmes objets reçus et le même compteur d'étoiles. Jamais essayé en jeu.
 - Les autres objets sont des bonus : champignon 1-Up ou 50 Star Bits.
 - **Les pop-ups disent d'où vient un objet** : « Power Star from Bob (Good Egg Galaxy - Dino Piranha) » (l'emplacement
   n'est affiché que si la ligne reste assez courte), « Sent … to Bob » pour ce que vous envoyez, « Found … » pour
@@ -51,12 +54,16 @@ Mario Galaxy dans un multiworld. Il suppose que vous n'avez jamais compilé de p
   Étoile, étoile précise, Luma affamé) mais emmène vers une autre galaxie. Expérimental aussi.
 - **Mélange des dômes** (`dome_shuffle`) : une salle prend la place d'une autre (la Salle des machines à la place de
   la Terrasse, la Cuisine à la place de la Chambre...). La porte qui s'ouvre avec la n-ième Grande Étoile mène à une
-  autre salle ; les galaxies d'une salle restent dans leur salle. Le nom affiché sur la porte reste celui de la
-  porte d'origine. Une fois dans une salle, ses galaxies s'ouvrent avec le seul nombre d'étoiles demandé (les
+  autre salle ; les galaxies d'une salle restent dans leur salle. Le modèle du dôme à l'Observatoire est celui de
+  la salle qu'il ouvre (si la Terrasse mène à la Cuisine, le dôme de la Terrasse a l'aspect de celui de la Cuisine),
+  et le nom affiché dessus est celui de cette salle ; le moment où il apparaît ne change pas. Une fois dans une salle, ses galaxies s'ouvrent avec le seul nombre d'étoiles demandé (les
   conditions de Grande Étoile du jeu, propres à sa salle d'origine, sont ignorées). Expérimental aussi.
 - **Couleur des étoiles selon l'objet** (`star_colors: true`, désactivé par défaut) : la couleur d'une étoile (dans le
-  niveau et dans le choix des étoiles) dit la classe de l'objet qu'elle cache : **vert** = objet normal, **bleu** =
-  utile, **or** = progression (il en faut pour avancer), **rouge** = piège. Les Grandes Étoiles ne changent pas. Le
+  niveau et dans le choix des étoiles) dit la classe de l'objet qu'elle cache : **bleu clair** (`#5CBEFF`) = objet normal, **bleu** (`#6D8BE8`) =
+  utile, **violet** (`#897EC9`) = progression (il en faut pour avancer), **rouge** = piège. Le jeu recolore les
+  images de l'étoile en mémoire (il reconnaît laquelle est la jaune, la verte, la bleue d'après sa couleur ; les
+  lignes « Star picture » de `archipelago.log` disent ce qu'il a fait). Les lumières et les étincelles autour de
+  l'étoile gardent leurs teintes d'origine. Les Grandes Étoiles ne changent pas. Le
   jeu demande au serveur ce que contient chaque lieu au moment de la connexion. Attention : c'est un petit spoiler
   voulu (on voit quelles étoiles comptent).
 - **Boutique de Star Bits** (`shop_items`, de 1 à 20, 8 par défaut ; prix de `shop_min_price` (100 par défaut) à
@@ -100,15 +107,32 @@ Mario Galaxy dans un multiworld. Il suppose que vous n'avez jamais compilé de p
   qu'en jeu, jamais pendant un menu.
 - **DeathLink** (`death_link: true`) : chaque vie perdue est envoyée aux autres joueurs qui ont DeathLink, et leurs
   morts font mourir Mario ici. Une mort venue d'un DeathLink n'est pas renvoyée (pas de boucle).
-- **Étoile arc-en-ciel** (`rainbow_star_percentage`, de 0 à 100, 0 par défaut) : part des objets « remplissage »
-  qui sont des Rainbow Stars (Mario devient arc-en-ciel, invincible, un moment). C'est le seul objet bonus.
+- **Remplissage fixe** (plus d'options) : surtout des 1-Up et des Star Bits, avec quelques paquets de 200 Star Bits, rafales
+  de trois 1-Up, Full Heal et Rainbow Stars (Mario devient arc-en-ciel un moment), tous rares. Seuls les pièges
+  (`trap_percentage`, `trap_types`) restent réglables.
 - **Mélange de la musique** (`music_shuffle: true`) : chaque musique de niveau ou de boss joue une autre musique (même
   multiworld = même mélange). Les jingles (fanfare d'étoile, game over), les chansons des cinématiques et tous les
   bruitages ne changent pas.
-- **Mélange des ennemis** (`enemy_shuffle: true`, désactivé par défaut, expérimental) : les ennemis « simples » des niveaux
-  (Goombas, Bob-ombs, Octogombas, Boos de feu, Plantes Piranha, Taupes, Chauves-souris) sont remplacés par un autre type,
-  toujours de la même façon pour un même multiworld. Jamais les boss ni les autres créatures, ni un ennemi lié à une
-  mission (« tuez-les tous »), un chemin ou un interrupteur. Pas testé en jeu.
+- **Mélange des ennemis** (`enemy_shuffle: true`, désactivé par défaut, expérimental) : deux familles, chacune remplacée
+  parmi elle-même pour que le nouvel ennemi convienne à l'endroit. **Au sol** : Goombas, Bob-ombs, Octogombas, Octoguys,
+  Plantes Piranha, Taupes, Os-secs (Dry Bones) et araignées sauteuses, qui peuvent devenir l'un de ces types ou un Boo
+  de feu (qui flotte sur place). **En l'air** : les Chauves-souris et les Boos de feu, avec leurs versions de glace,
+  entre eux. Jamais les boss ni les autres créatures, ni un ennemi lié à une mission (« tuez-les tous »), un chemin,
+  un interrupteur ou un réglage particulier : ceux-là gardent leur place telle quelle. Les ennemis aquatiques, les
+  géants et ceux qui dépendent d'un chemin ne sont pas touchés. `archipelago.log` note chaque échange
+  (« enemy shuffle: Kuribo -> BombHei at x y z »). Pas testé en jeu.
+- **Toutes les icônes de fichier** : quand on crée un fichier, toutes les icônes sont proposées (Luigi compris), sans
+  attendre de l'avoir débloqué dans le jeu.
+- **Mélange des skyboxes** (`skybox_shuffle: true`, désactivé par défaut, expérimental, APWorld 0.9.6) : le ciel d'un
+  niveau est remplacé par un autre ciel, toujours le même pour un même multiworld. Trois groupes tournent chacun en
+  cercle (aucun ciel ne reste à sa place) : les ciels simples (Galaxy, Milky Way, Phantom, Desert, Aurora, Starry, l'espace sombre, mais
+  aussi le ciel rétro, celui du combat de Bowser Jr., la chambre des enfants et un ciel de l'Observatoire), ceux dessinés
+  avec une projection (Half Galaxy, Green Planet Orbit, Cloud, Rock Planet Orbit, VR Orbit, le soleil sandwich, le combat de Bowser ; VR Orbit est le ciel de l'Observatoire), et les trois
+  ciels intérieurs des dômes ; le ciel de l'écran titre et de la sélection de fichier change aussi (il faut avoir
+  joué une fois ce multiworld pour que le jeu connaisse l'option dès l'écran titre). Le ciel d'été en fait partie aussi (son
+  « espace intérieur » reste attaché à l'objet, pas au modèle). `archipelago.log` note
+  « sky shuffle: X shows Y » et, pour chaque ciel rencontré, « Sky object » : si un ciel (celui de Toy Time, par
+  exemple) n'est pas dans ces groupes, son nom est dans ces lignes. Pas testé en jeu.
 - **Mélange « Full »** (`galaxy_shuffle_type: full`) : tout ce que vous avez mis dans `galaxy_shuffle` est dans UN seul
   tas, n'importe quelle galaxie à n'importe quelle place : un dôme peut n'avoir aucun boss ou en avoir trois, et les
   galaxies de l'Observatoire (Sweet Sweet...) peuvent se trouver dans les dômes, où la place garde son
@@ -119,9 +143,22 @@ Mario Galaxy dans un multiworld. Il suppose que vous n'avez jamais compilé de p
   Bonefin, Matter Splatter) s'ouvrent maintenant avec le seul nombre d'étoiles.
 - **Logo Archipelago** : les fenêtres qui annoncent une étoile reçue ou la connexion montrent le logo Archipelago à la
   place de l'étoile.
-- **Pas encore faits** : couleurs de Mario/Luigi (`mario_colors`), `hide_galaxy`, le mode `by_sphere` des Lumas. Ce
-  sont des morceaux qui touchent à l'affichage et aux modèles du jeu : je préfère ne pas promettre ce que je ne peux
-  pas contrôler. Ne mettez pas ces options dans votre YAML.
+- **Couleurs de Mario et de Luigi** (YAML, APWorld 0.9.5) : `mario_cap_color`, `mario_shirt_color`, `mario_overalls_color`,
+  `mario_gloves_color`, `mario_shoes_color` et les mêmes en `luigi_...`. Une valeur : un nom (`red`, `orange`, `yellow`,
+  `green`, `azure`, `blue`, `purple`, `pink`, `brown`, `white`, `black`, `gold`...), un code `ff8000` / `#ff8000`, ou
+  `255,128,0`. Vide : la couleur du jeu. Le jeu recolore les images des modèles en mémoire, une fois, avant le premier
+  affichage : la casquette et le t-shirt sont ce qui est rouge sur Mario (vert sur Luigi) et la salopette ce qui est
+  bleu ; gants et chaussures sont recolorés en entier, d'après le **nom** de leur image. Limite : la casquette et le
+  t-shirt partagent leur image, donc la couleur de casquette sert aux deux tant que le jeu ne les sépare pas. Pas
+  testé en jeu : `archipelago.log` liste les images de Mario (« Mario picture ... ») ; si une partie n'est pas la
+  bonne, envoyez-moi ces lignes pour que je règle la reconnaissance.
+- **Sphères vertes dans les dômes** : une place de dôme dont la galaxie n'a pas de miniature (Luma affamé, galaxie
+  secrète, après un mélange) montre la sphère verte de l'Observatoire. Elles avaient fait planter le jeu : si le jeu
+  s'arrête pendant qu'elles sont à l'écran, elles se désactivent seules au démarrage suivant (fichier
+  `green-spheres-off.txt` dans le dossier des réglages ; supprimez-le pour réessayer). `green_spheres=0` dans
+  `archipelago.ini` les coupe. Pas testé en jeu.
+- **Luma du shop en rouge** : avec un shop, le Luma de l'Observatoire est rouge (jaune sans shop).
+- **Pas encore faits** : `hide_galaxy`, le mode `by_sphere` des Lumas.
 - **Un fichier de sauvegarde neuf par multiworld** : une sauvegarde n'est pas liée à une partie Archipelago.
 
 ## 1. Installer les outils (une seule fois)
@@ -258,12 +295,12 @@ Options du YAML (toutes facultatives) :
 
 | Option | Effet |
 | --- | --- |
-| `stars_to_finish` (10 à 100, défaut 50) | nombre d'étoiles pour ouvrir le Réacteur de Bowser |
-| `power_star_percentage` (50 à 100, défaut 80) | part des lieux qui contiennent une Étoile de Puissance (le minimum nécessaire pour ouvrir toutes les galaxies est toujours ajouté) |
-| `include_comet_stars` (défaut oui) | les étoiles des comètes sont des lieux |
-| `include_purple_coin_stars` (défaut non) | les étoiles à pièces violettes (après la fin) et la Galaxie du Fantôme du cimetière |
-| `include_luigi_stars` (défaut oui) | les étoiles de la cache-cache de Luigi : sans lettre, Luigi est dans la galaxie dès que vous choisissez cette étoile |
-| `one_up_percentage` (0 à 100, défaut 50) | part de 1-Up parmi les bonus (le reste : 50 Star Bits) |
+| `character` (`mario`, `luigi`, `both`, défaut `mario`) | avec qui on joue ; force le personnage au choix de fichier (pas de bouton de bascule sauf `both`) ; les lieux portent « (Mario) » ou « (Luigi) » |
+| `goal` (`bowser`, `bowser_and_120_stars` ou `242_stars`) | `bowser` : l'étoile de Bowser ; `bowser_and_120_stars` : Bowser **et** toutes les étoiles d'avant la fin ; `242_stars` : toutes les étoiles, pourpres comprises, du ou des personnages ; la dernière de chaque personnage est l'étoile « Grand Finale Galaxy - The Star Festival » (la 121e, un lieu seulement avec ce but) : l'entrée du jeu n'est pas modifiée (elle n'apparaît que quand Mario **et** Luigi ont chacun leurs 120 étoiles) ; on peut aussi y aller à tout moment par le menu ADVANCED du choix de galaxie des réglages; avec `both`, le but part quand le second personnage prend la sienne. Avec les deux derniers, les trois options qui suivent sont **ignorées** (tout est activé) |
+| `stars_to_finish` (10 à 100, défaut 50) | **seulement avec le but `bowser`** : nombre d'étoiles pour ouvrir le Réacteur de Bowser |
+| `include_comet_stars` (défaut oui) | **seulement avec le but `bowser`** : les étoiles des comètes sont des lieux ; sinon elles n'apparaissent pas non plus dans le choix d'étoile du jeu |
+| `include_purple_coin_stars` (défaut non) | **seulement avec le but `bowser`** : les étoiles à pièces violettes (après la fin) ; sinon elles n'apparaissent pas dans le choix d'étoile du jeu |
+| *(supprimées)* | `power_star_percentage`, `include_luigi_stars`, `one_up_percentage`, `rainbow_star_percentage`, `star_bit_pack_percentage`, `one_up_burst_percentage`, `full_heal_percentage` n'existent plus (remplissage fixe, personnage via `character`) ; une ligne qui les cite dans un YAML est ignorée |
 | `star_requirements` (`vanilla` ou `dome_offsets`, défaut `vanilla`) | `dome_offsets` : les étoiles demandées par chaque galaxie des dômes viennent des options `dome_*_counts` |
 | `dome_one_counts` … `dome_six_counts` | pour chaque « orbite » (First à Fifth Orbit) : combien d'étoiles de plus que l'orbite précédente (0 à 8, 10 pour les dômes 2 à 5, 20 pour le dôme 6) ; la 1re orbite d'un dôme s'ajoute au plus grand nombre du dôme précédent ; le total est plafonné par `stars_to_finish`. Accepte `random` et `random-range-1-5` |
 | `observatory_hungry_luma_behavior` (`vanilla`, `choice`, `progressive_values_low`, `progressive_values_high`) | `vanilla` : coûts du jeu ; `choice` : exactement `observatory_luma_counts` ; `progressive_*` : les coûts ne font que croître (jusqu'à 5000 ou 9999 Star Bits) |
@@ -364,7 +401,7 @@ vérifiées en test, l'affichage dans le Launcher ne l'est pas.
 - **Mélange des galaxies/dômes** : jamais essayé en jeu. Points à surveiller : la carte des galaxies du menu pause garde l'ancienne
   disposition ; le mélange des dômes change la salle derrière chaque porte, mais pas les cinématiques ni les noms écrits sur les portes.
   Si quelque chose ne va pas, envoyez `archipelago.log` (il note « galaxy shuffle: … » et « dome shuffle: … »).
-- **Couleurs de Mario/Luigi, `hide_galaxy`, `star_colors` : pas faits.**
+- **Couleurs de Mario/Luigi, sphères vertes : jamais essayés en jeu** (voir plus haut). `hide_galaxy` : pas fait.
 - Les objets 1-Up / Star Bits ne sont donnés que dans la partie jouable (pas pendant une cinématique, un menu ou une
   mort).
 - Un fichier de sauvegarde n'est pas lié à un multiworld : utilisez une sauvegarde neuve pour chaque partie, sinon les
@@ -385,3 +422,33 @@ vérifiées en test, l'affichage dans le Launcher ne l'est pas.
 - `No CMAKE_C_COMPILER could be found` ou « l'exécution de scripts est désactivée » : refaites les deux lignes du début
   de l'étape 3 dans cette fenêtre, supprimez le dossier `build\host` puis relancez.
 - Une étape de compilation échoue : copiez les 20 dernières lignes de l'erreur.
+
+## Count-down plate (Observatory)
+
+With the Archipelago client active, the plate in front of Harmonie that counts the missing stars before the final
+boss is there from the start (normally it needs the Grand Stars, which are items here). From 100 stars missing on, the
+plate's two digits are hidden and three digits (second copies of the plate's model, each showing one digit) take their
+place at 2/3 of the size, centred, so that all of it stays inside the circle. Below 100 the plate is the game's own.
+Not tested in game for the exact position; it is computed from the two digits' bounding boxes.
+
+
+## Reconnexion, tracker PopTracker et options en direct
+
+**Reconnexion automatique.** Si le serveur est coupé, le jeu réessaie tout seul (toutes les 5 s). Nouveauté : une connexion
+« morte » sans message de fermeture (Wi-Fi coupé, PC en veille) est détectée : le jeu envoie un ping après 20 s de silence
+et se reconnecte après 60 s sans aucune réponse. Les objets reçus entre-temps arrivent à la reconnexion. Test : seulement
+les tests unitaires du runtime, pas un vrai serveur coupé.
+
+**Tracker PopTracker.** `python tools/gen_poptracker_pack.py sortie.zip` génère un pack PopTracker (auto-tracking
+Archipelago) : les compteurs d'étoiles, les transformations, les mouvements, et un plateau avec une case par galaxie qui
+se coche toute seule. Les identifiants viennent de l'APWorld. Je n'ai pas pu lancer PopTracker ici : le pack n'est pas testé.
+
+**Options en direct.** Dans `archipelago.ini`, des lignes `option.<nom>=<valeur>` changent quelques options cosmétiques
+sans refaire de multiworld : `star_colors`, `death_link`, `music_shuffle`, `enemy_shuffle`, `skybox_shuffle`, `color_0` à
+`color_23`. Exemple : `option.star_colors=off`. Le fichier est relu toutes les 5 s pendant que le jeu tourne ; le jeu applique
+le changement au prochain niveau chargé (pas de menu dans le jeu : ce serait trop lourd). Les options de logique (objectifs,
+étoiles, mouvements...) ne peuvent pas être changées ainsi. Non testé en jeu.
+
+**Boo's Boneyard.** Elle s'ouvre avec le Luma affamé à côté de la Gateway (pas avec l'étoile Pièces Violettes de la Gateway),
+donc elle existe toujours dans le multiworld (même sans les étoiles Pièces Violettes) et compte pour le but « Bowser + toutes
+les étoiles » ; seules les étoiles Pièces Violettes restent hors du but.

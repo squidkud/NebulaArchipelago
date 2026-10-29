@@ -1,4 +1,7 @@
 #include "Game/Screen/ScenarioSelectLayout.hpp"
+#ifdef TARGET_PC
+#include "Game/System/NebulaRegion.hpp"
+#endif
 #include "Game/Camera/CameraContext.hpp"
 #include "Game/Effect/MultiEmitter.hpp"
 #include "Game/LiveActor/Nerve.hpp"
@@ -128,7 +131,11 @@ void ScenarioSelectLayout::init(const JMapInfoIter& rIter) {
     mBackButton = new BackButton("\226\337\202\351\203\173\203\136\203\223" /* 戻るボタン */, false);
     mBackButton->initWithoutIter();
 
-    #if (VERSION == RMGJ01 || VERSION == RMGE01)
+    #ifdef TARGET_PC
+    if (!NebulaRegion::isPal()) {
+        MR::hidePaneRecursive(this, "CometAppear");
+    }
+    #elif (VERSION == RMGJ01 || VERSION == RMGE01)
     MR::hidePaneRecursive(this, "CometAppear");
     #endif
 
@@ -218,7 +225,11 @@ void ScenarioSelectLayout::appear() {
     mScenarioSky->appear();
     MultiScene::startBtk(mScenarioSky, "ScenarioSelectSky");
 
-#if (VERSION == RMGP01 || VERSION == RMGK01)
+#ifdef TARGET_PC
+    if (NebulaRegion::isPal()) {
+        MR::hidePaneRecursive(this, "CometAppear");
+    }
+#elif (VERSION == RMGP01 || VERSION == RMGK01)
     MR::hidePaneRecursive(this, "CometAppear");
 #endif
 
@@ -485,7 +496,14 @@ bool ScenarioSelectLayout::calcDisplayScenarioNum(s32* pNormalScenarioCompleteNu
         // game's order); the ones not taken yet show as such.
         // The extra stars too (the comets', Luigi's, the hidden ones): all of them, the four places of the lower row.
         *pNormalScenarioCompleteNum = MR::getCurrentStageNormalScenarioNum();
-        *pExtraScenarioCompleteNum = getHiddenScenarioNum() < 4 ? getHiddenScenarioNum() : 4;
+        *pExtraScenarioCompleteNum = 0;
+
+        // The kinds the slot leaves out (comet stars, Purple Coin stars) are not shown at all.
+        for (s32 j = 0; j < getHiddenScenarioNum() && *pExtraScenarioCompleteNum < 4; j++) {
+            if (!NebulaArchipelago::isScenarioHidden(MR::getCurrentStageName(), MR::getCurrentStageNormalScenarioNum() + j + 1)) {
+                *pExtraScenarioCompleteNum += 1;
+            }
+        }
 
         return false;
     }
@@ -550,9 +568,17 @@ void ScenarioSelectLayout::appearAllStar(s32 normalScenarioCompleteNum, s32 extr
 
 #ifdef TARGET_PC
         if (NebulaArchipelago::isActive()) {
-            for (s32 j = 0; j < getHiddenScenarioNum() && j < 4; j++) {
+            s32 shown = 0;
+
+            for (s32 j = 0; j < getHiddenScenarioNum() && shown < 4; j++) {
                 const s32 scenarioNo = MR::getCurrentStageNormalScenarioNum() + j + 1;
-                appearStar(starIndex + j, scenarioNo, MR::hasPowerStarInCurrentStage(scenarioNo) ? 2 : 0);
+
+                if (NebulaArchipelago::isScenarioHidden(MR::getCurrentStageName(), scenarioNo)) {
+                    continue;
+                }
+
+                appearStar(starIndex + shown, scenarioNo, MR::hasPowerStarInCurrentStage(scenarioNo) ? 2 : 0);
+                shown++;
             }
 
             return;

@@ -1,4 +1,7 @@
 #include "Game/Player/MarineSnow.hpp"
+#include <JSystem/J3DGraphBase/J3DNativeState.hpp>
+#include <JSystem/J3DGraphBase/J3DNativeShape.hpp>
+#include <JSystem/J3DGraphBase/J3DNativeDraw.hpp>
 #include "Game/Util/CameraUtil.hpp"
 #include "Game/Util/DirectDraw.hpp"
 #include "Game/Util/MathUtil.hpp"
@@ -46,8 +49,8 @@ void MarineSnow::draw(const TVec3f& rPosition, const TVec3f& rUp, f32 surfaceDis
     s32 originZ = cellZ * mCellSize;
 
     TDDraw::setup(0, 1, 0);
-    GXSetZMode(GX_TRUE, GX_LEQUAL, GX_FALSE);
-    GXSetPointSize(27, GX_TO_ZERO);
+    J3DNativeState::setZMode(GX_TRUE, GX_LEQUAL, GX_FALSE);
+    J3DNativeState::setPointSize(27, GX_TO_ZERO);
 
     static u8 phase = 0;
     phase = (phase + 1) & 3;
@@ -71,15 +74,15 @@ void MarineSnow::draw(const TVec3f& rPosition, const TVec3f& rUp, f32 surfaceDis
     TVec3f diagonalDown = (billboardRight - billboardUp) * 10.0f;
 
     TDDraw::setup(1, 1, 0);
-    GXSetZMode(GX_TRUE, GX_LEQUAL, GX_FALSE);
+    J3DNativeState::setZMode(GX_TRUE, GX_LEQUAL, GX_FALSE);
 
     mTexture->load(GX_TEXMAP0);
 
-    GXSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR_NULL);
-    GXSetTevColorIn(GX_TEVSTAGE0, GX_CC_ZERO, GX_CC_ONE, GX_CC_TEXC, GX_CC_ZERO);
-    GXSetTevColorOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
-    GXSetTevAlphaIn(GX_TEVSTAGE0, GX_CA_ZERO, GX_CA_A0, GX_CA_TEXA, GX_CA_ZERO);
-    GXSetTevAlphaOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
+    J3DNativeState::setTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR_NULL);
+    J3DNativeState::setTevColorIn(GX_TEVSTAGE0, GX_CC_ZERO, GX_CC_ONE, GX_CC_TEXC, GX_CC_ZERO);
+    J3DNativeState::setTevColorOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
+    J3DNativeState::setTevAlphaIn(GX_TEVSTAGE0, GX_CA_ZERO, GX_CA_A0, GX_CA_TEXA, GX_CA_ZERO);
+    J3DNativeState::setTevAlphaOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
 
     for (s32 i = -4; i < 4; i++) {
         for (s32 j = -4; j < 4; j++) {
@@ -122,12 +125,12 @@ void MarineSnow::draw(const TVec3f& rPosition, const TVec3f& rUp, f32 surfaceDis
                 }
 
                 GXColor color = {0, 0, 0, alpha};
-                GXSetTevColor(GX_TEVREG0, color);
+                J3DNativeState::setTevColor(GX_TEVREG0, color);
 
                 TMtx34f mtx;
                 MtxPtr pTranslationMtx = MR::tmpMtxTrans(cellOrigin);
                 MR::multMtx(mtx, pTranslationMtx, MR::getCameraViewMtx());
-                GXLoadPosMtxImm(mtx, 0);
+                J3DNativeShape::sendPosition(mtx, 0);
 
                 u16 lastParticle;
                 u16 firstParticle;
@@ -141,22 +144,20 @@ void MarineSnow::draw(const TVec3f& rPosition, const TVec3f& rUp, f32 surfaceDis
                 }
 
                 for (u16 point = firstParticle; point < lastParticle; point += particleStride) {
-                    GXBegin(GX_QUADS, GX_VTXFMT0, 4);
+                    J3DNativeDraw::begin(GX_QUADS, 4, NEBULA_SHAPE_TEXCOORD0);
                     {
                         TDDraw::sendPoint(mParticlePositions[point] - diagonalDown);
-                        GXTexCoord2f32(0.0f, 0.0f);
+                        J3DNativeDraw::texCoord(0.0f, 0.0f);
 
                         TDDraw::sendPoint(mParticlePositions[point] + diagonalUp);
-                        GXTexCoord2f32(1.0f, 0.0f);
+                        J3DNativeDraw::texCoord(1.0f, 0.0f);
 
                         TDDraw::sendPoint(mParticlePositions[point] + diagonalDown);
-                        GXTexCoord2f32(1.0f, 1.0f);
+                        J3DNativeDraw::texCoord(1.0f, 1.0f);
 
                         TDDraw::sendPoint(mParticlePositions[point] - diagonalUp);
-                        GXTexCoord2f32(0.0f, 1.0f);
+                        J3DNativeDraw::texCoord(0.0f, 1.0f);
                     }
-
-                    GXEnd();
                 }
             }
         }

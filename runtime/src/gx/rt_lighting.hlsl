@@ -97,6 +97,8 @@ cbuffer RtLight : register(b0)
     uint4 g_engine_info;           // flags (kEngine*), a-trous step, slot, a-trous parity
     float4 g_engine_params;
     float4 g_engine_water;         // the camera in water (x: 1), its depth (y, eye units): water_medium
+    uint4 g_engine_paint;          // the table metals' painted colour per draw (rt_engine.hlsl EnginePaintCS): its
+                                   // buffer's view (~0: none), the traced scene's triangles, the draws it holds
 };
 
 // g_flags bit 14: the game's light units (GALAXY_RT_PHYSICAL), as the stage sets them in linear light (white 1):
@@ -166,7 +168,8 @@ static const uint kEmitNamed = 4u;      // the table names this draw's texture
 static const uint kEmitNoLight = 8u;    // never a light
 // g_draws records (SceneRayTracer::draw_colors_): ambient, GX light 0 colour, emission, intensity,
 // roughness and metalness, material colour, flags, relief; GX light 0's eye position (3 floats), its kind
-// (0 none, 1 no facing term, 2 n.l; bits 16-31 a clear solid's index of refraction, rt_engine.hlsl solid_ior); words
+// (0 none, 1 no facing term, 2 n.l; bits 4-5 the draw's GX cull mode, raster_facing; bits 16-31 a clear solid's index
+// of refraction, rt_engine.hlsl solid_ior); words
 // 12-15 its GX fog (RtDrawInfo::fog; rt_engine.hlsl gx_fog_share).
 static const uint kDrawStride = 64u;
 
@@ -180,11 +183,12 @@ static const float3 kWaterAttenuation = float3(0.00175f, 0.000325f, 0.000095f);
 static const float3 kWaterBeam = float3(0.0018f, 0.0004f, 0.00015f);
 // The water's own light (its path radiance seen sideways) per unit of the light falling on it (a white surface under
 // that light: 1): near the surface the upwelling radiance is one to two orders of magnitude below the downwelling and
-// the horizontal lies between (Mobley, Ocean Optics Web Book, Visualizing Radiances): a seventh of the downwelling,
-// in coastal water's colour, its single-scattering albedo b / c (particles scattering about 0.15, 0.17, 0.19 per metre
-// against an absorption of 0.35, 0.07, 0.08: pure water's, Pope and Fry 1997, with the dissolved organic matter that
-// absorbs blue, Jerlov's coastal types): 0.30, 0.71, 0.70, here as a share of green's.
-static const float3 kWaterLight = float3(0.30f, 0.71f, 0.70f) * (0.15f / 0.71f);
+// the horizontal lies between (Mobley, Ocean Optics Web Book, Visualizing Radiances): a fifth of the downwelling, the
+// lighter side of that range (the owner, 27 October: Deep Dark's blue a little lighter; a seventh before), in coastal
+// water's colour, its single-scattering albedo b / c (particles scattering about 0.15, 0.17, 0.19 per metre against
+// an absorption of 0.35, 0.07, 0.08: pure water's, Pope and Fry 1997, with the dissolved organic matter that absorbs
+// blue, Jerlov's coastal types): 0.30, 0.71, 0.70, here as a share of green's.
+static const float3 kWaterLight = float3(0.30f, 0.71f, 0.70f) * (0.20f / 0.71f);
 
 // The light water scatters towards a ray in it, `depth` eye units under its surface: its share of the stage's full
 // light `full` falling on the water, dimmed by the water above. The stage's light, not what the traced scene sees
@@ -225,6 +229,9 @@ static const float kNearGlowReach = 1.25f;
 // Stars whose balls StarSphereCS fits (g_star_first): one float4 each (eye-space centre, radius; 0: none)
 // after the samples in the results (g_final, m_light).
 static const uint kStarSlots = 8u;
+// The probe's records after them (SceneRayTracer::kProbeRecords), then per sample the light at the water in front of it
+// (EngineFinalCS: the fall's light, the open air's at the water, r11g11b10 each; 0: none; LightTexturePS).
+static const uint kProbeRecords = 15u;
 // The picture sums (CaptureCS c_sums): per star slot the game's own colour of its samples, r g b n (x 1/255,
 // cleared per capture), then the stars' colour over time, rgb (float) and known (SkyStateCS).
 static const uint kStarSums = 64u;
@@ -256,14 +263,15 @@ static const float kAdaptationLeast = 0.5f;
 // drawn after the trace, Rosalina) has no records in g_positions or g_surfaces: shadow, sky and reflection
 // rays meet it as an occluder.
 static const uint kSceneMask = 1u;
-// g_draws word 6: an alpha-tested card (grass, flowers), traced whole (card_blocks decides its hits).
+// g_draws word 6: an alpha-tested card (grass, flowers), traced whole (card_cover decides its hits).
 static const uint kDrawTableCard = 16u;
 // RtDraw.flags bits 8-11 (rt_surfaces.h RtSurfaceClass::Crystal): clear crystal, glass and gems.
 static const uint kClearClass = 7u;
 // The share of the light a clear solid stops on its way through: its facets refract and totally reflect most rays
 // away from the straight path, so the light behind a cut crystal is a partial, mottled shadow (about 0.4 of the light
-// arrives), not the 0.91 a flat pane passes ((1 - F)^2) nor a solid's full shadow. Decided per shadow ray by a hash
-// (the denoiser averages it), for the sun's and the lights' rays alike.
+// arrives), not the 0.91 a flat pane passes ((1 - F)^2) nor a solid's full shadow. A shadow ray (the sun's, the
+// lights') passes the rest of the light on (sun_visibility_by, engine_visibility); a bounce ray stops at one in
+// kClearShadow, a hash deciding (its history averages it).
 static const float kClearShadow = 0.6f;
 // The lighting multiplies the game's colour by at most this; the composite rolls it off on a film
 // shoulder from kLitKnee (apply_light).
@@ -2045,7 +2053,7 @@ float3 rgb8(uint c)
 // Foliage cards: the scene holds the alpha-tested ones whole, their cut-outs filled. A hit on a card
 // counts where the raster drew it (the depth at the hit's pixel lies on the card's plane), not where it
 // saw through it (a farther depth, the sky); hidden or out of view, at the cards' mean coverage (about half
-// their texels), a number from the primitive and `salt` (the sample, the frame, the ray) deciding.
+// their texels).
 static const float kCardCoverage = 0.5f;
 
 bool traced_card(uint flags)
@@ -2111,23 +2119,24 @@ int alpha_test(uint primitive, uint flags, float3 h)
 #endif
 }
 
-// Whether a candidate hit at eye-space `h` on `primitive` (its g_surfaces flags word `flags`) stops a ray. An
-// alpha-tested draw or card stops it where its texture's alpha passes its test (exact leaf, fence and lattice
-// shadows); an untested card follows the raster's depth where it is in view, else the cards' mean coverage.
-bool card_blocks(uint primitive, uint flags, float3 h, uint salt)
+// How much of a ray a candidate hit at eye-space `h` on `primitive` (its g_surfaces flags word `flags`) stops: 1 or
+// 0 where it is decided, else kCardCoverage. An alpha-tested draw or card stops it where its texture's alpha passes its
+// test (exact leaf, fence and lattice shadows); an untested card follows the raster's depth where it is in view, else
+// the cards' mean coverage.
+float card_cover(uint primitive, uint flags, float3 h)
 {
     const int tested = alpha_test(primitive, flags, h);
     if (tested >= 0) {
-        return tested != 0;
+        return tested != 0 ? 1.0f : 0.0f;
     }
     if (!traced_card(flags)) {
-        return true;
+        return 1.0f;
     }
     const float2 q = eye_to_pixel(g_projection, g_viewport, h);
     if (h.z < -g_near && inside(g_viewport, q) && all(q < float2(g_target_size))) {
         const float depth = g_efb_depth.Load(int3(int2(q), 0));
         if (far_plane(g_depth, depth)) {
-            return false;
+            return 0.0f;
         }
         // The card's plane along the pixel's own ray (edge-on: undecided).
         const float3 v0 = asfloat(g_positions.Load3(primitive * 36u));
@@ -2140,14 +2149,22 @@ bool card_blocks(uint primitive, uint flags, float3 h, uint salt)
             const float z = depth_to_eye_z(g_depth, depth);
             const float tolerance = 0.004f * abs(plane) + 1.0f;
             if (z < plane - tolerance) {
-                return false;
+                return 0.0f;
             }
             if (z <= plane + tolerance) {
-                return true;
+                return 1.0f;
             }
         }
     }
-    return card_hash(primitive, salt) < kCardCoverage;
+    return kCardCoverage;
+}
+
+// card_cover as one ray's yes or no, for the rays whose histories average their noise (bounces): an undecided card
+// stops one in kCardCoverage, a number from the primitive and `salt` (the sample, the frame, the ray) deciding.
+bool card_blocks(uint primitive, uint flags, float3 h, uint salt)
+{
+    const float cover = card_cover(primitive, flags, h);
+    return cover >= 1.0f || (cover > 0.0f && card_hash(primitive, salt) < cover);
 }
 
 // The surface a sample shows (EngineGBufferCS): the triangle the camera ray meets at the raster depth gives the
@@ -2196,6 +2213,22 @@ void smooth_surface(uint tri, float3 w, float3 v0, float3 v1, float3 v2, float3 
     }
 }
 
+// Whether the raster could have drawn triangle `tri` of draw `draw` at a pixel: the faces its GX cull mode keeps (the
+// draw record's word 11, bits 4-5: 0 none, 1 front faces culled, 2 back faces culled, 3 all). A face is a front face
+// where its winding's normal, cross(e1, e2), points towards the eye, the side a one-sided light source shines to.
+bool raster_facing(uint tri, uint draw)
+{
+    const uint cull = (g_draws.Load(min(draw, max(g_draw_count, 1u) - 1u) * kDrawStride + 44u) >> 4u) & 3u;
+    if (cull == 0u) {
+        return true;
+    }
+    const float3 v0 = asfloat(g_positions.Load3(tri * 36u));
+    const float3 v1 = asfloat(g_positions.Load3(tri * 36u + 12u));
+    const float3 v2 = asfloat(g_positions.Load3(tri * 36u + 24u));
+    const bool front = dot(cross(v1 - v0, v2 - v0), -v0) > 0.0f;
+    return cull == 2u ? front : cull == 1u && !front;
+}
+
 Surface primary_surface(int2 q, float3 p)
 {
     Surface s;
@@ -2206,17 +2239,22 @@ Surface primary_surface(int2 q, float3 p)
     s.primary = uint2(0u, 0u);
     s.clear = false;
     const float span = length(p);
+    // Only the triangles about the raster's depth: the raster drew this surface there, so anything nearer was not
+    // drawn at this pixel (a face the draw's GX cull mode leaves out, the near side of a shell drawn from inside).
+    // Taken from the eye, such a face was committed first and cut the ray short of the drawn surface: the Gateway's
+    // turning ring (its crystal panels drawn as back faces) had no surface under most of its pixels.
+    const float window = span * 0.03f + 8.0f;
     RayDesc ray;
     ray.Origin = float3(0.0f, 0.0f, 0.0f);
     ray.Direction = p / span;
-    ray.TMin = 0.0f;
+    ray.TMin = max(span - window, 0.0f);
     ray.TMax = span * 1.02f + 2.0f;
     RayQuery<RAY_FLAG_FORCE_NON_OPAQUE | RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES> query;
     query.TraceRayInline(g_scene, RAY_FLAG_NONE, kSceneMask, ray);
     // The candidate nearest the raster's depth, whatever its kind: the raster drew a surface there (its alpha test
     // passed), so when no triangle meets the depth closely that one is it. Alpha-tested geometry a few units off the
     // raster's depth (Bowser's Star Reactor's fire-bar balls) would otherwise have no draw at its pixels.
-    float nearest_gap = span * 0.03f + 8.0f;
+    float nearest_gap = window;
     uint nearest_tri = 0u;
     float2 nearest_b = float2(0.0f, 0.0f);
     while (query.Proceed()) {
@@ -2226,13 +2264,19 @@ Surface primary_surface(int2 q, float3 p)
             0u) {
             continue;
         }
+        // A face its draw's cull mode leaves out was not drawn here (a thin model's far side within the window).
+        if (!raster_facing(query.CandidatePrimitiveIndex(), candidate >> 16u)) {
+            continue;
+        }
         const float gap = abs(query.CandidateTriangleRayT() - span);
         if (gap < nearest_gap) {
             nearest_gap = gap;
             nearest_tri = query.CandidatePrimitiveIndex() + 1u;
             nearest_b = query.CandidateTriangleBarycentrics();
         }
-        if (gap <= span * 0.002f + 0.5f || !(traced_card(candidate) || alpha_draw(candidate))) {
+        // Committed only at the raster's depth: a committed hit shortens the ray, and an opaque face a little nearer
+        // (inside the window) would hide the drawn one behind it.
+        if (gap <= span * 0.002f + 0.5f) {
             query.CommitNonOpaqueTriangleHit();
         }
     }
@@ -2273,13 +2317,18 @@ Surface primary_surface(int2 q, float3 p)
 // cards along one ray are as good as a wall.
 static const uint kMaxCandidates = 64u;
 
-// Whether the sun is seen from `origin` along `direction` (a point inside its disc); the blocker's distance in
-// `blocker` (0: open), its triangle + 1 in this instance's (0: open) and its instance in `who`. `card`: the sample lies
-// on a foliage card, which the cards close beside it do not shade.
-bool sun_visible_by(float3 origin, float3 direction, bool card, uint salt, out float blocker, out uint2 who)
+// The share of the sun's light reaching `origin` along `direction` (a point of its disc): 0 behind a blocker; through
+// clear solids and undecided cards what each lets through (1 - kClearShadow, 1 - card_cover), the same for every ray
+// and frame, so the shadows they cast are as still as a solid's (a ray stopped at random by them, one in so many,
+// left their shadows a frame's grain). The nearest blocker's distance in `blocker` (0: none), the triangle + 1 of the
+// one that stopped the ray in this instance's (0: open, or only passed through) and its instance in `who`. `card`: the
+// sample lies on a foliage card, which the cards close beside it do not shade.
+float sun_visibility_by(float3 origin, float3 direction, bool card, out float blocker, out uint2 who)
 {
     blocker = 0.0f;
     who = uint2(0u, 0u);
+    float through = 1.0f;
+    float partial = 6.0e4f;
     RayDesc ray;
     ray.Origin = origin;
     ray.Direction = direction;
@@ -2299,37 +2348,41 @@ bool sun_visible_by(float3 origin, float3 direction, bool card, uint salt, out f
             continue;
         }
         const uint hit = g_surfaces.Load(query.CandidatePrimitiveIndex() * 16u + 12u);
-        if (((hit >> 8u) & 15u) == kClearClass) {
-            if (card_hash(query.CandidatePrimitiveIndex(), salt ^ 0x5BD1E995u) < kClearShadow) {
-                query.CommitNonOpaqueTriangleHit();
+        const float t = query.CandidateTriangleRayT();
+        float cover = kClearShadow;
+        if (((hit >> 8u) & 15u) != kClearClass) {
+            if ((hit & kDrawNoShadow) != 0u) {
+                continue;
             }
-            continue;
+            if (card && t < 60.0f &&
+                (g_draws.Load(min(hit >> 16u, max(g_draw_count, 1u) - 1u) * kDrawStride + 24u) & kDrawTableFoliage) !=
+                    0u) {
+                continue;
+            }
+            cover = card_cover(query.CandidatePrimitiveIndex(), hit, origin + direction * t);
         }
-        if ((hit & kDrawNoShadow) != 0u) {
-            continue;
+        if (cover >= 1.0f) {
+            query.CommitNonOpaqueTriangleHit();
+        } else if (cover > 0.0f) {
+            through *= 1.0f - cover;
+            partial = min(partial, t);
         }
-        if (card && query.CandidateTriangleRayT() < 60.0f &&
-            (g_draws.Load(min(hit >> 16u, max(g_draw_count, 1u) - 1u) * kDrawStride + 24u) & kDrawTableFoliage) != 0u) {
-            continue;
-        }
-        if (!card_blocks(query.CandidatePrimitiveIndex(), hit, origin + direction * query.CandidateTriangleRayT(),
-                         salt)) {
-            continue;
-        }
-        query.CommitNonOpaqueTriangleHit();
     }
     if (query.CommittedStatus() == COMMITTED_TRIANGLE_HIT) {
         blocker = clamp(query.CommittedRayT(), 1e-2f, 6.0e4f);
         who = uint2(query.CommittedPrimitiveIndex() + 1u, query.CommittedInstanceID());
-        return false;
+        return 0.0f;
     }
-    return true;
+    if (through < 1.0f) {
+        blocker = clamp(partial, 1e-2f, 6.0e4f);
+    }
+    return through;
 }
 
-bool sun_visible(float3 origin, float3 direction, bool card, uint salt, out float blocker)
+float sun_visibility(float3 origin, float3 direction, bool card, out float blocker)
 {
     uint2 who;
-    return sun_visible_by(origin, direction, card, salt, blocker, who);
+    return sun_visibility_by(origin, direction, card, blocker, who);
 }
 
 // Physical emitters (kPhysicalFlag): every triangle of the scene's emitting draws (the material table's light sources:
@@ -3182,20 +3235,34 @@ bool delight_surface(uint tri, float2 b, float3 p, float3 ng, float pixel_width,
 }
 #endif
 
-// The lighting as a texture for the translucent draws after the trace (one texel per sample).
+// The lighting as a texture for the translucent draws after the trace (one texel per sample), in three thirds: the
+// light of the surface behind each sample (water, glass); where water lies in front of that surface, the light in the
+// open air at the water's surface, else the first third's (the effects: spray, splashes, smoke); the light at the falling
+// water in front of the sample, else the second third's (falling water). rt_engine.hlsl water_light.
 
 cbuffer RtLightTexture : register(b0)
 {
     uint2 t_size;
-    uint2 t_pad;
+    uint t_front;    // the records of the light at the water in front of the samples (kProbeRecords)
+    uint t_pad;
     float4 t_full;   // the stage's full light in linear light (physical; else 1)
 };
 StructuredBuffer<uint4> t_final : register(t0);
 
 float4 LightTexturePS(float4 position : SV_Position) : SV_Target0
 {
-    const uint2 s = min(uint2(position.xy), t_size - 1u);
+    const uint third = min(uint(position.x) / t_size.x, 2u);
+    const uint2 s = min(uint2(position.xy) - uint2(third * t_size.x, 0u), t_size - 1u);
     const uint4 v = t_final[s.y * t_size.x + s.x];
+    const uint2 front = third != 0u ? t_final[t_front + s.y * t_size.x + s.x].xy : uint2(0u, 0u);
+    // Falling water in front of the sample (rt_engine.hlsl water_light): the light at its own sheet, whole.
+    if (third == 2u && front.x != 0u) {
+        return float4(unpack_r11g11b10(front.x) / max(t_full.rgb, 1e-3f), 1.0f);
+    }
+    // Water in front of it: the light in the open air at the water's surface.
+    if (front.y != 0u) {
+        return float4(unpack_r11g11b10(front.y) / max(t_full.rgb, 1e-3f), 1.0f);
+    }
     if (asfloat(v.z) == 0.0f) {
         return float4(1.0f, 1.0f, 1.0f, 1.0f);
     }
@@ -3238,6 +3305,46 @@ Texture2D<float4> m_color : register(t3);
 // m_flags bit 3 (physical): the traced frame's per-pixel shading normals and de-lighting, and its surface's fog: the
 // share (f16) and the camera's exposure (f16, high half), the colour RGB8 (EngineGBufferCS).
 StructuredBuffer<uint4> m_pixels : register(t4);
+// ClearCompositePS, m_flags bit 6: the effects layer (RendererD3D12::begin_layer_window), what the game's effects drew
+// over the frame after its translucent lists: their colour as they blended (L) and what of the EFB behind them they let
+// through (T); the frame is F = L + T B.
+Texture2D<float4> m_layer_color : register(t5);
+Texture2D<float4> m_layer_trans : register(t6);
+
+// m_reproject after the slots' rows (4 x 3): a sub-frame's own view (SceneRayTracer::write_reprojection): its
+// projection as m_projection's (its jitter in) and its depth's z_scale, z_offset, known.
+static const uint kSubframeView = 12u;
+
+// The view the pixel's own depth was drawn with (projection as m_projection, depth terms as m_depth): a sub-frame's
+// when its point moves to the traced frame (m_flags bit 0), else the traced frame's. A sub-frame draws with its
+// projection at t and its own jitter; rebuilt with the traced frame's, its points would sit off their surfaces by the
+// difference (the game's camera shake, a zoom, the jitter), far enough on a grazing surface to miss the traced
+// frame's depth there and lose its light.
+void own_view(out float4 projection, out float4 depth)
+{
+    projection = m_projection;
+    depth = m_depth;
+    if ((m_flags & 1u) != 0u) {
+        const float4 terms = m_reproject[kSubframeView + 1u];
+        if (terms.z != 0.0f) {
+            projection = m_reproject[kSubframeView];
+            depth = float4(terms.xy, m_depth.zw);
+        }
+    }
+}
+
+// The frame at pixel `q` without the effects drawn over it (B = (F - L) / T, m_flags bit 6); where they let almost
+// nothing through, the frame as it is.
+float3 frame_behind_effects(int2 q)
+{
+    const float3 f = m_color.Load(int3(q, 0)).rgb;
+    if ((m_flags & 64u) == 0u) {
+        return f;
+    }
+    const float3 l = m_layer_color.Load(int3(q, 0)).rgb;
+    const float3 t = m_layer_trans.Load(int3(q, 0)).rgb;
+    return all(t > 0.02f) ? max((f - l) / t, 0.0f) : f;
+}
 
 // The traced frame's shading normal at its pixel `q`.
 float3 traced_normal(int2 q)
@@ -3302,7 +3409,7 @@ float star_mu(float3 p, uint star)
 // Past full brightness it keeps its hue and the excess whitens it a little.
 static const float kStarDetail = 1.0f;
 
-float3 star_surface(int2 c, float z, float mu, float3 color)
+float3 star_surface(int2 c, float z, float mu, float3 color, float4 depth_terms)
 {
     // Its neighbourhood 3 game pixels around at every internal resolution (at a fixed 3 EFB pixels a high internal
     // resolution loses the texture's contrast), on its own surface only (what stands in front, a ring or a
@@ -3314,7 +3421,7 @@ float3 star_surface(int2 c, float z, float mu, float3 color)
     float count = 0.0f;
     [unroll] for (uint k = 0u; k < 8u; ++k) {
         const int2 q = c + ring[k] * r;
-        if (abs(depth_to_eye_z(m_depth, m_efb_depth.Load(int3(q, 0))) - z) < limit) {
+        if (abs(depth_to_eye_z(depth_terms, m_efb_depth.Load(int3(q, 0))) - z) < limit) {
             around += m_color.Load(int3(q, 0)).rgb;
             count += 1.0f;
         }
@@ -3342,11 +3449,14 @@ CompositeOut ClearCompositePS(float4 position : SV_Position)
     }
     int2 traced = c;
     if ((m_flags & 1u) != 0u) {
+        float4 own_projection;
+        float4 own_depth;
+        own_view(own_projection, own_depth);
         const float depth = m_efb_depth.Load(int3(c, 0));
-        const float z = far_plane(m_depth, depth) ? -1.0e5f : depth_to_eye_z(m_depth, depth);
+        const float z = far_plane(own_depth, depth) ? -1.0e5f : depth_to_eye_z(own_depth, depth);
         const uint row = m_slot * 3u;
         const float4 rows[3] = {m_reproject[row], m_reproject[row + 1u], m_reproject[row + 2u]};
-        const float3 p = transform(rows, eye_position(m_projection, m_viewport, position.xy, z));
+        const float3 p = transform(rows, eye_position(own_projection, m_viewport, position.xy, z));
         if (p.z >= -m_near) {
             discard;
         }
@@ -3382,7 +3492,177 @@ CompositeOut ClearCompositePS(float4 position : SV_Position)
         seen = clamp(c + int2(e2.y & 0xFFFFu, e2.y >> 16u) - traced, int2(m_viewport.xy),
                      int2(m_viewport.xy + m_viewport.zw) - 1);
     }
-    result.color = float4(linear_to_srgb(srgb_to_linear(m_color.Load(int3(seen, 0)).rgb) * t + r), 1.0f);
+    const float3 shown = srgb_to_linear(frame_behind_effects(seen)) * t + r;
+    result.color = float4(linear_to_srgb(shown), 1.0f);
+    // The effects drawn in front of the glass or the fall after it (a fall's spray) stay over it as they blended.
+    if ((m_flags & 64u) != 0u) {
+        result.color.rgb = m_layer_color.Load(int3(c, 0)).rgb + m_layer_trans.Load(int3(c, 0)).rgb * result.color.rgb;
+    }
+    return result;
+}
+
+// The waterfall mist (rt_engine.hlsl MistLightCS): the spray at the falls' feet as puffs of water drops, each a Gaussian
+// cloud. m_light holds the frame's records: a header of kMistHeader (the puffs' count and the frame; the traced frame's
+// world to eye rows; the world's up; the up in eye space) and three a puff (its eye-space centre and width sigma; its
+// optical depth through its centre, the mist's from it towards the sun, the height of the water's surface under it
+// (-1e30 none) and its brightness (its row's colour); the sun's light it sees and the light reaching it from above,
+// exposed, halves).
+static const uint kMistHeader = 6u;
+static const uint kMistMost = 512u;
+// A dense spray's albedo (water drops absorb almost nothing; its face takes in the light it sends back out): white.
+static const float kMistAlbedo = 0.9f;
+// The share of the mist's density its turbulence moves (world-anchored noise; the mean kept).
+static const float kMistNoise = 0.45f;
+// How far the turbulence rises a frame with the spray (eye units at 60 frames a second: half a metre a second).
+static const float kMistRise = 0.8f;
+
+// The standard normal distribution's integral up to `x` (Abramowitz and Stegun 7.1.26 for erf: error under 1.5e-7).
+float mist_phi(float x)
+{
+    const float z = abs(x) * 0.70710678f;
+    const float t = 1.0f / (1.0f + 0.3275911f * z);
+    const float e = 1.0f - ((((1.061405429f * t - 1.453152027f) * t + 1.421413741f) * t - 0.284496736f) * t +
+                            0.254829592f) * t * exp(-z * z);
+    return 0.5f + 0.5f * (x >= 0.0f ? e : -e);
+}
+
+
+// Value noise in [0, 1] at `p` (a smooth lattice of hashed values), and two octaves of it.
+float mist_lattice(int3 c)
+{
+    return float(emit_hash(uint(c.x) * 0x8DA6B343u ^ uint(c.y) * 0xD8163841u ^ uint(c.z) * 0xCB1AB31Fu) >> 8u) *
+           (1.0f / 16777216.0f);
+}
+
+float mist_value_noise(float3 p)
+{
+    const float3 i = floor(p);
+    const float3 f = p - i;
+    const float3 u = f * f * (3.0f - 2.0f * f);
+    const int3 b = int3(i);
+    const float x00 = lerp(mist_lattice(b), mist_lattice(b + int3(1, 0, 0)), u.x);
+    const float x10 = lerp(mist_lattice(b + int3(0, 1, 0)), mist_lattice(b + int3(1, 1, 0)), u.x);
+    const float x01 = lerp(mist_lattice(b + int3(0, 0, 1)), mist_lattice(b + int3(1, 0, 1)), u.x);
+    const float x11 = lerp(mist_lattice(b + int3(0, 1, 1)), mist_lattice(b + int3(1, 1, 1)), u.x);
+    return lerp(lerp(x00, x10, u.y), lerp(x01, x11, u.y), u.z);
+}
+
+float mist_noise(float3 p)
+{
+    return (2.0f * mist_value_noise(p) + mist_value_noise(p * 2.03f + 17.1f)) / 3.0f;
+}
+
+// The mist over the picture: along the camera ray to the scene's surface (the EFB's depth, at the traced frame's
+// camera on sub-frames), every puff's optical depth (a Gaussian cloud's: its column at the ray's distance from its
+// centre, cut to the span before the surface and above the water under it) and the light on it (the sun's it sees and
+// the light from the sky above it): a dense spray is a white cloud, its face as white as a surface facing that light
+// (kMistAlbedo). Turbulence (noise anchored in the world,
+// rising with the spray) thickens and thins it. What lies behind passes exp(-depth), the mist adds its light times 1
+// minus that (the puffs' light averaged by their depth). Under the effects drawn after the translucent lists (the
+// effects layer: the frame is their L + T B), as the clear composite.
+CompositeOut MistCompositePS(float4 position : SV_Position)
+{
+    CompositeOut result;
+    const int2 q = int2(position.xy);
+    const uint count = min(m_light[0].x, kMistMost);
+    if (!inside(m_viewport, position.xy) || count == 0u || m_water.x > 0.5f) {
+        discard;
+    }
+    const float depth = m_efb_depth.Load(int3(q, 0));
+    float4 own_projection;
+    float4 own_depth;
+    own_view(own_projection, own_depth);
+    const bool open = far_plane(own_depth, depth);
+    float3 p = eye_position(own_projection, m_viewport, position.xy, open ? -1.0e5f : depth_to_eye_z(own_depth, depth));
+    float3 o = float3(0.0f, 0.0f, 0.0f);
+    if ((m_flags & 1u) != 0u) {
+        const uint row = m_slot * 3u;
+        const float4 rows[3] = {m_reproject[row], m_reproject[row + 1u], m_reproject[row + 2u]};
+        o = transform(rows, o);
+        p = transform(rows, p);
+    }
+    const float3 d = normalize(p - o);
+    const float reach = open ? 1.0e7f : length(p - o);
+    const float3 up = asfloat(m_light[5]).xyz;
+    const float height = dot(o, up);
+    const float rise = dot(d, up);
+    float tau = 0.0f;
+    float3 light = float3(0.0f, 0.0f, 0.0f);
+    float3 at = float3(0.0f, 0.0f, 0.0f);
+    float width = 0.0f;
+    // GALAXY_RT_MIST_VIEW=1 (m_flags bit 1): no cut at the water; 2 (bit 2): the puffs by the water found under them,
+    // red over their centre, green under it, blue none.
+    float3 found = float3(0.0f, 0.0f, 0.0f);
+    [loop] for (uint i = 0u; i < count; ++i) {
+        const uint r = kMistHeader + 3u * i;
+        const float4 puff = asfloat(m_light[r]);
+        const float3 v = puff.xyz - o;
+        const float t = dot(v, d);
+        const float b2 = max(dot(v, v) - t * t, 0.0f);
+        const float s2 = puff.w * puff.w;
+        if (b2 > 9.0f * s2 || t < -3.0f * puff.w || t - 3.0f * puff.w > reach) {
+            continue;
+        }
+        const float3 depths = asfloat(m_light[r + 1u].xyz);
+        // The span of the ray in front of the surface and above the water under the puff.
+        float first = 0.0f;
+        float last = reach;
+        if ((m_flags & 4u) != 0u) {
+            const float whole = depths.x * exp(-0.5f * b2 / s2);
+            found += whole * (depths.z <= -1.0e29f ? float3(0.0f, 0.0f, 1.0f)
+                              : depths.z > dot(puff.xyz, up) ? float3(1.0f, 0.0f, 0.0f) : float3(0.0f, 1.0f, 0.0f));
+        }
+        if (depths.z > -1.0e29f && (m_flags & 2u) == 0u) {
+            if (abs(rise) > 1e-6f) {
+                const float crossing = (depths.z - height) / rise;
+                if (rise < 0.0f) {
+                    last = min(last, crossing);
+                } else {
+                    first = max(first, crossing);
+                }
+            } else if (height < depths.z) {
+                continue;
+            }
+            if (last <= first) {
+                continue;
+            }
+        }
+        const float column =
+            depths.x * exp(-0.5f * b2 / s2) * (mist_phi((last - t) / puff.w) - mist_phi((first - t) / puff.w));
+        if (column <= 1e-5f) {
+            continue;
+        }
+        const uint4 l = m_light[r + 2u];
+        const float3 sun = float3(f16tof32(l.x), f16tof32(l.x >> 16u), f16tof32(l.y));
+        tau += column;
+        light += column * asfloat(m_light[r + 1u].w) * (sun + float3(f16tof32(l.y >> 16u), f16tof32(l.z), f16tof32(l.z >> 16u)));
+        at += column * (o + d * clamp(t, 0.0f, reach));
+        width += column * puff.w;
+    }
+    if ((m_flags & 4u) != 0u) {
+        if (!any(found > 1e-3f)) {
+            discard;
+        }
+        result.color = float4(linear_to_srgb(saturate(found)), 1.0f);
+        return result;
+    }
+    if (tau <= 1e-4f) {
+        discard;
+    }
+    // The turbulence at the mist's mean point along the ray, in the world (the header's world to eye rows), its cells
+    // 0.7 of the puffs' mean width.
+    const float4 rows[3] = {asfloat(m_light[1]), asfloat(m_light[2]), asfloat(m_light[3])};
+    const float3 e = at / tau - float3(rows[0].w, rows[1].w, rows[2].w);
+    float3 w = e.x * rows[0].xyz + e.y * rows[1].xyz + e.z * rows[2].xyz;
+    w -= asfloat(m_light[4]).xyz * (float(m_light[0].y) * kMistRise);
+    const float n = mist_noise(w / max(0.7f * width / tau, 1.0f));
+    const float thick = tau * (1.0f + kMistNoise * (2.0f * n - 1.0f));
+    const float pass = exp(-thick);
+    const float3 behind = srgb_to_linear(frame_behind_effects(q));
+    result.color = float4(linear_to_srgb(behind * pass + kMistAlbedo * (light / tau) * (1.0f - pass)), 1.0f);
+    if ((m_flags & 64u) != 0u) {
+        result.color.rgb = m_layer_color.Load(int3(q, 0)).rgb + m_layer_trans.Load(int3(q, 0)).rgb * result.color.rgb;
+    }
     return result;
 }
 
@@ -3394,13 +3674,18 @@ float4 CompositeVS(uint id : SV_VertexID) : SV_Position
 
 CompositeOut CompositePS(float4 position : SV_Position)
 {
+    // This pixel's own view (a sub-frame's: own_view); the traced frame's projection (m_projection) takes its point
+    // into the traced frame's samples.
+    float4 own_projection;
+    float4 own_depth;
+    own_view(own_projection, own_depth);
     const float depth = m_efb_depth.Load(int3(int2(position.xy), 0));
-    const float z = depth_to_eye_z(m_depth, depth);
+    const float z = depth_to_eye_z(own_depth, depth);
     const float slope = min(abs(ddx(z)) + abs(ddy(z)), abs(z) * 0.05f);
     CompositeOut result;
     const float3 color = m_color.Load(int3(int2(position.xy), 0)).rgb;
     result.color = float4(color, 1.0f);
-    if (far_plane(m_depth, depth) || !inside(m_viewport, position.xy)) {
+    if (far_plane(own_depth, depth) || !inside(m_viewport, position.xy)) {
         if ((m_flags & 2u) != 0u) {
             result.color = float4(0.5f, 0.5f, 0.5f, 1.0f);
             return result;
@@ -3414,7 +3699,7 @@ CompositeOut CompositePS(float4 position : SV_Position)
         result.color = float4(color * 0.3f, 1.0f);
         return result;
     }
-    float3 p = eye_position(m_projection, m_viewport, position.xy, z);
+    float3 p = eye_position(own_projection, m_viewport, position.xy, z);
     const float3 here = p;
     if ((m_flags & 1u) != 0u) {
         const uint row = m_slot * 3u;
@@ -3430,10 +3715,10 @@ CompositeOut CompositePS(float4 position : SV_Position)
     float2 gradient;
     {
         const int2 c = int2(position.xy);
-        const float zr = depth_to_eye_z(m_depth, m_efb_depth.Load(int3(c + int2(1, 0), 0)));
-        const float zl = depth_to_eye_z(m_depth, m_efb_depth.Load(int3(c - int2(1, 0), 0)));
-        const float zd = depth_to_eye_z(m_depth, m_efb_depth.Load(int3(c + int2(0, 1), 0)));
-        const float zu = depth_to_eye_z(m_depth, m_efb_depth.Load(int3(c - int2(0, 1), 0)));
+        const float zr = depth_to_eye_z(own_depth, m_efb_depth.Load(int3(c + int2(1, 0), 0)));
+        const float zl = depth_to_eye_z(own_depth, m_efb_depth.Load(int3(c - int2(1, 0), 0)));
+        const float zd = depth_to_eye_z(own_depth, m_efb_depth.Load(int3(c + int2(0, 1), 0)));
+        const float zu = depth_to_eye_z(own_depth, m_efb_depth.Load(int3(c - int2(0, 1), 0)));
         gradient.x = abs(zr - z) < abs(z - zl) ? zr - z : z - zl;
         gradient.y = abs(zd - z) < abs(z - zu) ? zd - z : z - zu;
         gradient = clamp(gradient, -abs(z) * 0.05f, abs(z) * 0.05f);
@@ -3571,7 +3856,7 @@ CompositeOut CompositePS(float4 position : SV_Position)
     // A star (its mark and slot from the sample on this surface: blending would mix the slots).
     if (nearest_relief < -0.5f && (m_flags & 2u) == 0u) {
         const float mu = star_mu(p, uint(round(-nearest_relief - 1.0f)));
-        result.color = float4(star_surface(int2(position.xy), z, mu, color), 1.0f);
+        result.color = float4(star_surface(int2(position.xy), z, mu, color, own_depth), 1.0f);
         return result;
     }
     if (relief > 1e-3f && m_sun.w > 0.0f) {
@@ -3581,15 +3866,15 @@ CompositeOut CompositePS(float4 position : SV_Position)
         const int2 steps[4] = {int2(1, 0), int2(-1, 0), int2(0, 1), int2(0, -1)};
         [unroll] for (uint k = 0u; k < 4u; ++k) {
             const int2 q = c + steps[k];
-            zs[k] = depth_to_eye_z(m_depth, m_efb_depth.Load(int3(q, 0)));
+            zs[k] = depth_to_eye_z(own_depth, m_efb_depth.Load(int3(q, 0)));
             hs[k] = luminance(m_color.Load(int3(q, 0)).rgb);
         }
         const float limit = abs(z) * 0.01f + 0.5f;
         const bool okx = abs(zs[0] - z) < limit && abs(zs[1] - z) < limit;
         const bool oky = abs(zs[2] - z) < limit && abs(zs[3] - z) < limit;
         if (okx && oky) {
-            const float3 px = eye_position(m_projection, m_viewport, position.xy + float2(1.0f, 0.0f), zs[0]);
-            const float3 py = eye_position(m_projection, m_viewport, position.xy + float2(0.0f, 1.0f), zs[2]);
+            const float3 px = eye_position(own_projection, m_viewport, position.xy + float2(1.0f, 0.0f), zs[0]);
+            const float3 py = eye_position(own_projection, m_viewport, position.xy + float2(0.0f, 1.0f), zs[2]);
             const float3 dpdx = px - here;
             const float3 dpdy = py - here;
             float3 nf = cross(dpdx, dpdy);

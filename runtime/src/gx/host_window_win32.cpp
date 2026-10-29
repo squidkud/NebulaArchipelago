@@ -98,7 +98,7 @@ bool dlss_installed_now();
 bool frame_generation_offered();
 bool dlss_hold_back(RenderConfig& applied, const RenderConfig& live);
 bool dlss_prompt_key(WPARAM key, bool was_down);
-bool mods_restart_key(WPARAM key, bool was_down);
+bool restart_ask_key(WPARAM key, bool was_down);
 bool mods_page_key(WPARAM key, bool accept, bool was_down);
 unsigned mods_draft_changes();
 void commit_mods_draft();
@@ -332,6 +332,16 @@ std::atomic<bool> s_settings_drawn_by_game{false};
 bool s_settings_leave_asking = false;
 // Apply saved mod changes this session did not start with: the menu asks whether to restart now.
 std::atomic<bool> s_mods_restart_ask{false};
+// RAY TRACING turned on (applied) before its shaders are prepared: the menu asks to restart, which prepares them.
+std::atomic<bool> s_rt_restart_ask{false};
+// SYSTEM > DIAGNOSTICS > RECORD: the menu asks to restart into a recorded session (the launcher's recording).
+std::atomic<bool> s_diagnostics_ask{false};
+
+// A restart question is up (the mods', ray tracing's, the diagnostics run's).
+bool restart_asking() {
+    return s_mods_restart_ask.load(std::memory_order_acquire) || s_rt_restart_ask.load(std::memory_order_acquire) ||
+           s_diagnostics_ask.load(std::memory_order_acquire);
+}
 // The pages, in order.
 constexpr const char* kNativeSettingsTabNames[] = {"DISPLAY", "GRAPHICS", "CONTROLS", "AUDIO", "GENERAL", "MODS", "SYSTEM",
                                                    "ADVANCED"};
@@ -388,6 +398,8 @@ std::uint64_t s_controls_devices_ms = 0u;
 // Tests stand in for the attached controllers.
 std::optional<std::vector<galaxy::input::ControllerInfo>> s_test_controllers;
 std::optional<galaxy::input::DeviceKey> s_test_active_device;
+std::optional<galaxy::host::JoyConStatus> s_test_joycons;
+std::optional<bool> s_test_wii_remote;
 std::size_t s_capture_target = galaxy::input::kWiiTargetCount;
 std::uint64_t s_capture_deadline_ms = 0u;
 constexpr std::uint64_t kCaptureTimeoutMs = 6000u;
@@ -399,15 +411,17 @@ std::uint32_t s_handled_key_normalized = 0u;
 
 constexpr unsigned kNativeSettingsTabCount = 8;
 
-// The GENERAL page's languages, in the order LEFT/RIGHT steps through them.
-constexpr GameLanguage kGameLanguages[] = {GameLanguage::English, GameLanguage::French, GameLanguage::Spanish};
-
-// Each language in its own name; the UTF-8 Ç and Ñ are drawn by ui_text.
+// Each language in its own name (UTF-8: Ç, Ñ, 日本語); a disc offers only its own, whose letters its font has.
 const char* game_language_name(GameLanguage language) {
     switch (language) {
+    case GameLanguage::Japanese: return "\xE6\x97\xA5\xE6\x9C\xAC\xE8\xAA\x9E";
+    case GameLanguage::German: return "DEUTSCH";
     case GameLanguage::French: return "FRAN\xC3\x87" "AIS";
     case GameLanguage::Spanish: return "ESPA\xC3\x91" "OL";
-    case GameLanguage::English: break;
+    case GameLanguage::Italian: return "ITALIANO";
+    case GameLanguage::Dutch: return "NEDERLANDS";
+    case GameLanguage::English:
+    case GameLanguage::Auto: break;
     }
     return "ENGLISH";
 }
@@ -817,8 +831,9 @@ enum class ControlsRow {
     VibrationStrength,
     MotionShake,
     ShakeSensitivity,
-    GyroPointer,
+    Pointer,
     GyroSensitivity,
+    TouchSensitivity,
     PairJoyCon,
     Reset,
 };
@@ -826,9 +841,8 @@ enum class ControlsRow {
 struct ControlsRowInfo {
     ControlsRow kind = ControlsRow::Reset;
     galaxy::input::WiiTarget target = galaxy::input::WiiTarget::A;
+    friend bool operator==(const ControlsRowInfo&, const ControlsRowInfo&) = default;
 };
-
-constexpr unsigned kControlsBindingRow0 = 2u;
 
 // The Pair Joy-Con screen (CONTROLS > PAIR JOY-CON): open while the controller worker pairs the halves whose L and R
 // are held; it closes a moment after a pair is made, or with Escape or B.
@@ -862,6 +876,9 @@ galaxy::host::JoyConStatus joycon_status_now() {
         }
         return steps;
     }();
+    if (s_test_joycons) {
+        return *s_test_joycons;
+    }
     if (test.empty()) {
         return galaxy::host::joycon_status();
     }
@@ -904,50 +921,101 @@ std::vector<ControlsRow> controls_tail_rows() {
         rows.push_back(ControlsRow::StickDeadzone);
         rows.push_back(ControlsRow::PointerDeadzone);
         rows.push_back(ControlsRow::PointerHide);
-        rows.push_back(ControlsRow::Vibration);
-        rows.push_back(ControlsRow::VibrationStrength);
+        // A generic controller has no standard motor report: no vibration.
+        if (s_controls_scheme != galaxy::input::ControlScheme::Generic) {
+            rows.push_back(ControlsRow::Vibration);
+            rows.push_back(ControlsRow::VibrationStrength);
+        }
+    }
+    // The pointer's source where the controller has more than its stick, each source's sensitivity while it points.
+    const galaxy::input::SchemeTuning& tuning = s_controls_draft.tune(s_controls_scheme);
+    if (scheme_has_motion(s_controls_scheme) || galaxy::input::scheme_has_touch(s_controls_scheme)) {
+        rows.push_back(ControlsRow::Pointer);
+        if (tuning.gyro_pointer) rows.push_back(ControlsRow::GyroSensitivity);
+        if (tuning.touch_pointer) rows.push_back(ControlsRow::TouchSensitivity);
     }
     if (scheme_has_motion(s_controls_scheme)) {
         rows.push_back(ControlsRow::MotionShake);
         rows.push_back(ControlsRow::ShakeSensitivity);
-        rows.push_back(ControlsRow::GyroPointer);
-        rows.push_back(ControlsRow::GyroSensitivity);
     }
-    // Pairing Joy-Con is on every page (its place never moves as halves come and go).
-    rows.push_back(ControlsRow::PairJoyCon);
     rows.push_back(ControlsRow::Reset);
     return rows;
 }
 
 void refresh_controls_devices(bool force);
 
+// A real Wii Remote is paired and on (its HID interface is present), looked for at most once a second: the WII REMOTE
+// input mode is offered while one is.
+bool wii_remote_present() {
+    if (s_test_wii_remote) {
+        return *s_test_wii_remote;
+    }
+    static std::uint64_t s_checked_ms = 0u;
+    static bool s_present = false;
+    const std::uint64_t now = GetTickCount64();
+    if (s_checked_ms == 0u || now - s_checked_ms >= 1000u) {
+        s_checked_ms = now;
+        static constexpr std::uint16_t kRemotes[] = {0x0306u, 0x0330u};
+        s_present = !galaxy::host::hid_interface_paths(0x057Eu, kRemotes).empty();
+    }
+    return s_present;
+}
+
+// The CONTROLS page's rows top to bottom: the input mode; PAIR JOY-CON while a Joy-Con half is connected (Auto,
+// Controller only); then, but in the Wii Remote mode (its buttons are its own), the device being set up and, while
+// there is one, its bindings (the jump/back row after A and B) and its settings.
+std::vector<ControlsRowInfo> controls_rows() {
+    using galaxy::input::WiiTarget;
+    std::vector<ControlsRowInfo> rows{{ControlsRow::InputMode}};
+    const galaxy::host::JoyConStatus joycons = joycon_status_now();
+    if ((s_input_mode_draft == RuntimeInputMode::Auto || s_input_mode_draft == RuntimeInputMode::Controller) &&
+        joycons.lefts + joycons.rights != 0u) {
+        rows.push_back({ControlsRow::PairJoyCon});
+    }
+    if (s_input_mode_draft == RuntimeInputMode::RealWiimote) {
+        return rows;
+    }
+    rows.push_back({ControlsRow::Device});
+    if (s_controls_devices.count == 0u) {
+        return rows;
+    }
+    for (unsigned index = 0; index < galaxy::input::kWiiTargetCount; ++index) {
+        const WiiTarget target = index == 2u ? WiiTarget::JumpBack
+                                 : index > 2u ? static_cast<WiiTarget>(index - 1u)
+                                              : static_cast<WiiTarget>(index);
+        rows.push_back({ControlsRow::Binding, target});
+    }
+    for (const ControlsRow kind : controls_tail_rows()) {
+        rows.push_back({kind});
+    }
+    return rows;
+}
+
 unsigned controls_row_count() {
     const std::lock_guard<std::recursive_mutex> lock(s_native_settings_mutex);
     refresh_controls_devices(false);
-    return kControlsBindingRow0 + static_cast<unsigned>(galaxy::input::kWiiTargetCount) +
-           static_cast<unsigned>(controls_tail_rows().size());
+    return static_cast<unsigned>(controls_rows().size());
 }
 
 ControlsRowInfo controls_row(unsigned row) {
-    ControlsRowInfo info{};
-    if (row == 0u) {
-        info.kind = ControlsRow::InputMode;
-    } else if (row == 1u) {
-        info.kind = ControlsRow::Device;
-    } else if (row - kControlsBindingRow0 < galaxy::input::kWiiTargetCount) {
-        // The jump/back row follows A and B.
-        using galaxy::input::WiiTarget;
-        const unsigned index = row - kControlsBindingRow0;
-        info.kind = ControlsRow::Binding;
-        info.target = index == 2u ? WiiTarget::JumpBack
-            : index > 2u ? static_cast<WiiTarget>(index - 1u)
-            : static_cast<WiiTarget>(index);
-    } else {
-        const auto tail = controls_tail_rows();
-        const std::size_t index = row - kControlsBindingRow0 - galaxy::input::kWiiTargetCount;
-        info.kind = index < tail.size() ? tail[index] : ControlsRow::Reset;
+    const std::vector<ControlsRowInfo> rows = controls_rows();
+    return row < rows.size() ? rows[row] : ControlsRowInfo{};
+}
+
+// The rows changed under the selection (a Joy-Con half came or went, a sensitivity row with its source): the selection
+// stays on the row it was on.
+void keep_controls_selection() {
+    static std::vector<ControlsRowInfo> s_last;
+    const std::vector<ControlsRowInfo> rows = controls_rows();
+    if (rows == s_last) return;
+    const unsigned selected = s_native_settings_row.load(std::memory_order_relaxed);
+    if (selected < s_last.size()) {
+        const auto it = std::find(rows.begin(), rows.end(), s_last[selected]);
+        const unsigned row = it != rows.end() ? static_cast<unsigned>(it - rows.begin())
+                                              : std::min(selected, static_cast<unsigned>(rows.size()) - 1u);
+        s_native_settings_row.store(row, std::memory_order_relaxed);
     }
-    return info;
+    s_last = rows;
 }
 
 unsigned controls_changes() {
@@ -1018,7 +1086,7 @@ constexpr std::uint64_t kControlsDevicesRefreshMs = 500u;
 // keyboard and mouse).
 void refresh_controls_devices(bool force) {
     const std::uint64_t now = GetTickCount64();
-    if (!force && s_controls_devices.count != 0u && now - s_controls_devices_ms < kControlsDevicesRefreshMs) {
+    if (!force && s_controls_devices_ms != 0u && now - s_controls_devices_ms < kControlsDevicesRefreshMs) {
         return;
     }
     s_controls_devices_ms = now;
@@ -1035,6 +1103,20 @@ void refresh_controls_devices(bool force) {
     }
     galaxy::input::build_device_list(std::span<const galaxy::input::ControllerInfo>(connected.data(), count),
                                      active, s_controls_devices);
+    // Only what the input mode reads: the keyboard and mouse alone, or the controllers alone.
+    if (s_input_mode_draft == RuntimeInputMode::KeyboardMouse || s_input_mode_draft == RuntimeInputMode::Controller) {
+        const bool keyboard = s_input_mode_draft == RuntimeInputMode::KeyboardMouse;
+        std::size_t kept = 0;
+        for (std::size_t i = 0; i < s_controls_devices.count; ++i) {
+            const bool is_keyboard = s_controls_devices.entries[i].key.scheme == galaxy::input::ControlScheme::Keyboard;
+            if (is_keyboard == keyboard) s_controls_devices.entries[kept++] = s_controls_devices.entries[i];
+        }
+        s_controls_devices.count = kept;
+    }
+    if (s_controls_devices.count == 0u) {
+        end_controls_capture();
+        return;
+    }
     const galaxy::input::DeviceKey edited =
         s_controls_devices.entries[galaxy::input::resolve_device(s_controls_devices, s_controls_device)].key;
     if (!(edited == s_controls_device)) {
@@ -1113,6 +1195,11 @@ void expire_display_confirmation() {
     }
 }
 
+// A controller is attached (the tests' stand-ins where they set them).
+bool controller_attached() {
+    return s_test_controllers ? !s_test_controllers->empty() : galaxy::host::controller_present_now();
+}
+
 // Applies the CONTROLS draft. Controller input is selected only while a
 // controller is attached.
 void apply_controls_draft() {
@@ -1123,8 +1210,11 @@ void apply_controls_draft() {
     }
     RuntimeSettings runtime = get_runtime_settings();
     if (s_input_mode_draft != runtime.input_mode) {
-        if (s_input_mode_draft == RuntimeInputMode::Controller && !galaxy::host::controller_present_now()) {
+        if (s_input_mode_draft == RuntimeInputMode::Controller && !controller_attached()) {
             show_controls_message("NO CONTROLLER CONNECTED");
+            s_input_mode_draft = runtime.input_mode;
+        } else if (s_input_mode_draft == RuntimeInputMode::RealWiimote && !wii_remote_present()) {
+            show_controls_message("NO WII REMOTE CONNECTED");
             s_input_mode_draft = runtime.input_mode;
         } else {
             runtime.input_mode = s_input_mode_draft;
@@ -1185,6 +1275,12 @@ void apply_native_settings_draft() {
     const bool display_changed = display_settings_differ(live, applied);
     const unsigned changes = pending_settings_changes();
     commit_mods_draft();
+    // RAY TRACING turned on before its shaders are prepared starts at the next start, which prepares them first.
+    if (applied.ray_tracing_enabled && !live.ray_tracing_enabled &&
+        host_window::ray_tracing_offered.load(std::memory_order_relaxed) &&
+        !host_window::ray_tracing_prepared.load(std::memory_order_relaxed)) {
+        s_rt_restart_ask.store(true, std::memory_order_release);
+    }
     // The game's settings the menu changed, over the live ones (the controls applied the input mode).
     RuntimeSettings runtime = get_runtime_settings();
     if (runtime_draft_changes(&runtime) != 0u) {
@@ -1328,19 +1424,21 @@ void adjust_native_setting_unlogged(int delta) {
             return std::clamp(snapped + static_cast<float>(delta) * increment, lo, hi);
         };
         switch (info.kind) {
-        case ControlsRow::InputMode:
-            // A physical Wii Remote is chosen in the launcher only.
-            if (s_input_mode_draft == RuntimeInputMode::RealWiimote) return;
-            {
-                static constexpr RuntimeInputMode kModes[] = {
-                    RuntimeInputMode::Auto, RuntimeInputMode::KeyboardMouse, RuntimeInputMode::Controller};
-                unsigned index = 0u;
-                for (unsigned i = 0; i < 3u; ++i) {
-                    if (kModes[i] == s_input_mode_draft) index = i;
-                }
-                s_input_mode_draft = kModes[step(index, 3u)];
+        case ControlsRow::InputMode: {
+            // The Wii Remote's own mode while one is paired and on (or chosen already).
+            std::vector<RuntimeInputMode> modes{RuntimeInputMode::Auto, RuntimeInputMode::KeyboardMouse,
+                                                RuntimeInputMode::Controller};
+            if (wii_remote_present() || s_input_mode_draft == RuntimeInputMode::RealWiimote) {
+                modes.push_back(RuntimeInputMode::RealWiimote);
             }
+            unsigned index = 0u;
+            for (unsigned i = 0; i < modes.size(); ++i) {
+                if (modes[i] == s_input_mode_draft) index = i;
+            }
+            s_input_mode_draft = modes[step(index, static_cast<unsigned>(modes.size()))];
+            refresh_controls_devices(true);
             return;
+        }
         case ControlsRow::Device: {
             refresh_controls_devices(true);
             if (s_controls_devices.count == 0u) return;
@@ -1386,11 +1484,27 @@ void adjust_native_setting_unlogged(int delta) {
             tuning.shake_sensitivity = static_cast<std::uint8_t>(
                 step(tuning.shake_sensitivity - 1u, galaxy::input::kShakeSensitivitySteps) + 1u);
             return;
-        case ControlsRow::GyroPointer:
-            tuning.gyro_pointer = !tuning.gyro_pointer;
+        case ControlsRow::Pointer: {
+            // Its sources by the controller's sensors: bit 0 motion, bit 1 the touchpad.
+            std::vector<unsigned> choices{0u};
+            if (galaxy::input::scheme_has_motion(s_controls_scheme)) choices.push_back(1u);
+            if (galaxy::input::scheme_has_touch(s_controls_scheme)) choices.push_back(2u);
+            if (choices.size() == 3u) choices.push_back(3u);
+            const unsigned current = (tuning.gyro_pointer ? 1u : 0u) | (tuning.touch_pointer ? 2u : 0u);
+            unsigned index = 0u;
+            for (unsigned i = 0; i < choices.size(); ++i) {
+                if (choices[i] == current) index = i;
+            }
+            const unsigned next = choices[step(index, static_cast<unsigned>(choices.size()))];
+            tuning.gyro_pointer = (next & 1u) != 0u;
+            tuning.touch_pointer = (next & 2u) != 0u;
             return;
+        }
         case ControlsRow::GyroSensitivity:
             tuning.gyro_sensitivity = step_float(tuning.gyro_sensitivity, 0.1f, 0.2f, 5.0f);
+            return;
+        case ControlsRow::TouchSensitivity:
+            tuning.touch_sensitivity = step_float(tuning.touch_sensitivity, 0.1f, 0.2f, 5.0f);
             return;
         case ControlsRow::PairJoyCon:
             if (delta > 0) open_joycon_pairing();
@@ -1659,6 +1773,7 @@ SliderPlace settings_slider(unsigned tab, unsigned row, const std::vector<Settin
         along(static_cast<float>(tuning.shake_sensitivity), 1.0f, 1.0f, static_cast<float>(galaxy::input::kShakeSensitivitySteps));
         break;
     case ControlsRow::GyroSensitivity: along(tuning.gyro_sensitivity, 0.2f, 0.1f, 5.0f); break;
+    case ControlsRow::TouchSensitivity: along(tuning.touch_sensitivity, 0.2f, 0.1f, 5.0f); break;
     default: break;
     }
     return place;
@@ -1751,7 +1866,7 @@ bool handle_native_settings_key(WPARAM key, bool was_down, bool from_pad = false
             // anything else closes.
             const NativeSettingsStatus dlss = dlss_status(GetTickCount64());
             if (!settings_display_confirming() && dlss != NativeSettingsStatus::DlssAsk &&
-                dlss != NativeSettingsStatus::DlssRestart && !s_mods_restart_ask.load(std::memory_order_acquire)) {
+                dlss != NativeSettingsStatus::DlssRestart && !restart_asking()) {
                 set_native_settings_visible(false);
             }
         } else if (key == VK_BACK) {
@@ -1764,7 +1879,7 @@ bool handle_native_settings_key(WPARAM key, bool was_down, bool from_pad = false
         return true;
     }
     if (key != VK_F1 && s_native_settings_visible.load(std::memory_order_relaxed) &&
-        (dlss_prompt_key(key, was_down) || mods_restart_key(key, was_down))) {
+        (dlss_prompt_key(key, was_down) || restart_ask_key(key, was_down))) {
         return true;
     }
     if (key != VK_F1 && s_native_settings_visible.load(std::memory_order_relaxed) &&
@@ -2542,7 +2657,8 @@ std::vector<SettingsRow> graphics_page(const RenderConfig& render) {
 
     if (rt_offered) {
         rows.push_back({"RAY TRACING", {}, nullptr, {}, true});
-        rows.push_back({"RAY TRACING", render.ray_tracing_enabled ? "ON" : "OFF",
+        const bool prepared = host_window::ray_tracing_prepared.load(std::memory_order_relaxed);
+        rows.push_back({"RAY TRACING", !render.ray_tracing_enabled ? "OFF" : prepared ? "ON" : "ON (AFTER RESTART)",
                         [](RenderConfig& draft, int) { draft.ray_tracing_enabled = !draft.ray_tracing_enabled; },
                         "TRACED SHADOWS, SKY AND BOUNCE LIGHT, GLOWS THAT LIGHT THE WORLD"});
     }
@@ -3151,7 +3267,8 @@ std::string language_name(std::string_view folder) {
 std::string next_start_language_folder() {
     std::string game_id = galaxy::mods::mods_game_id();
     if (game_id.empty()) game_id = "RMGE01";
-    return galaxy::mods::language_folder(game_id, static_cast<unsigned>(get_runtime_settings().language));
+    return galaxy::mods::language_folder(
+        game_id, static_cast<unsigned>(galaxy::game_language_resolved(get_runtime_settings().language)));
 }
 
 // The selection to a row of the MODS page (after a change moved it).
@@ -3493,30 +3610,50 @@ std::vector<SettingsRow> game_page(const RuntimeSettings& runtime) {
                     },
                     "HOW FAST DIALOGUE TEXT APPEARS. INSTANT: EACH PAGE AT ONCE"});
     {
-        static constexpr const char* kIcons[] = {"AUTO", "WII", "XBOX", "NINTENDO SWITCH", "PLAYSTATION"};
-        rows.push_back({"BUTTON ICONS", kIcons[std::min<std::size_t>(static_cast<std::size_t>(runtime.button_icons), 4u)],
+        static constexpr const char* kIcons[] = {"AUTO", "WII", "XBOX", "NINTENDO SWITCH", "PLAYSTATION",
+                                                 "KEYBOARD AND MOUSE"};
+        // Auto names the icons it shows now.
+        std::string icons = kIcons[std::min<std::size_t>(static_cast<std::size_t>(runtime.button_icons), 5u)];
+        if (runtime.button_icons == ButtonIcons::Auto) {
+            using galaxy::input::ButtonIconStyle;
+            const ButtonIconStyle shown = galaxy::host::button_icons_auto_style();
+            icons += shown == ButtonIconStyle::Xbox          ? " (XBOX)"
+                     : shown == ButtonIconStyle::Nintendo    ? " (NINTENDO SWITCH)"
+                     : shown == ButtonIconStyle::PlayStation ? " (PLAYSTATION)"
+                     : shown == ButtonIconStyle::Keyboard    ? " (KEYBOARD AND MOUSE)"
+                                                             : " (WII)";
+        }
+        rows.push_back({"BUTTON ICONS", icons,
                         [](RenderConfig&, int delta) {
                             RuntimeSettings& settings = s_runtime_draft;
                             settings.button_icons = static_cast<ButtonIcons>(
-                                settings_step(static_cast<unsigned>(settings.button_icons), 5u, delta));
+                                settings_step(static_cast<unsigned>(settings.button_icons), 6u, delta));
                         },
                         "THE BUTTONS THE GAME'S ICONS SHOW. AUTO: THE CONTROLLER IN USE"});
     }
-    rows.push_back({"LANGUAGE", game_language_name(runtime.language),
+    rows.push_back({"LANGUAGE", game_language_name(galaxy::game_language_resolved(runtime.language)),
                     [](RenderConfig&, int delta) {
                         // Saved when applied; the game switches at the next start (game_language_for_boot).
-                        // The languages on the disc as it is read (galaxy::set_disc_languages).
+                        // The languages on the disc as it is read (galaxy::set_disc_languages); Auto shows the one
+                        // it plays in, and a step chooses from there.
+                        if (delta == 0) return;
                         RuntimeSettings& settings = s_runtime_draft;
                         std::vector<GameLanguage> offered;
-                        for (const GameLanguage language : kGameLanguages) {
+                        for (const GameLanguage language : galaxy::kGameLanguages) {
                             if (galaxy::game_language_on_disc(language)) offered.push_back(language);
                         }
+                        const GameLanguage current = galaxy::game_language_resolved(settings.language);
                         std::size_t index = 0u;
                         for (std::size_t i = 0; i < offered.size(); ++i) {
-                            if (offered[i] == settings.language) index = i;
+                            if (offered[i] == current) index = i;
                         }
-                        settings.language = offered[settings_step(static_cast<unsigned>(index),
-                                                                  static_cast<unsigned>(offered.size()), delta)];
+                        const GameLanguage chosen = offered[settings_step(static_cast<unsigned>(index),
+                                                                         static_cast<unsigned>(offered.size()), delta)];
+                        // Back on the language Auto plays in: Auto again, so nothing is left to apply.
+                        const GameLanguage saved = galaxy::get_runtime_settings().language;
+                        settings.language =
+                            saved == GameLanguage::Auto && chosen == galaxy::game_language_resolved(saved) ? saved
+                                                                                                         : chosen;
                     },
                     "THE GAME'S TEXT AND MENUS"});
     rows.push_back({"DISCORD STATUS", runtime.discord_status ? std::string("ON") : std::string("OFF"),
@@ -3629,6 +3766,9 @@ std::vector<SettingsRow> system_page(const RenderFeatureCaps& caps) {
     std::string post = post_process_caps_text(get_post_process_status());
     if (const std::size_t colon = post.find(": "); colon != std::string::npos) post.erase(0, colon + 2u);
     rows.push_back({"POST-PROCESS", post, nullptr, "ANTI-ALIASING, FSR 1 AND SHARPENING"});
+    rows.push_back(button_row("DIAGNOSTICS", {"RECORD"},
+                              [](RenderConfig&, unsigned) { s_diagnostics_ask.store(true, std::memory_order_release); },
+                              {}));
     return rows;
 }
 
@@ -3673,6 +3813,7 @@ std::string native_settings_row_text(
             default: return "INPUT: AUTO";
             }
         case ControlsRow::Device: {
+            if (s_controls_devices.count == 0u) return "EDIT: NONE";
             const galaxy::input::DeviceEntry& entry = s_controls_devices.entries[
                 galaxy::input::resolve_device(s_controls_devices, s_controls_device)];
             // Bluetooth is abbreviated: the row has no room for the longest names.
@@ -3722,9 +3863,15 @@ std::string native_settings_row_text(
         case ControlsRow::ShakeSensitivity:
             std::snprintf(text, sizeof(text), "SHAKE SENSITIVITY: %u", static_cast<unsigned>(tuning.shake_sensitivity));
             return text;
-        case ControlsRow::GyroPointer:
-            return std::string("GYRO POINTER: ") + on_off(tuning.gyro_pointer) +
-                   (tuning.gyro_pointer ? "  (R STICK: CAMERA)" : "  (R STICK: POINTER)");
+        case ControlsRow::Pointer: {
+            static constexpr const char* kSources[] = {"STICK", "MOTION", "TOUCHPAD", "MOTION + TOUCHPAD"};
+            return std::string("POINTER: ") +
+                   kSources[(tuning.gyro_pointer ? 1u : 0u) | (tuning.touch_pointer ? 2u : 0u)];
+        }
+        case ControlsRow::TouchSensitivity:
+            std::snprintf(text, sizeof(text), "TOUCHPAD SENSITIVITY: %.1f",
+                          static_cast<double>(tuning.touch_sensitivity));
+            return text;
         case ControlsRow::GyroSensitivity:
             std::snprintf(text, sizeof(text), "GYRO SENSITIVITY: %.1f",
                           static_cast<double>(tuning.gyro_sensitivity));
@@ -3791,7 +3938,7 @@ bool start_launcher(const std::wstring& arguments, HANDLE* process_out) {
     PROCESS_INFORMATION process{};
     if (!CreateProcessW(launcher.c_str(), command.data(), nullptr, nullptr, FALSE, 0u, nullptr, nullptr,
                         &startup, &process)) {
-        std::cerr << "[dlss] could not start Nebula.exe: win32=" << GetLastError() << '\n';
+        std::cerr << "[launcher] could not start Nebula.exe: win32=" << GetLastError() << '\n';
         return false;
     }
     // Its window comes to the front over the game.
@@ -3867,9 +4014,10 @@ void dlss_fail(const char* why) {
     std::cerr << "[dlss] not installed: " << why << '\n';
 }
 
-// The launcher starts the game again once this process has exited; this one closes.
-bool restart_through_launcher() {
-    if (!start_launcher(L"--restart-after " + std::to_wstring(GetCurrentProcessId()), nullptr)) {
+// The launcher starts the game again once this process has exited (`record`: a diagnostics run); this one closes.
+bool restart_through_launcher(bool record = false) {
+    if (!start_launcher(L"--restart-after " + std::to_wstring(GetCurrentProcessId()) + (record ? L" --record" : L""),
+                        nullptr)) {
         return false;
     }
     PostMessageW(reinterpret_cast<HWND>(host_window::settings_window.load(std::memory_order_acquire)), WM_CLOSE, 0, 0);
@@ -3909,20 +4057,25 @@ bool dlss_prompt_key(WPARAM key, bool was_down) {
     return true;
 }
 
-// After mod changes were applied: Enter, Space or Y restarts the game now; Escape, Backspace or B keeps them for the
-// next start. Every other key waits for the answer.
-bool mods_restart_key(WPARAM key, bool was_down) {
-    if (!s_mods_restart_ask.load(std::memory_order_acquire)) return false;
+// After changes that take a restart were applied (mods; ray tracing turned on before its shaders are prepared): Enter,
+// Space or Y restarts the game now; Escape, Backspace or B keeps them for the next start. Every other key waits for
+// the answer.
+bool restart_ask_key(WPARAM key, bool was_down) {
+    if (!restart_asking()) return false;
     if (was_down) return true;
     if (key == VK_RETURN || key == VK_SPACE) {
         s_mods_restart_ask.store(false, std::memory_order_release);
-        if (restart_through_launcher()) {
-            std::cerr << "[mods] restarting\n";
+        s_rt_restart_ask.store(false, std::memory_order_release);
+        const bool record = s_diagnostics_ask.exchange(false, std::memory_order_acq_rel);
+        if (restart_through_launcher(record)) {
+            std::cerr << (record ? "[settings] restarting into a diagnostics run\n" : "[settings] restarting\n");
         } else {
             show_controls_message("COULD NOT RESTART");
         }
     } else if (key == VK_ESCAPE || key == VK_BACK || key == VK_F1) {
         s_mods_restart_ask.store(false, std::memory_order_release);
+        s_rt_restart_ask.store(false, std::memory_order_release);
+        s_diagnostics_ask.store(false, std::memory_order_release);
     }
     return true;
 }
@@ -4032,8 +4185,9 @@ unsigned display_efb_scale_cap() {
     return std::clamp(static_cast<unsigned>(std::ceil(needed - 1e-6)), 1u, kMaxEfbScale);
 }
 
-// DXR 1.1 with shader model 6.5 on an adapter with dedicated memory (the RAY TRACING row).
+// DXR 1.1 with shader model 6.6 and resource binding tier 3 on an adapter with dedicated memory (the RAY TRACING row).
 std::atomic<bool> ray_tracing_offered{false};
+std::atomic<bool> ray_tracing_prepared{false};
 // Queues a save of the settings files when something changed; never waits on the disk.
 bool flush_native_settings_if_dirty() {
     if (!s_native_settings_dirty.load(std::memory_order_acquire)) {
@@ -4973,6 +5127,11 @@ void draw_native_settings_overlay(UiCanvas& renderer) {
     case NativeSettingsStatus::GpuRestart:
         status = "THE NEW GRAPHICS CARD APPLIES WHEN NEBULA RESTARTS";
         break;
+    case NativeSettingsStatus::ModsRestartAsk:
+    case NativeSettingsStatus::RtRestartAsk:
+    case NativeSettingsStatus::DiagnosticsAsk:
+        status = pad_hints("RESTART NOW?  ENTER/Y RESTART  ESC/B LATER");
+        break;
     case NativeSettingsStatus::Help:
         status = view.help;
         status_color = muted;
@@ -5015,11 +5174,12 @@ NativeSettingsView build_native_settings_view() {
     NativeSettingsView view;
     view.pages.assign(std::begin(kNativeSettingsTabNames), std::end(kNativeSettingsTabNames));
     view.controls_page = kControlsTab;
-    // The hints show the buttons the icons do: a chosen style whatever is in hand, else what the player last used.
+    // The hints show the buttons the icons do: a chosen style whatever is in hand (the keyboard's: its keys), else what
+    // the player last used.
     const ButtonIcons icons = get_runtime_settings().button_icons;
     if (icons == ButtonIcons::Xbox || icons == ButtonIcons::Nintendo || icons == ButtonIcons::PlayStation) {
         view.input = icons == ButtonIcons::Xbox ? 1u : icons == ButtonIcons::Nintendo ? 2u : 3u;
-    } else if (const auto device = galaxy::host::last_input_device()) {
+    } else if (const auto device = galaxy::host::last_input_device(); device && icons != ButtonIcons::Keyboard) {
         switch (device->scheme) {
         case galaxy::input::ControlScheme::Keyboard: break;
         case galaxy::input::ControlScheme::SwitchPro:
@@ -5039,6 +5199,7 @@ NativeSettingsView build_native_settings_view() {
     expire_controls_capture();
     if (tab == kControlsTab) {
         refresh_controls_devices(false);
+        keep_controls_selection();
     }
     const RenderConfig row_render = s_settings_draft;
     const RuntimeSettings row_runtime = s_runtime_draft;
@@ -5049,6 +5210,8 @@ NativeSettingsView build_native_settings_view() {
     const std::vector<SettingsRow> page =
         page_tab ? settings_page(tab, row_render, row_runtime, row_caps) : std::vector<SettingsRow>{};
     view.rows.reserve(row_count);
+    const std::uint32_t shared_targets =
+        tab == kControlsTab ? galaxy::input::shared_binding_targets(s_controls_draft.table(s_controls_scheme)) : 0u;
     for (unsigned row = 0; row < row_count; ++row) {
         NativeSettingsViewRow shown;
         shown.changes = true;
@@ -5076,7 +5239,9 @@ NativeSettingsView build_native_settings_view() {
             // The controller being set up by its own name (the overlay's row has it in capitals), and the bindings as
             // lists of inputs.
             const ControlsRowInfo info = controls_row(row);
-            if (info.kind == ControlsRow::Device) {
+            // Nothing to set up (controller only, none attached): the device row shows none, fixed.
+            shown.changes = info.kind != ControlsRow::Device || s_controls_devices.count != 0u;
+            if (info.kind == ControlsRow::Device && s_controls_devices.count != 0u) {
                 const galaxy::input::DeviceEntry& entry =
                     s_controls_devices.entries[galaxy::input::resolve_device(s_controls_devices, s_controls_device)];
                 shown.value = entry.label.data();
@@ -5089,6 +5254,7 @@ NativeSettingsView build_native_settings_view() {
                                                                     s_controls_draft.table(s_controls_scheme)[info.target]);
             }
             shown.inputs = info.kind == ControlsRow::Binding;
+            shown.shared = shown.inputs && (shared_targets & galaxy::input::wii_target_bit(info.target)) != 0u;
             if (info.kind == ControlsRow::Reset) {
                 shown.buttons = true;
                 shown.value = "RESET";
@@ -5128,6 +5294,10 @@ NativeSettingsView build_native_settings_view() {
         view.status_number = static_cast<int>(pending_settings_changes());
     } else if (s_mods_restart_ask.load(std::memory_order_acquire)) {
         view.status = NativeSettingsStatus::ModsRestartAsk;
+    } else if (s_rt_restart_ask.load(std::memory_order_acquire)) {
+        view.status = NativeSettingsStatus::RtRestartAsk;
+    } else if (s_diagnostics_ask.load(std::memory_order_acquire)) {
+        view.status = NativeSettingsStatus::DiagnosticsAsk;
     } else if (controls_capturing()) {
         view.status = s_controls_scheme == galaxy::input::ControlScheme::Keyboard ? NativeSettingsStatus::CaptureKey
                                                                                    : NativeSettingsStatus::CapturePad;
@@ -5148,7 +5318,8 @@ NativeSettingsView build_native_settings_view() {
         view.status_number = static_cast<int>(pending);
     } else if (s_settings_applied_ms != 0u && now_ms - s_settings_applied_ms < 2500u) {
         view.status = NativeSettingsStatus::Applied;
-    } else if (GameLanguage running{}; tab == 4u && running_game_language(running) && running != row_runtime.language) {
+    } else if (GameLanguage running{}; tab == 4u && running_game_language(running) &&
+                                       running != galaxy::game_language_resolved(row_runtime.language)) {
         view.status = NativeSettingsStatus::LanguageRestart;
     } else if (tab == 5u && mods_restart_pending()) {
         view.status = NativeSettingsStatus::ModsRestart;
@@ -5212,40 +5383,6 @@ void draw_home_menu(UiCanvas& renderer) {
         }
         ui_text(renderer, x + 14 * scale, ry + 4 * scale, scale, rows[row], row == selected ? text : muted);
     }
-}
-
-// For the first seconds of a session, until the overlay is first opened, a one-line hint names the keys that open it.
-void draw_native_settings_hint(UiCanvas& renderer) {
-    static std::uint64_t s_hint_until_ms = 0u;
-    static bool s_hint_done = false;
-    if (s_hint_done) {
-        return;
-    }
-    const std::uint64_t now = GetTickCount64();
-    if (s_hint_until_ms == 0u) {
-        s_hint_until_ms = now + 8000u;
-    }
-    if (now >= s_hint_until_ms ||
-        s_native_settings_visible.load(std::memory_order_relaxed)) {
-        s_hint_done = true;
-        return;
-    }
-    if (host_window::backbuffer_width < 427u || host_window::backbuffer_height < 240u) {
-        return;
-    }
-    static constexpr const char* kHint = "F1, VIEW+MENU OR MINUS+PLUS: SETTINGS";
-    const int scale = host_window::backbuffer_height >= 1440u ? 3 : (host_window::backbuffer_height >= 720u ? 2 : 1);
-    int text_w = -scale;
-    for (const char* ch = kHint; *ch != '\0'; ++ch) {
-        text_w += (*ch == ' ' ? 4 : 6) * scale;
-    }
-    const int pad = 4 * scale;
-    const int x = 8 * scale;
-    const int y = static_cast<int>(host_window::backbuffer_height) - 8 * scale - 7 * scale - pad * 2;
-    ui_rect(renderer, x, y, text_w + pad * 2, 7 * scale + pad * 2,
-            {0.02f, 0.025f, 0.035f, 1.0f});
-    ui_text(renderer, x + pad, y + pad, scale, kHint,
-            {0.88f, 0.94f, 0.96f, 1.0f});
 }
 
 }  // namespace host_window
@@ -5744,8 +5881,7 @@ void native_settings_input(NativeSettingsInput input, int arg) {
         break;
     }
     // The page and its rows wait while a question is up (keep the display? leave without applying?).
-    if (!visible || s_settings_leave_asking || s_joycon_pairing || settings_display_confirming() ||
-        s_mods_restart_ask.load(std::memory_order_acquire)) {
+    if (!visible || s_settings_leave_asking || s_joycon_pairing || settings_display_confirming() || restart_asking()) {
         return;
     }
     switch (input) {
@@ -5878,6 +6014,9 @@ void native_settings_reset_overlay_state_for_tests() noexcept {
     s_controls_devices = {};
     s_test_controllers.reset();
     s_test_active_device.reset();
+    // No Joy-Con half and no Wii Remote, whatever this machine has, until a test sets them.
+    s_test_joycons = galaxy::host::JoyConStatus{};
+    s_test_wii_remote = false;
     s_settings_first_row = 0u;
     s_controls_message_until_ms = 0u;
     s_native_settings_visible.store(false, std::memory_order_relaxed);
@@ -5898,6 +6037,18 @@ void native_settings_set_controllers_for_tests(std::span<const galaxy::input::Co
     s_test_controllers = std::vector<galaxy::input::ControllerInfo>(controllers.begin(), controllers.end());
     s_test_active_device = active;
     refresh_controls_devices(true);
+}
+
+void native_settings_set_joycons_for_tests(unsigned lefts, unsigned rights) {
+    const std::lock_guard<std::recursive_mutex> lock(s_native_settings_mutex);
+    galaxy::host::JoyConStatus status{};
+    status.lefts = static_cast<std::uint8_t>(lefts);
+    status.rights = static_cast<std::uint8_t>(rights);
+    s_test_joycons = status;
+}
+void native_settings_set_wii_remote_for_tests(bool present) {
+    const std::lock_guard<std::recursive_mutex> lock(s_native_settings_mutex);
+    s_test_wii_remote = present;
 }
 RenderConfig native_settings_draft_for_tests() {
     const std::lock_guard<std::recursive_mutex> lock(s_native_settings_mutex);

@@ -1,4 +1,7 @@
 #include "Game/Map/OceanSphere.hpp"
+#include <JSystem/J3DGraphBase/J3DNativeState.hpp>
+#include <JSystem/J3DGraphBase/J3DNativeShape.hpp>
+#include <JSystem/J3DGraphBase/J3DNativeDraw.hpp>
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Map/OceanSpherePoint.hpp"
 #include "Game/Map/WaterAreaHolder.hpp"
@@ -10,6 +13,7 @@
 #include "Game/Util/MathUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/SceneUtil.hpp"
+#include "Game/Util/NativeMesh.hpp"
 #include "Game/Util/SchedulerUtil.hpp"
 #include <JSystem/JGeometry/TMatrix.hpp>
 #include <JSystem/JKernel/JKRHeap.hpp>
@@ -45,22 +49,13 @@ namespace {
 };  // namespace
 
 namespace {
-    u32 calcDisplayListSize(u32 count, u32 stride) {
-        count = (((count + 1) * count) & ~1) - count - 1;
-        return (((((count - 1) * 3 + stride * count) >> 2) & 0x07FFFFFF) + 2) << 5;
-    }
-
-    void beginDrawPolygon(int idx, s32 pointCount, bool useGD) {
-        if (useGD) {
-            GDOverflowCheck(1);
-            *__GDCurrentDL->ptr++ = GX_TRIANGLESTRIP;
-            GDOverflowCheck(2);
-            u16 vtxCount = (u16)(((pointCount - 1 - idx) * 2 + 1));
-            *__GDCurrentDL->ptr++ = (u8)(vtxCount >> 8);
-            *__GDCurrentDL->ptr++ = (u8)vtxCount;
+    // `pMesh`: the mesh recording the sphere (null to draw it now, its vertices giving `attributes`).
+    void beginDrawPolygon(int idx, s32 pointCount, NativeMesh* pMesh, u32 attributes) {
+        const u16 vtxCount = (u16)(((pointCount - 1 - idx) * 2 + 1));
+        if (pMesh != nullptr) {
+            pMesh->begin(GX_TRIANGLESTRIP, vtxCount);
         } else {
-            u16 vtxCount = (u16)(((pointCount - 1 - idx) * 2 + 1));
-            GXBegin(GX_TRIANGLESTRIP, GX_VTXFMT0, vtxCount);
+            J3DNativeDraw::begin(GX_TRIANGLESTRIP, vtxCount, attributes);
         }
     }
 };  // namespace
@@ -152,10 +147,6 @@ OceanSphere::OceanSphere(const char* pName)
     mTevReg1Back = back;
 
     mUseDisplayList = false;
-    mDispListFaceLen = 0;
-    mDispListFace = nullptr;
-    mDispListBackLen = 0;
-    mDispListBack = nullptr;
     mAlwaysUseRealDrawing = false;
     mIsCameraInside = false;
     mIsStartPosCamera = true;
@@ -316,26 +307,14 @@ void OceanSphere::initPoints() {
 }
 
 void OceanSphere::initDisplayList() {
-    MR::ProhibitSchedulerAndInterrupts prohibit(false);
-    u32 sizeFace = ::calcDisplayListSize(mPointCount, 0x1C);
-    mDispListFace = new (0x20) u8[sizeFace];
-    DCInvalidateRange(mDispListFace, sizeFace);
-    GDLObj obj;
-    GDInitGDLObj(&obj, mDispListFace, sizeFace);
-    __GDCurrentDL = &obj;
-    drawSphere(false, true);
-    GDPadCurr32();
-    mDispListFaceLen = obj.ptr - obj.start;
-    DCStoreRange(mDispListFace, sizeFace);
-    u32 sizeBack = ::calcDisplayListSize(mPointCount, 0x18);
-    mDispListBack = new (0x20) u8[sizeBack];
-    DCInvalidateRange(mDispListBack, sizeBack);
-    GDInitGDLObj(&obj, mDispListBack, sizeBack);
-    __GDCurrentDL = &obj;
-    drawSphere(true, true);
-    GDPadCurr32();
-    mDispListBackLen = obj.ptr - obj.start;
-    DCStoreRange(mDispListBack, sizeBack);
+    // The face's corners carry the sphere's normals too (loadMaterialFace), the back's only them.
+    const u32 corners = 8 * mPointCount * (mPointCount + 1);
+    mMeshFace.init(NEBULA_SHAPE_NORMAL | NEBULA_SHAPE_TEXCOORD0 | NEBULA_SHAPE_TEXCOORD0 << 1, corners);
+    drawSphere(false, &mMeshFace);
+    mMeshFace.send();
+    mMeshBack.init(NEBULA_SHAPE_NORMAL, corners);
+    drawSphere(true, &mMeshBack);
+    mMeshBack.send();
 }
 
 void OceanSphere::control() {
@@ -580,9 +559,9 @@ void OceanSphere::draw() const {
         loadMaterialBack();
 
         if (mUseDisplayList) {
-            GXCallDisplayList(mDispListBack, mDispListBackLen);
+            mMeshBack.draw();
         } else {
-            drawSphere(true, false);
+            drawSphere(true, nullptr);
         }
     }
 
@@ -590,266 +569,222 @@ void OceanSphere::draw() const {
 
     if (mIsStartPosCamera) {
         if (mIsCameraInside) {
-            GXSetCullMode(GX_CULL_FRONT);
+            J3DNativeState::setCullMode(GX_CULL_FRONT);
         }
 
         if (mUseDisplayList) {
-            GXCallDisplayList(mDispListFace, mDispListFaceLen);
+            mMeshFace.draw();
         } else {
-            drawSphere(false, false);
+            drawSphere(false, nullptr);
         }
 
         return;
     }
 
-    GXSetCullMode(GX_CULL_FRONT);
-    drawSphere(false, false);
+    J3DNativeState::setCullMode(GX_CULL_FRONT);
+    drawSphere(false, nullptr);
 
     if (mIsCameraInside) {
         return;
     }
 
-    GXSetCullMode(GX_CULL_BACK);
-    GXSetTevColor(GX_TEVREG0, sOceanSphereTevReg0Back);
-    GXSetTevColor(GX_TEVREG1, mTevReg1Back);
-    GXSetTevColor(GX_TEVREG2, sOceanSphereTevReg2Back);
-    GXSetTevKColor(GX_KCOLOR0, sOceanSphereKColor0Back);
-    drawSphere(false, false);
+    J3DNativeState::setCullMode(GX_CULL_BACK);
+    J3DNativeState::setTevColor(GX_TEVREG0, sOceanSphereTevReg0Back);
+    J3DNativeState::setTevColor(GX_TEVREG1, mTevReg1Back);
+    J3DNativeState::setTevColor(GX_TEVREG2, sOceanSphereTevReg2Back);
+    J3DNativeState::setTevKColor(GX_KCOLOR0, sOceanSphereKColor0Back);
+    drawSphere(false, nullptr);
 }
 
 const GXColor sOceanSphereFogFace = {0xFF, 0xFF, 0xFF, 0};
 const GXColor sOceanSphereFogBack = {0xFF, 0xFF, 0xFF, 0};
 
 void OceanSphere::loadMaterialFace() const {
-    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
-    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX0, GX_POS_XYZ, GX_F32, 0);
-    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX1, GX_POS_XYZ, GX_F32, 0);
-    GXClearVtxDesc();
-    GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
-    GXSetVtxDesc(GX_VA_TEX0, GX_DIRECT);
-    GXSetVtxDesc(GX_VA_TEX1, GX_DIRECT);
-    GXLoadPosMtxImm(MR::getCameraViewMtx(), 0);
-    GXSetCurrentMtx(0);
-    GXSetNumChans(1);
-    GXSetChanCtrl(GX_COLOR0A0, GX_FALSE, GX_SRC_REG, GX_SRC_REG, 0, GX_DF_NONE, GX_AF_NONE);
-    GXSetChanCtrl(GX_COLOR1A1, GX_FALSE, GX_SRC_REG, GX_SRC_REG, 0, GX_DF_NONE, GX_AF_NONE);
-    GXSetNumTexGens(2);
-    GXSetTexCoordGen2(GX_TEXCOORD0, GX_TG_MTX3x4, GX_TG_TEX0, GX_IDENTITY, GX_FALSE, GX_PTIDENTITY);
-    GXSetTexCoordGen2(GX_TEXCOORD1, GX_TG_MTX3x4, GX_TG_TEX1, GX_IDENTITY, GX_FALSE, GX_PTIDENTITY);
+    J3DNativeShape::sendPosition(MR::getCameraViewMtx(), 0);
+    // The face's vertices carry the sphere's normals (unlit: the picture is unchanged), so ray tracing shades the
+    // water as the sphere it is rather than as its flat triangles.
+    J3DNativeShape::sendNormal(MR::getCameraViewMtx(), 0);
+    J3DNativeState::setCurrentMtx(0);
+    J3DNativeState::setNumChans(1);
+    J3DNativeState::setChanCtrl(GX_COLOR0A0, GX_FALSE, GX_SRC_REG, GX_SRC_REG, 0, GX_DF_NONE, GX_AF_NONE);
+    J3DNativeState::setChanCtrl(GX_COLOR1A1, GX_FALSE, GX_SRC_REG, GX_SRC_REG, 0, GX_DF_NONE, GX_AF_NONE);
+    J3DNativeState::setNumTexGens(2);
+    J3DNativeState::setTexCoordGen2(GX_TEXCOORD0, GX_TG_MTX3x4, GX_TG_TEX0, GX_IDENTITY, GX_FALSE, GX_PTIDENTITY);
+    J3DNativeState::setTexCoordGen2(GX_TEXCOORD1, GX_TG_MTX3x4, GX_TG_TEX1, GX_IDENTITY, GX_FALSE, GX_PTIDENTITY);
     mWaterTex->load(GX_TEXMAP0);
-    GXSetNumIndStages(0);
-    GXSetNumTevStages(4);
-    GXSetTevColor(GX_TEVREG0, sOceanSphereTevReg0Face);
-    GXSetTevColor(GX_TEVREG1, mTevReg1Front);
-    GXSetTevColor(GX_TEVREG2, sOceanSphereTevReg2Face);
-    GXSetTevKColor(GX_KCOLOR0, sOceanSphereKColor0Face);
-    GXSetTevKColorSel(GX_TEVSTAGE0, GX_TEV_KCSEL_K0);
-    GXSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR_NULL);
-    GXSetTevColorIn(GX_TEVSTAGE0, GX_CC_ZERO, GX_CC_TEXC, GX_CC_KONST, GX_CC_ZERO);
-    GXSetTevColorOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
-    GXSetTevAlphaIn(GX_TEVSTAGE0, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO);
-    GXSetTevAlphaOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
-    GXSetTevOrder(GX_TEVSTAGE1, GX_TEXCOORD1, GX_TEXMAP0, GX_COLOR_NULL);
-    GXSetTevColorIn(GX_TEVSTAGE1, GX_CC_ZERO, GX_CC_TEXC, GX_CC_CPREV, GX_CC_ZERO);
-    GXSetTevColorOp(GX_TEVSTAGE1, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_2, GX_TRUE, GX_TEVPREV);
-    GXSetTevAlphaIn(GX_TEVSTAGE1, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO);
-    GXSetTevAlphaOp(GX_TEVSTAGE1, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
-    GXSetTevOrder(GX_TEVSTAGE2, GX_TEXCOORD_NULL, GX_TEXMAP_NULL, GX_COLOR_NULL);
-    GXSetTevColorIn(GX_TEVSTAGE2, GX_CC_CPREV, GX_CC_A0, GX_CC_C0, GX_CC_CPREV);
-    GXSetTevColorOp(GX_TEVSTAGE2, GX_TEV_COMP_R8_EQ, GX_TB_ZERO, GX_CS_SCALE_1, GX_FALSE, GX_TEVPREV);
-    GXSetTevAlphaIn(GX_TEVSTAGE2, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO);
-    GXSetTevAlphaOp(GX_TEVSTAGE2, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_FALSE, GX_TEVPREV);
-    GXSetTevOrder(GX_TEVSTAGE3, GX_TEXCOORD_NULL, GX_TEXMAP_NULL, GX_COLOR0A0);
-    GXSetTevColorIn(GX_TEVSTAGE3, GX_CC_C1, GX_CC_C2, GX_CC_CPREV, GX_CC_ZERO);
-    GXSetTevColorOp(GX_TEVSTAGE3, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
-    GXSetTevAlphaIn(GX_TEVSTAGE3, GX_CA_A1, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO);
-    GXSetTevAlphaOp(GX_TEVSTAGE3, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_FALSE, GX_TEVPREV);
-    GXSetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA, GX_LO_NOOP);
-    GXSetAlphaCompare(GX_ALWAYS, 0, GX_AOP_OR, GX_ALWAYS, 0);
-    GXSetZMode(GX_TRUE, GX_LEQUAL, GX_FALSE);
-    GXSetZCompLoc(GX_TRUE);
-    GXSetCullMode(GX_CULL_BACK);
-    GXSetClipMode(GX_CLIP_ENABLE);
-    GXSetFog(GX_FOG_NONE, 0.0f, 0.0f, 0.0f, 0.0f, sOceanSphereFogFace);
+    J3DNativeState::setNumIndStages(0);
+    J3DNativeState::setNumTevStages(4);
+    J3DNativeState::setTevColor(GX_TEVREG0, sOceanSphereTevReg0Face);
+    J3DNativeState::setTevColor(GX_TEVREG1, mTevReg1Front);
+    J3DNativeState::setTevColor(GX_TEVREG2, sOceanSphereTevReg2Face);
+    J3DNativeState::setTevKColor(GX_KCOLOR0, sOceanSphereKColor0Face);
+    J3DNativeState::setTevKColorSel(GX_TEVSTAGE0, GX_TEV_KCSEL_K0);
+    J3DNativeState::setTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR_NULL);
+    J3DNativeState::setTevColorIn(GX_TEVSTAGE0, GX_CC_ZERO, GX_CC_TEXC, GX_CC_KONST, GX_CC_ZERO);
+    J3DNativeState::setTevColorOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
+    J3DNativeState::setTevAlphaIn(GX_TEVSTAGE0, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO);
+    J3DNativeState::setTevAlphaOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
+    J3DNativeState::setTevOrder(GX_TEVSTAGE1, GX_TEXCOORD1, GX_TEXMAP0, GX_COLOR_NULL);
+    J3DNativeState::setTevColorIn(GX_TEVSTAGE1, GX_CC_ZERO, GX_CC_TEXC, GX_CC_CPREV, GX_CC_ZERO);
+    J3DNativeState::setTevColorOp(GX_TEVSTAGE1, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_2, GX_TRUE, GX_TEVPREV);
+    J3DNativeState::setTevAlphaIn(GX_TEVSTAGE1, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO);
+    J3DNativeState::setTevAlphaOp(GX_TEVSTAGE1, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
+    J3DNativeState::setTevOrder(GX_TEVSTAGE2, GX_TEXCOORD_NULL, GX_TEXMAP_NULL, GX_COLOR_NULL);
+    J3DNativeState::setTevColorIn(GX_TEVSTAGE2, GX_CC_CPREV, GX_CC_A0, GX_CC_C0, GX_CC_CPREV);
+    J3DNativeState::setTevColorOp(GX_TEVSTAGE2, GX_TEV_COMP_R8_EQ, GX_TB_ZERO, GX_CS_SCALE_1, GX_FALSE, GX_TEVPREV);
+    J3DNativeState::setTevAlphaIn(GX_TEVSTAGE2, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO);
+    J3DNativeState::setTevAlphaOp(GX_TEVSTAGE2, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_FALSE, GX_TEVPREV);
+    J3DNativeState::setTevOrder(GX_TEVSTAGE3, GX_TEXCOORD_NULL, GX_TEXMAP_NULL, GX_COLOR0A0);
+    J3DNativeState::setTevColorIn(GX_TEVSTAGE3, GX_CC_C1, GX_CC_C2, GX_CC_CPREV, GX_CC_ZERO);
+    J3DNativeState::setTevColorOp(GX_TEVSTAGE3, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
+    J3DNativeState::setTevAlphaIn(GX_TEVSTAGE3, GX_CA_A1, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO);
+    J3DNativeState::setTevAlphaOp(GX_TEVSTAGE3, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_FALSE, GX_TEVPREV);
+    J3DNativeState::setBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA, GX_LO_NOOP);
+    J3DNativeState::setAlphaCompare(GX_ALWAYS, 0, GX_AOP_OR, GX_ALWAYS, 0);
+    J3DNativeState::setZMode(GX_TRUE, GX_LEQUAL, GX_FALSE);
+    J3DNativeState::setZCompLoc(GX_TRUE);
+    J3DNativeState::setCullMode(GX_CULL_BACK);
+    J3DNativeState::setClipMode(GX_CLIP_ENABLE);
+    J3DNativeState::setFog(GX_FOG_NONE, 0.0f, 0.0f, 0.0f, 0.0f, sOceanSphereFogFace);
 }
 
 void OceanSphere::loadMaterialBack() const {
-    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
-    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_NRM, GX_NRM_XYZ, GX_F32, 0);
-    GXClearVtxDesc();
-    GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
-    GXSetVtxDesc(GX_VA_NRM, GX_DIRECT);
-    GXLoadPosMtxImm(MR::getCameraViewMtx(), 0);
-    GXSetCurrentMtx(0);
-    GXSetNumChans(0);
-    GXSetChanCtrl(GX_COLOR0A0, GX_FALSE, GX_SRC_REG, GX_SRC_REG, 0, GX_DF_NONE, GX_AF_NONE);
-    GXSetChanCtrl(GX_COLOR1A1, GX_FALSE, GX_SRC_REG, GX_SRC_REG, 0, GX_DF_NONE, GX_AF_NONE);
-    GXSetNumTexGens(1);
-    GXSetTexCoordGen2(GX_TEXCOORD0, GX_TG_MTX2x4, GX_TG_NRM, GX_TEXMTX0, GX_FALSE, GX_PTIDENTITY);
+    J3DNativeShape::sendPosition(MR::getCameraViewMtx(), 0);
+    J3DNativeState::setCurrentMtx(0);
+    J3DNativeState::setNumChans(0);
+    J3DNativeState::setChanCtrl(GX_COLOR0A0, GX_FALSE, GX_SRC_REG, GX_SRC_REG, 0, GX_DF_NONE, GX_AF_NONE);
+    J3DNativeState::setChanCtrl(GX_COLOR1A1, GX_FALSE, GX_SRC_REG, GX_SRC_REG, 0, GX_DF_NONE, GX_AF_NONE);
+    J3DNativeState::setNumTexGens(1);
+    J3DNativeState::setTexCoordGen2(GX_TEXCOORD0, GX_TG_MTX2x4, GX_TG_NRM, GX_TEXMTX0, GX_FALSE, GX_PTIDENTITY);
 
     TPos3f pos;
     pos.set(MR::getCameraViewMtx());
     pos.zeroTrans();
     pos.scale(0.779175f);
-    GXLoadTexMtxImm(pos.toMtxPtr(), GX_TEXMTX0, GX_MTX2x4);
+    J3DNativeShape::sendTexture(pos.toMtxPtr(), GX_TEXMTX0, GX_MTX2x4);
 
     mWaterEnvTex->load(GX_TEXMAP0);
-    GXSetNumIndStages(0);
-    GXSetNumTevStages(1);
-    GXSetTevColor(GX_TEVREG0, sOceanSphereTevReg0Env);
-    GXSetTevColor(GX_TEVREG1, sOceanSphereTevReg1Env);
-    GXSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR_NULL);
-    GXSetTevColorIn(GX_TEVSTAGE0, GX_CC_C0, GX_CC_C1, GX_CC_TEXC, GX_CC_ZERO);
-    GXSetTevColorOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_FALSE, GX_TEVPREV);
-    GXSetTevAlphaIn(GX_TEVSTAGE0, GX_CA_KONST, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO);
-    GXSetTevAlphaOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_FALSE, GX_TEVPREV);
-    GXSetBlendMode(GX_BM_BLEND, GX_BL_ONE, GX_BL_ZERO, GX_LO_NOOP);
-    GXSetAlphaCompare(GX_ALWAYS, 0, GX_AOP_OR, GX_ALWAYS, 0);
-    GXSetZMode(GX_TRUE, GX_LEQUAL, GX_TRUE);
-    GXSetZCompLoc(GX_TRUE);
-    GXSetCullMode(GX_CULL_FRONT);
-    GXSetClipMode(GX_CLIP_ENABLE);
-    GXSetFog(GX_FOG_NONE, 0.0f, 0.0f, 0.0f, 0.0f, sOceanSphereFogBack);
+    J3DNativeState::setNumIndStages(0);
+    J3DNativeState::setNumTevStages(1);
+    J3DNativeState::setTevColor(GX_TEVREG0, sOceanSphereTevReg0Env);
+    J3DNativeState::setTevColor(GX_TEVREG1, sOceanSphereTevReg1Env);
+    J3DNativeState::setTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR_NULL);
+    J3DNativeState::setTevColorIn(GX_TEVSTAGE0, GX_CC_C0, GX_CC_C1, GX_CC_TEXC, GX_CC_ZERO);
+    J3DNativeState::setTevColorOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_FALSE, GX_TEVPREV);
+    J3DNativeState::setTevAlphaIn(GX_TEVSTAGE0, GX_CA_KONST, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO);
+    J3DNativeState::setTevAlphaOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_FALSE, GX_TEVPREV);
+    J3DNativeState::setBlendMode(GX_BM_BLEND, GX_BL_ONE, GX_BL_ZERO, GX_LO_NOOP);
+    J3DNativeState::setAlphaCompare(GX_ALWAYS, 0, GX_AOP_OR, GX_ALWAYS, 0);
+    J3DNativeState::setZMode(GX_TRUE, GX_LEQUAL, GX_TRUE);
+    J3DNativeState::setZCompLoc(GX_TRUE);
+    J3DNativeState::setCullMode(GX_CULL_FRONT);
+    J3DNativeState::setClipMode(GX_CLIP_ENABLE);
+    J3DNativeState::setFog(GX_FOG_NONE, 0.0f, 0.0f, 0.0f, 0.0f, sOceanSphereFogBack);
 }
 
-void OceanSphere::drawSphere(bool useEnvMap, bool useGD) const {
+void OceanSphere::drawSphere(bool useEnvMap, NativeMesh* pMesh) const {
     const OceanSpherePoint* pPoint;
+    const u32 attributes = useEnvMap ? NEBULA_SHAPE_NORMAL : NEBULA_SHAPE_NORMAL | NEBULA_SHAPE_TEXCOORD0 | NEBULA_SHAPE_TEXCOORD0 << 1;
 
     for (s32 i = 0; i < mPointCount - 1; i++) {
-        ::beginDrawPolygon(i, mPointCount, useGD);
-        sendVertex(getPlanePointLeftUpper(i, i), useEnvMap, useGD);
+        ::beginDrawPolygon(i, mPointCount, pMesh, attributes);
+        sendVertex(getPlanePointLeftUpper(i, i), useEnvMap, pMesh);
 
         for (s32 j = i + 1; j < mPointCount; j++) {
             pPoint = getPlanePointLeftUpper(i, j);
-            sendVertex(getPlanePointLeftUpper(i + 1, j), useEnvMap, useGD);
-            sendVertex(pPoint, useEnvMap, useGD);
+            sendVertex(getPlanePointLeftUpper(i + 1, j), useEnvMap, pMesh);
+            sendVertex(pPoint, useEnvMap, pMesh);
         }
 
-        GXEnd();
 
-        ::beginDrawPolygon(i, mPointCount, useGD);
+        ::beginDrawPolygon(i, mPointCount, pMesh, attributes);
 
         for (s32 j = 0; j < mPointCount - i - 1; j++) {
             pPoint = getPlanePointLeftUpper(mPointCount - 1 - j, i + 1);
-            sendVertex(getPlanePointLeftUpper(mPointCount - 1 - j, i), useEnvMap, useGD);
-            sendVertex(pPoint, useEnvMap, useGD);
+            sendVertex(getPlanePointLeftUpper(mPointCount - 1 - j, i), useEnvMap, pMesh);
+            sendVertex(pPoint, useEnvMap, pMesh);
         }
 
-        sendVertex(getPlanePointLeftUpper(i, i), useEnvMap, useGD);
-        GXEnd();
+        sendVertex(getPlanePointLeftUpper(i, i), useEnvMap, pMesh);
 
-        ::beginDrawPolygon(i, mPointCount, useGD);
-        sendVertex(getPlanePointRightUpper(i, i), useEnvMap, useGD);
+        ::beginDrawPolygon(i, mPointCount, pMesh, attributes);
+        sendVertex(getPlanePointRightUpper(i, i), useEnvMap, pMesh);
 
         for (s32 j = i + 1; j < mPointCount; j++) {
             pPoint = getPlanePointRightUpper(i, j);
-            sendVertex(getPlanePointRightUpper(i + 1, j), useEnvMap, useGD);
-            sendVertex(pPoint, useEnvMap, useGD);
+            sendVertex(getPlanePointRightUpper(i + 1, j), useEnvMap, pMesh);
+            sendVertex(pPoint, useEnvMap, pMesh);
         }
 
-        GXEnd();
 
-        ::beginDrawPolygon(i, mPointCount, useGD);
+        ::beginDrawPolygon(i, mPointCount, pMesh, attributes);
 
         for (s32 j = 0; j < mPointCount - i - 1; j++) {
             pPoint = getPlanePointRightUpper(mPointCount - 1 - j, i + 1);
-            sendVertex(getPlanePointRightUpper(mPointCount - 1 - j, i), useEnvMap, useGD);
-            sendVertex(pPoint, useEnvMap, useGD);
+            sendVertex(getPlanePointRightUpper(mPointCount - 1 - j, i), useEnvMap, pMesh);
+            sendVertex(pPoint, useEnvMap, pMesh);
         }
 
-        sendVertex(getPlanePointRightUpper(i, i), useEnvMap, useGD);
-        GXEnd();
+        sendVertex(getPlanePointRightUpper(i, i), useEnvMap, pMesh);
 
-        ::beginDrawPolygon(i, mPointCount, useGD);
-        sendVertex(getPlanePointLeftLower(i, i), useEnvMap, useGD);
+        ::beginDrawPolygon(i, mPointCount, pMesh, attributes);
+        sendVertex(getPlanePointLeftLower(i, i), useEnvMap, pMesh);
 
         for (s32 j = i + 1; j < mPointCount; j++) {
             pPoint = getPlanePointLeftLower(i, j);
-            sendVertex(getPlanePointLeftLower(i + 1, j), useEnvMap, useGD);
-            sendVertex(pPoint, useEnvMap, useGD);
+            sendVertex(getPlanePointLeftLower(i + 1, j), useEnvMap, pMesh);
+            sendVertex(pPoint, useEnvMap, pMesh);
         }
 
-        GXEnd();
 
-        ::beginDrawPolygon(i, mPointCount, useGD);
+        ::beginDrawPolygon(i, mPointCount, pMesh, attributes);
 
         for (s32 j = 0; j < mPointCount - i - 1; j++) {
             pPoint = getPlanePointLeftLower(mPointCount - 1 - j, i + 1);
-            sendVertex(getPlanePointLeftLower(mPointCount - 1 - j, i), useEnvMap, useGD);
-            sendVertex(pPoint, useEnvMap, useGD);
+            sendVertex(getPlanePointLeftLower(mPointCount - 1 - j, i), useEnvMap, pMesh);
+            sendVertex(pPoint, useEnvMap, pMesh);
         }
 
-        sendVertex(getPlanePointLeftLower(i, i), useEnvMap, useGD);
-        GXEnd();
+        sendVertex(getPlanePointLeftLower(i, i), useEnvMap, pMesh);
 
-        ::beginDrawPolygon(i, mPointCount, useGD);
-        sendVertex(getPlanePointRightLower(i, i), useEnvMap, useGD);
+        ::beginDrawPolygon(i, mPointCount, pMesh, attributes);
+        sendVertex(getPlanePointRightLower(i, i), useEnvMap, pMesh);
 
         for (s32 j = i + 1; j < mPointCount; j++) {
             pPoint = getPlanePointRightLower(i, j);
-            sendVertex(getPlanePointRightLower(i + 1, j), useEnvMap, useGD);
-            sendVertex(pPoint, useEnvMap, useGD);
+            sendVertex(getPlanePointRightLower(i + 1, j), useEnvMap, pMesh);
+            sendVertex(pPoint, useEnvMap, pMesh);
         }
 
-        GXEnd();
 
-        ::beginDrawPolygon(i, mPointCount, useGD);
+        ::beginDrawPolygon(i, mPointCount, pMesh, attributes);
 
         for (s32 j = 0; j < mPointCount - i - 1; j++) {
             pPoint = getPlanePointRightLower(mPointCount - 1 - j, i + 1);
-            sendVertex(getPlanePointRightLower(mPointCount - 1 - j, i), useEnvMap, useGD);
-            sendVertex(pPoint, useEnvMap, useGD);
+            sendVertex(getPlanePointRightLower(mPointCount - 1 - j, i), useEnvMap, pMesh);
+            sendVertex(pPoint, useEnvMap, pMesh);
         }
 
-        sendVertex(getPlanePointRightLower(i, i), useEnvMap, useGD);
-        GXEnd();
+        sendVertex(getPlanePointRightLower(i, i), useEnvMap, pMesh);
     }
 }
 
-void OceanSphere::sendVertex(const OceanSpherePoint* pPoint, bool useEnvMap, bool useGD) const {
-    if (useGD) {
-        f32 posX, posY, posZ;
-        posX = pPoint->mPos.x;
-        posZ = pPoint->mPos.z;
-        posY = pPoint->mPos.y;
-        GDWrite_f32(posX);
-        GDWrite_f32(posY);
-        GDWrite_f32(posZ);
-
-        if (useEnvMap) {
-            f32 normalX, normalY, normalZ;
-            normalX = pPoint->mNormal.x;
-            normalZ = pPoint->mNormal.z;
-            normalY = pPoint->mNormal.y;
-            GDWrite_f32(normalX);
-            GDWrite_f32(normalY);
-            GDWrite_f32(normalZ);
-        } else {
-            f32 u0 = pPoint->mTexCoord.x;
-            f32 v0 = pPoint->mTexCoord.y;
-            f32 texY0 = mTexOffs0Y + v0;
-            f32 texX0 = mTexOffs0X + u0;
-            GDTexCoord2f32(texX0, texY0);
-
-            f32 u1 = pPoint->mTexCoord.x;
-            f32 v1 = pPoint->mTexCoord.y;
-            f32 texY1 = mTexOffs1Y + v1;
-            f32 texX1 = mTexOffs1X + u1;
-            GDTexCoord2f32(texX1, texY1);
+void OceanSphere::sendVertex(const OceanSpherePoint* pPoint, bool useEnvMap, NativeMesh* pMesh) const {
+    if (pMesh != nullptr) {
+        pMesh->position(pPoint->mPos.x, pPoint->mPos.y, pPoint->mPos.z);
+        pMesh->normal(pPoint->mNormal.x, pPoint->mNormal.y, pPoint->mNormal.z);
+        if (!useEnvMap) {
+            pMesh->texCoord(0, mTexOffs0X + pPoint->mTexCoord.x, mTexOffs0Y + pPoint->mTexCoord.y);
+            pMesh->texCoord(1, mTexOffs1X + pPoint->mTexCoord.x, mTexOffs1Y + pPoint->mTexCoord.y);
         }
+        pMesh->corner();
     } else {
-        GXPosition3f32(pPoint->mPos.x, pPoint->mPos.y, pPoint->mPos.z);
-
-        if (useEnvMap) {
-            GXNormal3f32(pPoint->mNormal.x, pPoint->mNormal.y, pPoint->mNormal.z);
-        } else {
-            f32 v0 = pPoint->mTexCoord.y;
-            f32 u0 = pPoint->mTexCoord.x;
-            GXTexCoord2f32(mTexOffs0X + u0, mTexOffs0Y + v0);
-
-            f32 v1 = pPoint->mTexCoord.y;
-            f32 u1 = pPoint->mTexCoord.x;
-            GXTexCoord2f32(mTexOffs1X + u1, mTexOffs1Y + v1);
+        // The face's vertices carry the sphere's normals too (loadMaterialFace), the back's only them.
+        J3DNativeDraw::position(pPoint->mPos.x, pPoint->mPos.y, pPoint->mPos.z);
+        J3DNativeDraw::normal(pPoint->mNormal.x, pPoint->mNormal.y, pPoint->mNormal.z);
+        if (!useEnvMap) {
+            J3DNativeDraw::texCoord(mTexOffs0X + pPoint->mTexCoord.x, mTexOffs0Y + pPoint->mTexCoord.y);
+            J3DNativeDraw::texCoord(mTexOffs1X + pPoint->mTexCoord.x, mTexOffs1Y + pPoint->mTexCoord.y);
         }
     }
 }
