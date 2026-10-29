@@ -1,0 +1,448 @@
+﻿# Q. What is this file?
+# A. This file contains options which allow you to configure your multiworld experience while allowing
+#    others to play how they want as well.
+#
+# Q. How do I use it?
+# A. The options in this file are weighted. This means the higher number you assign to a value, the
+#    more chances you have for that option to be chosen. For example, an option like this:
+#
+#    map_shuffle:
+#      on: 5
+#      off: 15
+#
+#    Means you have 5 chances for map shuffle to occur, and 15 chances for map shuffle to be turned
+#    off.
+#
+# Q. I've never seen a file like this before. What characters am I allowed to use?
+# A. This is a .yaml file. You are allowed to use most characters.
+#    To test if your yaml is valid or not, you can use this website:
+#        http://www.yamllint.com/
+#    You can also verify that your Archipelago options are valid at this site:
+#        https://archipelago.gg/check
+
+# Your name in-game, limited to 16 characters.
+#     {player} will be replaced with the player's slot number.
+#     {PLAYER} will be replaced with the player's slot number, if that slot number is greater than 1.
+#     {number} will be replaced with the counter value of the name.
+#     {NUMBER} will be replaced with the counter value of the name, if the counter value is greater than 1.
+name: Player{number}
+
+# Used to describe your yaml. Useful if you have multiple files.
+description: Default Super Mario Galaxy PC Port Template
+
+game: Super Mario Galaxy PC Port
+requires:
+  version: 0.6.9 # Version of Archipelago required for this yaml to work as expected.
+  game:
+    Super Mario Galaxy PC Port: 0.9.21 # Version of the world required for this yaml to work as expected.
+
+Super Mario Galaxy PC Port:
+  ################
+  # Game Options #
+  ################
+  progression_balancing:
+    # A system that can move progression earlier, to try and prevent the player from getting stuck and bored early.
+    # 
+    # A lower setting means more getting stuck. A higher setting means less getting stuck.
+    #
+    # You can define additional values between the minimum and maximum values.
+    # Minimum value is 0
+    # Maximum value is 99
+    random: 0
+    random-low: 0 # random value weighted towards lower values
+    random-high: 0 # random value weighted towards higher values
+    random-range-0-99: 0 # random value between 0 and 99
+    disabled: 0 # equivalent to 0
+    normal: 50 # equivalent to 50
+    extreme: 0 # equivalent to 99
+
+  accessibility:
+    # Set rules for reachability of your items/locations.
+    # 
+    # **Full:** ensure everything can be reached and acquired.
+    # 
+    # **Minimal:** ensure what is needed to reach your goal can be acquired.
+    full: 50
+    minimal: 0
+
+  ##################
+  # Goal and Stars #
+  ##################
+  character:
+    # Who plays. Mario or Luigi: the game keeps that character on every save file (the file select has no button to
+    # switch) and the locations are the stars of that character's saves. Both: Mario's and Luigi's saves each have their
+    # own stars, all of them locations ("... (Mario)" and "... (Luigi)"); the file select keeps its button, and the goal
+    # has to be reached with each of them. The stars received (Power, Green and Grand Stars) count for both saves.
+    mario: 50
+    luigi: 0
+    both: 0
+
+  goal:
+    # What finishes the game. Bowser: the star of Bowser's Galaxy Reactor (the normal ending). Bowser And 120 Stars: that
+    # star, and every star that exists before the ending too (the Comet, Secret, Green, Grand and Luigi stars; the Purple
+    # Coin stars only open after the ending, so they do not count). 242 Stars: the ending and every star there is, the
+    # Purple Coin stars too (with both characters: the stars of Mario's saves and of Luigi's), plus the Grand Finale Galaxy's Star
+    # Festival, the 121st star of each character, the last one (the game's own entrance opens only when Mario and Luigi both have 120 stars; the settings' ADVANCED galaxy select goes there at any time). The multiworld stays
+    # unfinished until it is done, with each character the slot plays. With Bowser And 120 Stars or 242 Stars, Stars to
+    # Finish, Include Comet Stars and Include Purple Coin Stars are ignored: all the stars are in.
+    bowser: 50
+    bowser_and_120_stars: 0
+    242_stars: 0
+
+  stars_to_finish:
+    # Only used with the goal Bowser (ignored with the goals Bowser And 120 Stars and 242 Stars). How many stars (Power, Green and Grand Stars
+    # received, counted as the game's star counter counts them) it takes to open Bowser's Galaxy Reactor (Rosetta's talk
+    # about harmony, then you can go). The game's own requirement stays if it is lower. No Grand Star is needed. The goal
+    # is the star of the final boss: it is sent as soon as you take it.
+    #
+    # You can define additional values between the minimum and maximum values.
+    # Minimum value is 10
+    # Maximum value is 100
+    50: 50
+    random: 0
+    random-low: 0 # random value weighted towards lower values
+    random-high: 0 # random value weighted towards higher values
+    random-range-10-100: 0 # random value between 10 and 100
+
+  include_comet_stars:
+    # Only used with the goal Bowser (always on with the goals Bowser And 120 Stars and 242 Stars). Whether the Prankster Comet stars (Daredevil,
+    # Speedy, Cosmic Mario and Fast Foes missions) are locations. When off, they are not shown in the star select either.
+    'false': 0
+    'true': 50
+
+  include_purple_coin_stars:
+    # Only used with the goal Bowser (always on with the goals Bowser And 120 Stars and 242 Stars). Whether the Purple Coin stars are locations.
+    # The game offers them after the ending, so these are only reachable once you have beaten Bowser. When off, they are
+    # not shown in the star select either.
+    'false': 50
+    'true': 0
+
+  #################
+  # Galaxy Access #
+  #################
+  star_requirements:
+    # How many stars each galaxy of the domes asks to open.
+    # 
+    # vanilla: the game's own numbers.
+    # dome_offsets: the numbers come from the Dome 1 to 6 Access options below (the game's numbers are not used).
+    vanilla: 50
+    dome_offsets: 0
+
+  dome_one_counts:
+    # Star requirements of each galaxy of Dome 1, which is the Terrace in vanilla. Used when "Galaxy Star Requirements" is dome_offsets.
+    # Each number is how many more stars are needed than for the previous orbit (the first orbit of a dome adds to the largest number of the previous dome), capped by Stars to Finish. The first orbit in Dome 1 always has no star requirement.
+    # The numbers can also be random, random-range-1-5 and so on. The range is 0 to 8.
+    Fifth Orbit: 0
+    Fourth Orbit: 0
+    Second Orbit: 0
+    Third Orbit: 0
+
+  dome_two_counts:
+    # Star requirements of each galaxy of Dome 2, which is the Fountain in vanilla. Used when "Galaxy Star Requirements" is dome_offsets.
+    # Each number is how many more stars are needed than for the previous orbit (the first orbit of a dome adds to the largest number of the previous dome), capped by Stars to Finish. The numbers can also be random, random-range-1-5 and so on. The range is 0 to 10.
+    Fifth Orbit: 0
+    First Orbit: 0
+    Fourth Orbit: 0
+    Second Orbit: 0
+    Third Orbit: 0
+
+  dome_three_counts:
+    # Star requirements of each galaxy of Dome 3, which is the Kitchen in vanilla. Used when "Galaxy Star Requirements" is dome_offsets.
+    # Each number is how many more stars are needed than for the previous orbit (the first orbit of a dome adds to the largest number of the previous dome), capped by Stars to Finish. The numbers can also be random, random-range-1-5 and so on. The range is 0 to 10.
+    Fifth Orbit: 0
+    First Orbit: 0
+    Fourth Orbit: 0
+    Second Orbit: 0
+    Third Orbit: 0
+
+  dome_four_counts:
+    # Star requirements of each galaxy of Dome 4, which is the Bedroom in vanilla. Used when "Galaxy Star Requirements" is dome_offsets.
+    # Each number is how many more stars are needed than for the previous orbit (the first orbit of a dome adds to the largest number of the previous dome), capped by Stars to Finish. The numbers can also be random, random-range-1-5 and so on. The range is 0 to 10.
+    Fifth Orbit: 0
+    First Orbit: 0
+    Fourth Orbit: 0
+    Second Orbit: 0
+    Third Orbit: 0
+
+  dome_five_counts:
+    # Star requirements of each galaxy of Dome 5, which is the Engine Room in vanilla. Used when "Galaxy Star Requirements" is dome_offsets.
+    # Each number is how many more stars are needed than for the previous orbit (the first orbit of a dome adds to the largest number of the previous dome), capped by Stars to Finish. The numbers can also be random, random-range-1-5 and so on. The range is 0 to 10.
+    Fifth Orbit: 0
+    First Orbit: 0
+    Fourth Orbit: 0
+    Second Orbit: 0
+    Third Orbit: 0
+
+  dome_six_counts:
+    # Star requirements of each galaxy of Dome 6, which is the Garden in vanilla. Used when "Galaxy Star Requirements" is dome_offsets.
+    # Each number is how many more stars are needed than for the previous orbit (the first orbit of a dome adds to the largest number of the previous dome), capped by Stars to Finish. The numbers can also be random, random-range-1-5 and so on. The range is 0 to 20.
+    First Orbit: 0
+    Fourth Orbit: 0
+    Second Orbit: 0
+    Third Orbit: 0
+
+  observatory_hungry_luma_behavior:
+    # How many Star Bits the Observatory's Hungry Lumas ask.
+    # 
+    # vanilla: the game's numbers.
+    # choice: exactly the numbers of Observatory Luma Counts.
+    # progressive_values_low: like choice, but the numbers only grow from Luma to Luma (a number that is not higher than
+    # the previous Luma's is rolled higher), up to 5000.
+    # progressive_values_high: the same, up to 9999.
+    vanilla: 50
+    choice: 0
+    progressive_values_low: 0
+    progressive_values_high: 0
+
+  observatory_luma_counts:
+    # The Star Bits each Hungry Luma of the Observatory asks (used unless Observatory Hungry Luma Behavior is vanilla).
+    # Maximum 9999. The numbers can also be random, random-range-100-900 and so on.
+    Dome 1 Hungry Luma: 400
+    Dome 2 Hungry Luma: 400
+    Dome 3 Hungry Luma: 600
+    Dome 4 Hungry Luma: 800
+    Dome 5 Hungry Luma: 1000
+    Dome 6 Hungry Luma: 1600
+    Gateway Hungry Luma: 1200
+
+  #########
+  # Items #
+  #########
+  transformation_items:
+    # The transformations become items. Bee Mushroom, Boo Mushroom, Spring Mushroom, Fire Flower, Ice Flower and Flying
+    # (the Red Star) are in the multiworld: taking one of those power-ups in a galaxy does nothing until you have received
+    # its item. Rainbow Mario is not affected. The logic knows the stars whose whole mission is a transformation (Honeyhive, Honeyclimb,
+    # Boo's Boneyard, Dusty Dune's first star, Cake Lane, Freezeflame); the six items are also placed early, because it
+    # does not know the other stars where a power-up only helps (come back later if a star needs one you lack).
+    'false': 50
+    'true': 0
+
+  #########
+  # Traps #
+  #########
+  trap_percentage:
+    # Of the items that fill your own world's locations after the stars, the share that are traps (a trap that cannot
+    # start yet - Mario is hurt, in a cutscene - waits until it can). The traps: Fire (Mario burns), Shock (an
+    # electric shock), Freeze (Mario is frozen) and Spike (a hit that hurts), each costing a health point, so one can
+    # take a life; Star Bit Thief (up to 50 Star Bits are taken); Quake (the camera shakes for ten seconds); Confusion
+    # (the control stick is inverted for twenty seconds). Trap Types picks which ones can come. The rest of the filler
+    # (1-Ups, Star Bits, Full Heals, Rainbow Stars...) is the same in every world.
+    #
+    # You can define additional values between the minimum and maximum values.
+    # Minimum value is 0
+    # Maximum value is 100
+    0: 50
+    random: 0
+    random-low: 0 # random value weighted towards lower values
+    random-high: 0 # random value weighted towards higher values
+    random-range-0-100: 0 # random value between 0 and 100
+
+  trap_types:
+    # The traps that can fill the Trap Percentage: any of Fire Trap, Shock Trap, Freeze Trap, Spike Trap, Star Bit
+    # Thief, Quake Trap, Confusion Trap. All by default.
+    ['Quake Trap', 'Spike Trap', 'Confusion Trap', 'Star Bit Thief', 'Freeze Trap', 'Fire Trap', 'Shock Trap']
+
+  #################
+  # Star Bit Shop #
+  #################
+  shop_items:
+    # How many items the Observatory's Star Bit shop sells. The Luma at the start of the Observatory (where the game
+    # keeps its achievements) opens it: each shelf is a location that holds an item of the multiworld and costs Star Bits.
+    # The shop is always there (at least one shelf).
+    #
+    # You can define additional values between the minimum and maximum values.
+    # Minimum value is 1
+    # Maximum value is 20
+    8: 50
+    random: 0
+    random-low: 0 # random value weighted towards lower values
+    random-high: 0 # random value weighted towards higher values
+    random-range-1-20: 0 # random value between 1 and 20
+
+  shop_min_price:
+    # The Star Bits the cheapest shelf of the shop costs.
+    #
+    # You can define additional values between the minimum and maximum values.
+    # Minimum value is 5
+    # Maximum value is 5000
+    100: 50
+    random: 0
+    random-low: 0 # random value weighted towards lower values
+    random-high: 0 # random value weighted towards higher values
+    random-range-5-5000: 0 # random value between 5 and 5000
+
+  shop_max_price:
+    # The Star Bits the dearest shelf of the shop costs (the shelves in between grow evenly from the lowest price).
+    #
+    # You can define additional values between the minimum and maximum values.
+    # Minimum value is 5
+    # Maximum value is 9999
+    2000: 50
+    random: 0
+    random-low: 0 # random value weighted towards lower values
+    random-high: 0 # random value weighted towards higher values
+    random-range-5-9999: 0 # random value between 5 and 9999
+
+  ############
+  # Shuffles #
+  ############
+  dome_shuffle:
+    # Shuffle the Observatory's rooms: a room stands in the place of another (Engine Room where Terrace is, Kitchen
+    # where Bedroom is, ...). The door that opens with the nth Grand Star leads to another room; the galaxies of a room
+    # stay in it, and the stars they ask follow the order the rooms open in.
+    'false': 50
+    'true': 0
+
+  galaxy_shuffle:
+    # Which galaxies of the domes are shuffled between the miniature galaxies of the Observatory. Leave empty for none.
+    # 
+    # Dome Majors: the 15 big galaxies (Good Egg, Honeyhive, Space Junk, ...).
+    # Dome Minors: the 9 small ones (Loopdeeloop, Flipswitch, Rolling Green, ...).
+    # Bosses: the 5 Bowser and Bowser Jr. galaxies that give a Grand Star (they stand in each other's places, unless the
+    # type is Full).
+    # Observatory Specials: the 10 galaxies reached from the Observatory itself (Sweet Sweet, Sling Pod, Drip Drop, Bigmouth,
+    # Sand Spiral, Boo's Boneyard, Snow Cap and the three Green Star galaxies). They stand in each other's places, unless
+    # the type is Full.
+    # Full: all four.
+    # 
+    # A miniature keeps what opens it (the stars it asks, its place in its dome); the galaxy it shows, names and launches
+    # is the shuffled one.
+    []
+
+  galaxy_shuffle_type:
+    # How the galaxies are shuffled. Does nothing when Galaxy Shuffle is empty.
+    # 
+    # By Type: Majors only among Major places, Minors among Minor places, Bosses among Boss places, Specials among
+    # Special places.
+    # Major Separate: the same (kept for old YAML files).
+    # Full: every kind chosen in Galaxy Shuffle in ONE pool, any galaxy in any place: a dome can hold no boss or three,
+    # and the galaxies of the Hungry Lumas and the other Observatory planets can stand in the domes (the place keeps its
+    # own miniature model), a galaxy of a dome in an Observatory planet's place too.
+    by_type: 50
+    major_separate: 0
+    full: 0
+
+  music_shuffle:
+    # Shuffle the music: each theme of the stages and bosses plays another one (the same multiworld shuffles the same
+    # way; the jingles, the cutscene songs and every sound effect stay as they are).
+    'false': 50
+    'true': 0
+
+  enemy_shuffle:
+    # Swap the plain enemies of the stages for other kinds, each family among itself so that the new enemy suits the
+    # place: the ground enemies (Goombas, Bob-ombs, Octoombas, Octoguys, Piranha Plants, Monty Moles, Dry Bones, hopping
+    # spiders, which may also become a Fire Boo) and the airborne ones (Swoopins and Fire Boos, with their ice kinds). The
+    # same multiworld swaps them the same way. Only enemies placed with nothing attached to them are swapped - never the
+    # bosses, the other creatures, or an enemy that a mission counts, follows a path or waits for a switch. Experimental:
+    # not tested in play.
+    'false': 50
+    'true': 0
+
+  skybox_shuffle:
+    # Swap the skies of the stages for other skies (the same multiworld swaps them the same way): the plain skies among
+    # themselves (including the summer, retro and dark-space skies, Bowser Jr.'s fight and the children's room), the skies
+    # drawn with a projection map among themselves (including the Observatory's, Bowser's fight and the title screen's),
+    # and the three skies inside the domes among themselves. Experimental: not tested in play.
+    'false': 50
+    'true': 0
+
+  ###########################
+  # Display and Multiplayer #
+  ###########################
+  star_colors:
+    # The colour of a star in the level (and in the star select) tells the class of the item it hides: green
+    # is a normal item, blue is useful, gold is progression and red is a trap. Grand Stars keep their look. The game asks the
+    # server what each location holds when it connects, so the colours are there for the whole session.
+    'false': 50
+    'true': 0
+
+  death_link:
+    # When you die, everyone who enabled death link dies. Of course, the reverse is true too.
+    'false': 50
+    'true': 0
+
+  ################
+  # Mario Colors #
+  ################
+  mario_cap_color:
+    # Mario's cap (and shirt, when no shirt colour is set). The cap and the shirt share their texture in the game, so
+    # when both are set the cap's colour is used for both unless the game keeps them apart.
+    '': 50
+
+  mario_shirt_color:
+    # Mario's shirt (only when the game keeps it apart from the cap).
+    '': 50
+
+  mario_overalls_color:
+    # Mario's overalls.
+    '': 50
+
+  mario_gloves_color:
+    # Mario's gloves.
+    '': 50
+
+  mario_shoes_color:
+    # Mario's shoes.
+    '': 50
+
+  ################
+  # Luigi Colors #
+  ################
+  luigi_cap_color:
+    # Luigi's cap (and shirt, when no shirt colour is set).
+    '': 50
+
+  luigi_shirt_color:
+    # Luigi's shirt (only when the game keeps it apart from the cap).
+    '': 50
+
+  luigi_overalls_color:
+    # Luigi's overalls.
+    '': 50
+
+  luigi_gloves_color:
+    # Luigi's gloves.
+    '': 50
+
+  luigi_shoes_color:
+    # Luigi's shoes.
+    '': 50
+
+  ###########################
+  # Item & Location Options #
+  ###########################
+  local_items:
+    # Forces these items to be in their native world.
+    []
+
+  non_local_items:
+    # Forces these items to be outside their native world.
+    []
+
+  start_inventory:
+    # Start with the specified amount of these items. Example: {Bomb: 1, Arrow: 3}
+    {}
+
+  start_hints:
+    # Start with these item's locations prefilled into the ``!hint`` command.
+    []
+
+  start_location_hints:
+    # Start with these locations and their item prefilled into the ``!hint`` command.
+    []
+
+  exclude_locations:
+    # Prevent these locations from having an important item.
+    []
+
+  priority_locations:
+    # Prevent these locations from having an unimportant item.
+    []
+
+  item_links:
+    # Share part of your item pool with other players.
+    []
+
+  plando_items:
+    # Generic items plando.
+    []

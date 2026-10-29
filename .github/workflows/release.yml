@@ -99,6 +99,7 @@ jobs:
             Rename-Item dist\NebulaArchipelago-Setup.exe.sha256 NebulaArchipelago-Beta-Setup.exe.sha256
             $files = @('dist\NebulaArchipelago-Beta-Setup.exe', 'dist\NebulaArchipelago-Beta-Setup.exe.sha256', 'dist\super_mario_galaxy_pc_port.apworld')
           }
+          $files += @('release-extras\Super Mario Galaxy PC Port.yaml', 'release-extras\SMG-PC-Port-PopTracker.zip')
           $args = @('release', 'create', $tag) + $files + @('--title', "Nebula Archipelago $tag", '--generate-notes', '--target', '${{ github.sha }}')
           if ($beta) { $args += '--prerelease' }
           & gh @args

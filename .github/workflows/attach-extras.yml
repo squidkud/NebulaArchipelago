@@ -1,0 +1,20 @@
+# Attaches the YAML template and the PopTracker pack (release-extras/) to an existing release.
+# Run it from the Actions tab with the tag, for example v1.0.2.
+name: attach-extras
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag, for example v1.0.2'
+        required: true
+permissions:
+  contents: write
+jobs:
+  attach:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Upload
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ github.event.inputs.tag }}" "release-extras/Super Mario Galaxy PC Port.yaml" release-extras/SMG-PC-Port-PopTracker.zip --clobber
