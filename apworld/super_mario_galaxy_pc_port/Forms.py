@@ -1,24 +1,67 @@
-"""The stars that cannot be done without a transformation (used when the "Transformations as Items" option is on).
+"""The stars that need a transformation (used when the "Transformations as Items" option is on).
 
-star name -> the transformation items of which the player needs at least one (a tuple of alternatives).
+FORM_STARS: star name -> what the logic asks for it. It is a tuple of groups; the player needs at least one item of EVERY
+group, so ((FIRE_FLOWER,), (ICE_FLOWER,)) asks for both and ((BEE_MUSHROOM, BOO_MUSHROOM),) asks for either one.
 
-This is written from how the game's missions are built and covers the stars whose whole mission is the transformation;
-it is not exhaustive (a star where the power-up only helps is not listed), and the six items are placed early anyway, so a
-missing entry never makes a seed impossible: it only means the logic does not ask for the item.
+OUT_OF_LOGIC: star name -> the transformation(s) the star can be done without. The logic still asks for the item; this is only
+information for the player (the docs and the client's /stars command), it is never required or counted as reachable.
 """
 from .Items import BEE_MUSHROOM, BOO_MUSHROOM, FIRE_FLOWER, FLYING_STAR, ICE_FLOWER, SPRING_MUSHROOM
 
+BEE = ((BEE_MUSHROOM,),)
+BOO = ((BOO_MUSHROOM,),)
+FIRE = ((FIRE_FLOWER,),)
+ICE = ((ICE_FLOWER,),)
+SPRING = ((SPRING_MUSHROOM,),)
+FLYING = ((FLYING_STAR,),)
+
 FORM_STARS = {
-    "Honeyhive Galaxy - Bee Mario Takes Flight": (BEE_MUSHROOM,),
-    "Honeyhive Galaxy - Trouble on the Tower": (BEE_MUSHROOM,),
-    "Honeyhive Galaxy - Big Bad Bugaboom": (BEE_MUSHROOM,),
-    "Honeyhive Galaxy - The Honeyhive's Purple Coins": (BEE_MUSHROOM,),
-    "Honeyhive Galaxy - Luigi in the Honeyhive Kingdom": (BEE_MUSHROOM,),
-    "Honeyclimb Galaxy - Scaling the Sticky Wall": (BEE_MUSHROOM,),
-    "Boo's Boneyard Galaxy - Racing the Spooky Speedster": (BOO_MUSHROOM,),
-    "Dusty Dune Galaxy - Soaring on the Desert Winds": (FLYING_STAR,),
-    "Toy Time Galaxy - Bouncing Down Cake Lane": (SPRING_MUSHROOM,),
-    "Freezeflame Galaxy - The Frozen Peak of Baron Brr": (FIRE_FLOWER, ICE_FLOWER),
-    "Freezeflame Galaxy - Freezeflame's Blistering Core": (FIRE_FLOWER, ICE_FLOWER),
-    "Freezeflame Galaxy - Hot and Cold Collide": (FIRE_FLOWER, ICE_FLOWER),
+    # Bee Mushroom
+    "Honeyhive Galaxy - Bee Mario Takes Flight": BEE,
+    "Honeyhive Galaxy - Big Bad Bugaboom": BEE,
+    "Honeyclimb Galaxy - Scaling the Sticky Wall": BEE,
+    "Gold Leaf Galaxy - Star Bunnies on the Hunt": BEE,
+    "Gold Leaf Galaxy - Cataquack to the Skies": BEE,
+    "Gold Leaf Galaxy - When It Rains, It Pours": BEE,
+    "Sea Slide Galaxy - The Silver Stars of Sea Slide": BEE,
+    "Sea Slide Galaxy - Purple Coins by the Seaside": BEE,
+    # Bee Mushroom or Boo Mushroom (either one is enough)
+    "Sand Spiral Galaxy - Choosing a Favorite Snack": ((BEE_MUSHROOM, BOO_MUSHROOM),),
+    # Boo Mushroom
+    "Ghostly Galaxy - Luigi and the Haunted Mansion": BOO,
+    "Boo's Boneyard Galaxy - Racing the Spooky Speedster": BOO,
+    # Fire Flower
+    "Freezeflame Galaxy - Freezeflame's Blistering Core": FIRE,
+    "Freezeflame Galaxy - Conquering the Summit": FIRE,
+    "Deep Dark Galaxy - The Underground Ghost Ship": FIRE,
+    "Snow Cap Galaxy - Star Bunnies in the Snow": FIRE,
+    # Fire Flower and Ice Flower
+    "Freezeflame Galaxy - Hot and Cold Collide": FIRE + ICE,
+    "Freezeflame Galaxy - Purple Coins on the Summit": FIRE + ICE,
+    "Deep Dark Galaxy - Bubble Blastoff": FIRE + ICE,
+    # Ice Flower
+    "Beach Bowl Galaxy - Wall Jumping Up Waterfalls": ICE,
+    "Freezeflame Galaxy - The Frozen Peak of Baron Brr": ICE,
+    # Spring Mushroom
+    "Toy Time Galaxy - Heavy Metal Mecha-Bowser": SPRING,
+    "Toy Time Galaxy - Bouncing Down Cake Lane": SPRING,
+    "Matter Splatter Galaxy - Watch Your Step": SPRING,
+    "Beach Bowl Galaxy - Beachcombing for Purple Coins": SPRING,
+    # Flying Star (Red Star)
+    "Gateway Galaxy - Gateway's Purple Coins": FLYING,
 }
+
+OUT_OF_LOGIC = {
+    "Gold Leaf Galaxy - Star Bunnies on the Hunt": "Bee Mushroom",
+    "Gold Leaf Galaxy - When It Rains, It Pours": "Bee Mushroom",
+    "Ghostly Galaxy - Luigi and the Haunted Mansion": "Boo Mushroom (a big out-of-logic trick)",
+    "Deep Dark Galaxy - Bubble Blastoff": "Fire Flower and Ice Flower",
+    "Beach Bowl Galaxy - Wall Jumping Up Waterfalls": "Ice Flower",
+    "Toy Time Galaxy - Heavy Metal Mecha-Bowser": "Spring Mushroom",
+    "Toy Time Galaxy - Bouncing Down Cake Lane": "Spring Mushroom",
+}
+
+
+def form_requirement(star_name: str):
+    """The groups of alternatives the star asks for (empty when it asks for nothing)."""
+    return FORM_STARS.get(star_name, ())

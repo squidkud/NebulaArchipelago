@@ -80,7 +80,26 @@ not part of the logic (the game assumes you can collect the Star Bits). The shop
 
 `transformation_items` (off by default) turns the six transformations (Bee Mushroom, Boo Mushroom, Spring Mushroom, Fire Flower,
 Ice Flower, Flying/Red Star) into items: taking the power-up in a galaxy does nothing until you have received its item
-(Rainbow Mario is not affected). The logic does not know which star needs which form, so the six items are placed early.
+(Rainbow Mario is not affected). The logic knows which stars need which form (the same for Mario and for Luigi):
+
+- **Bee Mushroom**: Honeyhive - Bee Mario Takes Flight, Big Bad Bugaboom; Honeyclimb - Scaling the Sticky Wall; Gold Leaf - Star
+  Bunnies on the Hunt, Cataquack to the Skies, When It Rains, It Pours; Sea Slide - The Silver Stars of Sea Slide, Purple Coins
+  by the Seaside.
+- **Bee Mushroom or Boo Mushroom** (either one): Sand Spiral - Choosing a Favorite Snack.
+- **Boo Mushroom**: Ghostly - Luigi and the Haunted Mansion; Boo's Boneyard - Racing the Spooky Speedster.
+- **Fire Flower**: Freezeflame - Freezeflame's Blistering Core, Conquering the Summit; Deep Dark - The Underground Ghost Ship; Snow Cap -
+  Star Bunnies in the Snow.
+- **Fire Flower and Ice Flower**: Freezeflame - Hot and Cold Collide, Purple Coins on the Summit; Deep Dark - Bubble Blastoff.
+- **Ice Flower**: Beach Bowl - Wall Jumping Up Waterfalls; Freezeflame - The Frozen Peak of Baron Brr.
+- **Spring Mushroom**: Toy Time - Heavy Metal Mecha-Bowser, Bouncing Down Cake Lane; Matter Splatter - Watch Your Step; Beach Bowl -
+  Beachcombing for Purple Coins.
+- **Flying Star**: Gateway - Gateway's Purple Coins.
+
+Some of these can still be done without the form, out of logic: the logic never counts on it, it is only so you know it is possible.
+Gold Leaf - Star Bunnies on the Hunt and When It Rains, It Pours (without the Bee Mushroom); Ghostly - Luigi and the Haunted Mansion (without
+the Boo Mushroom, with a big trick); Deep Dark - Bubble Blastoff (without Fire and Ice); Beach Bowl - Wall Jumping Up Waterfalls (without
+the Ice Flower); Toy Time - Heavy Metal Mecha-Bowser and Bouncing Down Cake Lane (without the Spring Mushroom). The client's `/stars`
+command marks them.
 
 `star_requirements: dome_offsets` sets what each galaxy of the domes asks from the Dome 1-6 Access options, and the
 Observatory Hungry Luma options set the Star Bits each Hungry Luma asks.

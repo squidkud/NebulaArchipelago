@@ -28,7 +28,7 @@ from .Items import (
 )
 from .Locations import (BOO_BONEYARD, CHARACTERS, GATEWAY, REACTOR, SHOP_FIRST, SMGLocation, Star, all_stars, galaxy_names,
                         location_table, shop_location_name)
-from .Forms import FORM_STARS
+from .Forms import form_requirement
 from .Options import COLOR_OPTION_NAMES, GROUPS, SMGOptions, parse_color
 from .StarData import GALAXIES
 
@@ -83,7 +83,6 @@ SPECIAL_GALAXIES = [
     "BeltConveyerExGalaxy", "CocoonExGalaxy", "TearDropGalaxy", "FishTunnelGalaxy", "TransformationExGalaxy",
     "TeresaMario2DGalaxy", "SnowCapsuleGalaxy", "TamakoroExLv2Galaxy", "SurfingLv2Galaxy", "CubeBubbleExLv2Galaxy",
 ]
-DOME_WITH_ALL_ITEMS = 4  # the door (by Grand Stars) from which all the transformation items must be in hand
 MIN_SLACK = 6  # the room to leave (the game's own layout has about 3; see SMGWorld._exploration_slack)
 TRIAL_GALAXIES = {"TamakoroExLv2Galaxy", "SurfingLv2Galaxy", "CubeBubbleExLv2Galaxy"}  # all three Green Stars
 
@@ -407,10 +406,6 @@ class SMGWorld(World):
     def _cap(self, stage: str, cap: int) -> int:
         return self.stars_to_finish if stage == REACTOR else self.need.get(stage, cap)
 
-    def _has_gear(self, state: CollectionState) -> bool:
-        """All the transformations that are items."""
-        return not self.options.transformation_items or state.has_all(TRANSFORMATIONS, self.player)
-
     def create_regions(self) -> None:
         player = self.player
         menu = Region("Menu", player, self.multiworld)
@@ -423,11 +418,8 @@ class SMGWorld(World):
             region = Region(f"Dome {dome}: {name}", player, self.multiworld)
             domes[dome] = region
             regions.append(region)
-            # From the fourth door on, the transformations that are items must have been found: the logic only knows the stars
-            # whose whole mission is a transformation, so it asks for all of them before the player leaves the first three domes.
             observatory.connect(region, f"Dome {dome}",
-                                lambda state, d=self.open_position[dome]: grand_total(state, player) >= d
-                                and (d < DOME_WITH_ALL_ITEMS or self._has_gear(state)))
+                                lambda state, d=self.open_position[dome]: grand_total(state, player) >= d)
 
         by_stage: Dict[str, List[Star]] = {}
         for star in self.stars:
@@ -474,10 +466,10 @@ class SMGWorld(World):
                     # After the ending of the character whose save it is in.
                     add_rule(location, lambda state, event=VICTORY_LUIGI if star.character == "Luigi" else VICTORY: state.has(event, player))
                 # Luigi's stars need nothing more than their galaxy: the game puts Luigi in the scenario of his star.
-                forms = FORM_STARS.get(star.name)
+                forms = form_requirement(star.name)
                 if forms and self.options.transformation_items:
-                    # A transformation that is an item: the star asks for it (any of the alternatives).
-                    add_rule(location, lambda state, forms=forms: any(state.has(form, player) for form in forms))
+                    # Transformations that are items: the star asks for one item of every group (the Forms module).
+                    add_rule(location, lambda state, forms=forms: all(any(state.has(form, player) for form in group) for group in forms))
 
         # The Star Bit shop: a shelf is a location of the Observatory (always reachable; the Star Bits are earned in play).
         for n in range(1, len(self.shop_prices) + 1):
