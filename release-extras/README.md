@@ -1,4 +1,6 @@
-Files attached to every release next to the installer: the YAML template and the PopTracker pack.
-Regenerate them when the APWorld or the tracker changes:
-- YAML: Archipelago's "Generate Template Options" with the APWorld installed (file "Super Mario Galaxy PC Port.yaml").
-- PopTracker: `python tools/gen_poptracker_pack.py release-extras/SMG-PC-Port-PopTracker.zip`
+The YAML template attached to every release.
+Regenerate it when the APWorld changes: Archipelago's "Generate Template Options" with the APWorld installed
+(file "Super Mario Galaxy PC Port.yaml").
+
+The PopTracker pack is not stored here: the release workflow builds it (tools/poptracker_release.py) with the tag as its
+version and attaches it with versions.json, which is what PopTracker reads to offer updates.

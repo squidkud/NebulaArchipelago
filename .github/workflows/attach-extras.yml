@@ -1,4 +1,4 @@
-# Attaches the YAML template and the PopTracker pack (release-extras/) to an existing release.
+# Attaches the YAML template (release-extras/) and a freshly built PopTracker pack with its versions.json to an existing release.
 # Run it from the Actions tab with the tag, for example v1.0.2.
 name: attach-extras
 on:
@@ -17,4 +17,7 @@ jobs:
       - name: Upload
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "${{ github.event.inputs.tag }}" "release-extras/Super Mario Galaxy PC Port.yaml" release-extras/SMG-PC-Port-PopTracker.zip --clobber
+        run: |
+          python3 -m pip install pillow
+          python3 tools/poptracker_release.py "${{ github.event.inputs.tag }}" poptracker
+          gh release upload "${{ github.event.inputs.tag }}" "release-extras/Super Mario Galaxy PC Port.yaml" poptracker/SMG-PC-Port-PopTracker.zip poptracker/versions.json --clobber
