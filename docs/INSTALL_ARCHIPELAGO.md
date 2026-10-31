@@ -13,7 +13,7 @@
      extracted folder); it is packed once (5 to 10 minutes) and only read, never sent anywhere. Then type the server
      address, your player name and the room password: they are written to `archipelago.ini`. The same tab copies the
      APWorld into Archipelago (or opens its folder).
-   - **Display, Graphics, Controls, Audio, General, Mods**: the game's settings.
+   - **Advanced**: game content, recording, export and import of saves, the save folder and diagnostics.
    - **Updates**: the launcher looks for a newer release by itself each time it opens (you can turn that off here) and
      installs it, after checking its SHA-256, when you ask.
 
@@ -43,7 +43,7 @@ Defender may also wrongly flag a new program; if it does, see [SIGNING.md](SIGNI
      ou un dossier extrait) ; elle est préparée une seule fois (5 à 10 minutes), seulement lue, jamais envoyée. Saisissez
      ensuite l'adresse du serveur, votre nom de joueur et le mot de passe de la salle : ils sont écrits dans
      `archipelago.ini`. Le même onglet copie l'APWorld dans Archipelago (ou ouvre son dossier).
-   - **Display, Graphics, Controls, Audio, General, Mods** : les réglages du jeu.
+   - **Advanced** : contenu du jeu, enregistrement, export et import des sauvegardes, dossier des sauvegardes et diagnostics.
    - **Updates** : le lanceur cherche tout seul une nouvelle version à chaque ouverture (désactivable ici) et l'installe,
      après vérification de son SHA-256, quand vous le demandez.
 
