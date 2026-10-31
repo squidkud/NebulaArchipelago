@@ -121,7 +121,9 @@ void MiniatureGalaxy::init(const JMapInfoIter& rIter) {
     mKoopaLook = mType == MiniatureGalaxyType_Koopa;
 #ifdef TARGET_PC
     // A Bowser place that holds a galaxy which is not a boss looks like any other place: its own model, at once.
-    if (mKoopaLook && mContentGalaxyName != mGalaxyName && !NebulaArchipelago::isBossGalaxy(mContentGalaxyName)) {
+    // (Only when a model of the content was found: a Bowser Reactor's own name has no model, it keeps the Bowser look.)
+    if (mKoopaLook && mContentGalaxyName != mGalaxyName && !NebulaArchipelago::isBossGalaxy(mContentGalaxyName) &&
+        mContentObjectName != mObjectName) {
         mKoopaLook = false;
     }
 #endif
@@ -297,8 +299,10 @@ void MiniatureGalaxy::makeArchiveList(NameObjArchiveListCollector* pCollector, c
     }
 
     // A Bowser place holding a galaxy that is not a boss is a plain place (its own model).
+    // (Only when a model of the content was found: a Bowser Reactor's own name has no archive, it keeps the Bowser look;
+    // asking for "MiniKoopaBattleVs2Galaxy.arc" stops the game.)
     if (type == MiniatureGalaxyType_Koopa && pContent != nullptr && pContent != objectNameOfSlot + strlen("Mini") &&
-        !NebulaArchipelago::isBossGalaxy(pContent)) {
+        !NebulaArchipelago::isBossGalaxy(pContent) && objectName != objectNameOfSlot) {
         type = MiniatureGalaxyType_Normal;
     }
 #endif
