@@ -6,7 +6,9 @@
 Everything comes from the APWorld (apworld/super_mario_galaxy_pc_port): the stars and galaxies from StarData.py, the item
 numbers from Items.py. Put the zip in PopTracker's packs folder, open it, and connect to the Archipelago server from
 PopTracker's "Archipelago" button. The map is a plain board with one square per galaxy (the game has no map to show);
-hover a square to see its stars; a square turns green when all its stars are checked.
+hover a square to see its stars. The pack has no logic: a square is green while it still has stars to check in this
+multiworld and turns to the "cleared" colour when all of them are checked (the stars of a character or kind that is not in
+the slot are cleared at connection).
 """
 import importlib.util
 import json
@@ -246,8 +248,36 @@ local function reset()
     end
 end
 
+-- The locations this slot really has (the server lists them as checked or missing): the stars of a character that is not
+-- played, and the kinds that are off (comet, Purple Coin, the Star Festival), are not part of this multiworld, so they are
+-- cleared here; a galaxy turns "cleared" once all of ITS stars are checked, instead of staying green for ever.
+local function hideAbsent()
+    local present = {}
+    local count = 0
+    for _, id in ipairs(Archipelago.MissingLocations or {}) do
+        present[id] = true
+        count = count + 1
+    end
+    for _, id in ipairs(Archipelago.CheckedLocations or {}) do
+        present[id] = true
+        count = count + 1
+    end
+    if count == 0 then
+        return -- the lists are not known (yet): keep every star
+    end
+    for id, path in pairs(LOCATION_MAPPING) do
+        if not present[id] then
+            local obj = Tracker:FindObjectForCode(path)
+            if obj then
+                obj.AvailableChestCount = 0
+            end
+        end
+    end
+end
+
 function onClear(slot_data)
     reset()
+    hideAbsent()
 end
 
 function onItem(index, item_id, item_name, player_number)
@@ -277,7 +307,7 @@ function onLocation(location_id, location_name)
     end
     local obj = Tracker:FindObjectForCode(path)
     if obj then
-        obj.AvailableChestCount = obj.AvailableChestCount - 1
+        obj.AvailableChestCount = math.max(0, obj.AvailableChestCount - 1)
     end
 end
 
