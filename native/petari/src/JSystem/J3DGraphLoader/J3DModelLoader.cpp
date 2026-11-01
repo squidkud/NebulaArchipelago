@@ -1,6 +1,7 @@
 #include "JSystem/J3DGraphAnimator/J3DJoint.hpp"
 #include <JSystem/J3DGraphBase/J3DNativeTexture.hpp>
 #include "Game/System/NebulaCurvedSurfaces.hpp"
+#include "Game/System/NebulaArchipelago.hpp"
 #include "JSystem/J3DGraphLoader/J3DModelLoader.hpp"
 #include "JSystem/J3DGraphAnimator/J3DModelData.hpp"
 #include "JSystem/J3DGraphBase/J3DMaterial.hpp"
@@ -31,7 +32,9 @@ J3DModelLoader::J3DModelLoader()
 // Nebula: each model the renderer may round (NebulaCurvedSurfaces).
 static J3DModelData* withCurvedSurfaces(J3DModelData* pModelData) {
 #ifdef TARGET_PC
-    NebulaCurvedSurfaces::registerModel(pModelData);
+    if (!NebulaArchipelago::isHandOverSuppressed()) {
+        NebulaCurvedSurfaces::registerModel(pModelData);
+    }
 #endif
     return pModelData;
 }
@@ -514,6 +517,9 @@ void J3DModelLoader::readShape(J3DShapeBlock const* i_block, u32 i_flags) {
 
 // The model's images handed to the renderer as they load (J3DNativeTexture::registerImage).
 static void registerTextureImages(const ResTIMG* pRes, u32 num) {
+    if (NebulaArchipelago::isHandOverSuppressed()) {
+        return;  // a sky's files (skybox_shuffle): decoded from the game's memory when drawn
+    }
     for (u32 i = 0; i < num; i++) {
         const ResTIMG& rTimg = pRes[i];
         const u8* pImage = reinterpret_cast< const u8* >(&rTimg) + (s32)rTimg.mImageDataOffset;

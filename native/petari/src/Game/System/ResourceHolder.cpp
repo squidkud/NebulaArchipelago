@@ -12,6 +12,7 @@
 #include <revolution.h>
 #ifdef TARGET_PC
 #include "Game/Util/MotionSignal.hpp"
+#include "Game/System/NebulaArchipelago.hpp"
 #include "JSystem/J3DGraphBase/J3DNativeShape.hpp"
 #endif
 
@@ -222,9 +223,17 @@ ResFileInfo* ResourceHolder::createAndRegisterObject(const char* pName, void* pD
     }
 
     if (strstr(pName, ".bdl") != nullptr) {
+#ifdef TARGET_PC
+        // A sky's files are not handed to the renderer as they load (skybox_shuffle; NebulaArchipelago::isSkyModelFile).
+        const bool lazyHandOver = NebulaArchipelago::isSkyModelFile(pName);
+        NebulaArchipelago::setHandOverSuppressed(lazyHandOver);
+#endif
         OSLockMutex(&MR::MutexHolder< 0 >::sMutex);
         J3DModelData* modelData = J3DModelLoaderDataBase::loadBinaryDisplayList(pData, J3DMLF_Material_UseIndirect | J3DMLF_UseUniqueMaterials);
         OSUnlockMutex(&MR::MutexHolder< 0 >::sMutex);
+#ifdef TARGET_PC
+        NebulaArchipelago::setHandOverSuppressed(false);
+#endif
         MR::initEnvelopeAndEnvMapOrProjMapModelData(modelData);
         if (MR::isUseFur(modelData) || MR::strcasecmp(pName, "MarioShadow.bdl") == 0) {
             MR::downFracVtx(modelData);
@@ -233,18 +242,29 @@ ResFileInfo* ResourceHolder::createAndRegisterObject(const char* pName, void* pD
         modelData->newSharedDisplayList(0);
 #ifdef TARGET_PC
         MotionSignal::modelResource(modelData, pName);
-        J3DNativeShape::registerModel(modelData);
+        if (!lazyHandOver) {
+            J3DNativeShape::registerModel(modelData);
+        }
 #endif
         return mModelResTable->add(pName, modelData, true);
     }
 
     if (strstr(pName, ".bmd") != nullptr) {
+#ifdef TARGET_PC
+        const bool lazyHandOver = NebulaArchipelago::isSkyModelFile(pName);
+        NebulaArchipelago::setHandOverSuppressed(lazyHandOver);
+#endif
         J3DModelData* modelData =
             J3DModelLoaderDataBase::load(pData, J3DMLF_Material_PE_Full | J3DMLF_Material_UseIndirect | J3DMLF_UseUniqueMaterials | J3DMLF_21);
+#ifdef TARGET_PC
+        NebulaArchipelago::setHandOverSuppressed(false);
+#endif
         modelData->newSharedDisplayList(0);
 #ifdef TARGET_PC
         MotionSignal::modelResource(modelData, pName);
-        J3DNativeShape::registerModel(modelData);
+        if (!lazyHandOver) {
+            J3DNativeShape::registerModel(modelData);
+        }
 #endif
         return mModelResTable->add(pName, modelData, true);
     }

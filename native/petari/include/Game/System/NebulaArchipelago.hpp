@@ -142,6 +142,13 @@ namespace NebulaArchipelago {
     const char* getShuffledSkyArchive(const char* pName);
     const char* getShuffledDomeSkyArchive(const char* pName);
 
+    // skybox_shuffle: the model files of the skies (a file name such as "VROrbit.bdl") are loaded without being handed to the
+    // renderer (shapes, pictures, curved surfaces): the renderer takes them when a sky is drawn, and the many extra skies a
+    // slot loads (each stage loads the one that replaces its own) leave the renderer's tables alone.
+    bool isSkyModelFile(const char* pFileName);
+    void setHandOverSuppressed(bool suppressed);
+    bool isHandOverSuppressed();
+
     // The automatic save's small "Saving..." (NebulaAchievementToast, bottom-left): the save starts the three seconds; the
     // indicator shows while they run and ticks them (false once they ran out); they go on across a scene change.
     void beginSaveIndicator();

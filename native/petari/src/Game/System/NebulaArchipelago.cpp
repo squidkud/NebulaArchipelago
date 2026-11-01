@@ -771,6 +771,39 @@ namespace NebulaArchipelago {
         return getShuffledSkyOf(pName, true, false);
     }
 
+    namespace {
+        bool sHandOverSuppressed = false;
+    }
+
+    bool isSkyModelFile(const char* pFileName) {
+        if (pFileName == nullptr || !isHostActive() || !status().mSkyShuffle) {
+            return false;
+        }
+
+        static const char* const cSkyFiles[] = {"GalaxySky",   "MilkyWaySky",       "PhantomSky", "DesertSky",         "AuroraSky",      "StarrySky",
+                                                "FamicomMarioSky", "KoopaVS2Sky",   "ChildRoomSky", "AstroDomeSkyA",   "AstroDomeSkyB", "AstroDomeSkyC",
+                                                "VRDarkSpace", "SummerSky",         "HalfGalaxySky", "GreenPlanetOrbitSky", "CloudSky",    "RockPlanetOrbitSky",
+                                                "KoopaVS1Sky", "CometNearOrbitSky", "VROrbit",    "VRSandwichSun"};
+
+        for (u32 i = 0; i < sizeof(cSkyFiles) / sizeof(cSkyFiles[0]); i++) {
+            const u32 length = strlen(cSkyFiles[i]);
+
+            if (strncmp(pFileName, cSkyFiles[i], length) == 0 && pFileName[length] == '.') {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    void setHandOverSuppressed(bool suppressed) {
+        sHandOverSuppressed = suppressed;
+    }
+
+    bool isHandOverSuppressed() {
+        return sHandOverSuppressed;
+    }
+
     const char* getShuffledSkyArchive(const char* pName) {
         return getShuffledSkyOf(pName, false, true);
     }
