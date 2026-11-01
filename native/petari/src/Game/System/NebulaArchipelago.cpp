@@ -1074,10 +1074,13 @@ namespace NebulaArchipelago {
 
         for (s32 i = 0; i < 7; i++) {
             if (strcmp(pGalaxyName, sLumaGalaxies[i]) == 0) {
-                const s32 dome = i < 6 ? i + 1 : 6;
-                const s32 door = getDomeOpenNumber(dome);
+                // A Luma goes with its place's door, not with the room the dome shuffle puts behind it: the Terrace's Luma
+                // is there from the start, the next one with the second door, and so on.
+                const s32 door = i < 6 ? i + 1 : 6;
 
-                if (rStatus.mStarItems) {
+                if (i == 0) {
+                    *pResult = true;  // the Terrace's Luma: there from the start of the game
+                } else if (rStatus.mStarItems) {
                     *pResult = door <= rStatus.mGrand;
                 } else {
                     // The game's own Grand Stars (the first one is given at the start when the Observatory starts open).
