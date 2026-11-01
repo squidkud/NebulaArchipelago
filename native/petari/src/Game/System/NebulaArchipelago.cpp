@@ -99,7 +99,7 @@ namespace {
     bool sValidChecked;
     s32 sOwned;  // the stars of this file the last scan found
     s32 sTotalAll;   // how many stars the table has in this game (all kinds)
-    s32 sOwnedMain;  // of those, the ones that exist before the ending (not the Purple Coin stars)
+    s32 sOwnedMain;  // of those, the 120 of the character (all but the Grand Finale's Star Festival, the 121st; the Purple Coin stars count)
     s32 sTotalMain;  // how many such stars the table has in this game
     s32 sScanWait;
     s32 sStatusWait;
@@ -270,7 +270,7 @@ namespace {
         const u32 locationOffset = isLuigiSave() ? cLuigiOffset : 0;
 
         for (s32 i = 0; i < cStarNum && i < 256; i++) {
-            const bool mainStar = sValid[i] && cApStars[i].mKind != ApKind_purple && cApStars[i].mKind != ApKind_festival;
+            const bool mainStar = sValid[i] && cApStars[i].mKind != ApKind_festival;
 
             if (mainStar) {
                 totalMain++;
@@ -352,8 +352,8 @@ namespace {
             }
 
             if (goalOption == NEBULA_AP_GOAL_ENDING_AND_STARS && (sTotalMain == 0 || sOwnedMain < sTotalMain)) {
-                // The ending only counts together with every star that exists before it (the Purple Coin stars come after the
-                // ending); the last scan counted them in the save.
+                // The ending only counts together with the character's 120 stars, the Purple Coin stars included (the Star
+                // Festival is the 121st); the last scan counted them in the save.
                 reached = false;
             }
         }

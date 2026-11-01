@@ -53,8 +53,8 @@ Take the star of the final boss in Bowser's Galaxy Reactor. The goal is sent the
 the epilogue and the credits). The number of stars set by "Stars to Finish" only opens that last galaxy (Rosetta's talk
 about harmony); no Grand Star is needed.
 
-With `goal: bowser_and_120_stars` the game also needs every star that exists before the ending (Comet, Secret, Green and
-Grand stars). The Purple Coin stars only open after the ending, so they are not asked. With this goal Stars to Finish, Include Comet Stars and Include Purple Coin Stars are ignored (everything is on).
+With `goal: bowser_and_120_stars` the game also needs the 120 stars of each character you play (Comet, Secret, Green, Grand and
+Purple Coin stars; the Grand Finale's Star Festival, the 121st, is not one of them). With this goal Stars to Finish, Include Comet Stars and Include Purple Coin Stars are ignored (everything is on).
 
 With `goal: 242_stars` the game needs every star location of the characters you play, Purple Coin stars included (the ending
 goal is not enough on its own). With `character: both` this is the 242 star run. The goal is sent when every chosen

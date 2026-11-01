@@ -79,8 +79,8 @@ Super Mario Galaxy PC Port:
 
   goal:
     # What finishes the game. Bowser: the star of Bowser's Galaxy Reactor (the normal ending). Bowser And 120 Stars: that
-    # star, and every star that exists before the ending too (the Comet, Secret, Green, Grand and Luigi stars; the Purple
-    # Coin stars only open after the ending, so they do not count). 242 Stars: the ending and every star there is, the
+    # star, and the 120 stars of each character too (the Comet, Secret, Green, Grand and Purple Coin stars, and Luigi's; not
+    # the Grand Finale Galaxy's Star Festival, the 121st). 242 Stars: the ending and every star there is, the
     # Purple Coin stars too (with both characters: the stars of Mario's saves and of Luigi's), plus the Grand Finale Galaxy's Star
     # Festival, the 121st star of each character, the last one (the game's own entrance opens only when Mario and Luigi both have 120 stars; the settings' ADVANCED galaxy select goes there at any time). The multiworld stays
     # unfinished until it is done, with each character the slot plays. With Bowser And 120 Stars or 242 Stars, Stars to
