@@ -485,13 +485,17 @@ class SMGWorld(World):
             victory = SMGLocation(player, f"Goal ({character})", None, reactor)
             victory.place_locked_item(SMGItem(event, ItemClassification.progression, None, player))
             reactor.locations.append(victory)
-            if goal.value == goal.option_bowser_and_120_stars:
-                # The save must also hold every star that exists before the ending (the Purple Coin stars open after it):
-                # all those star locations of this character have to be reachable.
-                before_ending = {star.code for star in self.stars if star.kind != "purple" and star.character == character}
-                star_locations = [location for region in galaxy_regions.values() for location in region.locations
-                                  if location.address in before_ending]
-                add_rule(victory, lambda state, locations=star_locations: all(location.can_reach(state) for location in locations))
+        if goal.value == goal.option_bowser_and_120_stars:
+            # The goal is the ending (above) and the 120 stars of each character, the Purple Coin stars included (they open
+            # after the ending, so they cannot be a condition of it: an event of their own holds them); the Grand Finale's
+            # Star Festival, the 121st, is not one of them.
+            complete = SMGLocation(player, "120 Stars", None, reactor)
+            complete.place_locked_item(SMGItem(COMPLETE, ItemClassification.progression, None, player))
+            reactor.locations.append(complete)
+            hundred_twenty = {star.code for star in self.stars if star.kind != "festival"}
+            star_locations = [location for region in galaxy_regions.values() for location in region.locations
+                              if location.address in hundred_twenty]
+            add_rule(complete, lambda state, locations=star_locations: all(location.can_reach(state) for location in locations))
         if goal.value == goal.option_242_stars:
             complete = SMGLocation(player, "All Stars", None, reactor)
             complete.place_locked_item(SMGItem(COMPLETE, ItemClassification.progression, None, player))
@@ -524,7 +528,7 @@ class SMGWorld(World):
             for entrance, reach in self._extra_entrances:
                 for name in reach:
                     register(self.get_location(name).parent_region, entrance)
-        if self.options.goal.value == self.options.goal.option_242_stars:
+        if self.options.goal.value in (self.options.goal.option_242_stars, self.options.goal.option_bowser_and_120_stars):
             self.multiworld.completion_condition[self.player] = lambda state: state.has(COMPLETE, self.player)
         else:
             events = [VICTORY_LUIGI if character == "Luigi" else VICTORY for character in self.characters]

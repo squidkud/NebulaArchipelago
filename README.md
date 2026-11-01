@@ -35,7 +35,7 @@ send you.
 
 **Goals**
 - `bowser`: take the star of the final boss in Bowser's Galaxy Reactor.
-- `bowser_and_120_stars`: the final boss plus every star that exists before the ending.
+- `bowser_and_120_stars`: the final boss plus the 120 stars of each character you play (Purple Coin stars included, not the Star Festival).
 - `242_stars`: every star of Mario and Luigi, up to *Grand Finale Galaxy - The Star Festival* (the 121st star).
 
 **Items and traps**
