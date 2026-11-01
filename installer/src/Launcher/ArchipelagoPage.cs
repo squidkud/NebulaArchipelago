@@ -48,9 +48,23 @@ namespace Nebula.Launcher
             LoadRoom();
         }
 
+        /// <summary>The packing format this version reads (content.json's formatVersion): 1 was Nebula 1.0.x's, 2 is the
+        /// cooked files of the current Nebula. Content packed by an older version is packed again.</summary>
+        public const long ContentFormat = 2;
+
+        public static bool ContentIsCurrent(string content)
+        {
+            try
+            {
+                string path = Path.Combine(content, "content.json");
+                return File.Exists(path) && Json.Long(Json.Load(path), "formatVersion") >= ContentFormat;
+            }
+            catch (Exception) { return false; }
+        }
+
         public bool GameReady
         {
-            get { return File.Exists(Path.Combine(session.Content, "game.pak")); }
+            get { return File.Exists(Path.Combine(session.Content, "game.pak")) && ContentIsCurrent(session.Content); }
         }
 
         public bool Importing { get { return importing; } }
@@ -154,6 +168,8 @@ namespace Nebula.Launcher
             bool ready = GameReady;
             gameStatus.Text = ready
                 ? "Your game is ready: " + session.Content + "\r\nChoose another image to pack it again."
+                : File.Exists(Path.Combine(session.Content, "game.pak"))
+                ? "Your game was packed by an older version of Nebula and must be packed again. Choose your own Super Mario Galaxy image (USA, RMGE01, revision 0) once more; it is only read, never copied or sent."
                 : "No game yet. Choose your own Super Mario Galaxy (USA, RMGE01, revision 0): a disc image (ISO, RVZ, WBFS...) or an extracted folder. It is only read, never copied or sent.";
             gameStatus.ForeColor = ready ? Color.FromArgb(0, 110, 0) : SystemColors.ControlText;
             progress.Visible = false;
@@ -281,7 +297,7 @@ namespace Nebula.Launcher
                 if (!File.Exists(Path.Combine(fresh, "game.pak"))) return "The game could not be packed (no game.pak was made).";
                 Json.Save(Path.Combine(fresh, "content.json"), new Dictionary<string, object>
                 {
-                    { "formatVersion", 1 }, { "createdUtc", DateTime.UtcNow.ToString("o") }
+                    { "formatVersion", ContentFormat }, { "createdUtc", DateTime.UtcNow.ToString("o") }
                 });
                 string content = Path.Combine(root, "content");
                 string old = Path.Combine(root, "content-old");

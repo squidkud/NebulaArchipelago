@@ -143,6 +143,8 @@ namespace Nebula.Launcher
             {
                 if (!File.Exists(Path.Combine(Content, "game.pak")))
                     return "Nebula could not find the game content (game.pak). Choose it in Nebula settings.";
+                if (!ArchipelagoPage.ContentIsCurrent(Content))
+                    return "The game was packed by an older version of Nebula. Pack it again from the Archipelago tab.";
                 if (RuntimeLeaseHeld() && !EndRunningGame())
                     return "Nebula is already running.";
                 LaunchOptions.ValidatePair(App);
