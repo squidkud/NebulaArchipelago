@@ -22,6 +22,7 @@ public:
     static bool isEnableOpen(const char*, s32);
     static s32 getDomeIdFromArg0(const JMapInfoIter&);
     static const char* getModelName(const char*, s32);
+    static const char* getDisplayModelName(const char*, s32);
     static const JMapInfo* createAstroNamePlateParser();
     static bool trySetAndShowNamePlate(GalaxyNamePlate*, const JMapInfo*, const TVec3f&, const char*, s32, bool);
     static bool tryRegisterMultiDemoAndFunction(const char*, LiveActor*, const JMapInfoIter&, const MR::FunctorBase&);

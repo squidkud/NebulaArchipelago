@@ -7,6 +7,7 @@
 #include "Game/System/GalaxyStatusAccessor.hpp"
 #include "Game/System/GameDataFunction.hpp"
 #include "Game/System/GameSequenceFunction.hpp"
+#include "Game/Util/FileUtil.hpp"
 #include "Game/Util/EventUtil.hpp"
 #include "Game/Util/JMapInfo.hpp"
 #include "Game/Util/ObjUtil.hpp"
@@ -29,6 +30,7 @@ namespace {
         ApKind_green,
         ApKind_grand,
         ApKind_ending,
+        ApKind_festival,
     };
 
     struct ApGalaxy {
@@ -68,8 +70,14 @@ namespace {
         bool mLumaCounts;
         bool mStarColors;
         bool mMusicShuffle;
+        bool mSkyShuffle;
         bool mTransformItems;  // a transformation is usable only once its item is received
         u32 mForms[7];         // by the power-up's type (MorphItemObjNeo): how many of its item came
+        s32 mForcedCharacter;  // -1: both (the file select's button chooses), 0: Mario only, 1: Luigi only
+        bool mHideComets;      // the slot leaves the comet stars out: the star select does not show them
+        bool mHidePurple;      // the same for the Purple Coin stars
+        bool mMovementItems;   // a move is usable only once its item is received
+        u32 mSkills[6];        // by NebulaArchipelago::Skill: how many of its item came
         s32 mPower;
         s32 mGreen;
         s32 mGrand;       // the Grand Star flags the game sees: the one given at the start (it opens the first dome), and those received
@@ -89,6 +97,9 @@ namespace {
     bool sValid[256];  // the star exists in this game's data
     bool sValidChecked;
     s32 sOwned;  // the stars of this file the last scan found
+    s32 sTotalAll;   // how many stars the table has in this game (all kinds)
+    s32 sOwnedMain;  // of those, the ones that exist before the ending (not the Purple Coin stars)
+    s32 sTotalMain;  // how many such stars the table has in this game
     s32 sScanWait;
     s32 sStatusWait;
     s32 sNoticeWait;
@@ -133,6 +144,7 @@ namespace {
         sStatus.mLumaCounts = optionIs(NEBULA_AP_OPT_LUMA_COUNTS);
         sStatus.mStarColors = optionIs(NEBULA_AP_OPT_STAR_COLORS);
         sStatus.mMusicShuffle = optionIs(NEBULA_AP_OPT_MUSIC_SHUFFLE);
+        sStatus.mSkyShuffle = optionIs(NEBULA_AP_OPT_SKYBOX_SHUFFLE);
         sStatus.mTransformItems = optionIs(NEBULA_AP_OPT_TRANSFORMATION_ITEMS);
 
         {
@@ -149,6 +161,27 @@ namespace {
                 sStatus.mForms[i] = (i > 0 && sStatus.mTransformItems) ? __NebulaArchipelago(NEBULA_AP_ITEM_COUNT, cFormItems[i]) : 0;
             }
         }
+        sStatus.mMovementItems = optionIs(NEBULA_AP_OPT_MOVEMENT_ITEMS);
+        sStatus.mForcedCharacter = -1;
+
+        if (__NebulaArchipelago(NEBULA_AP_OPTION_SET, NEBULA_AP_OPT_CHARACTER) != 0) {
+            const u32 character = __NebulaArchipelago(NEBULA_AP_OPTION, NEBULA_AP_OPT_CHARACTER);
+
+            if (character <= 1) {
+                sStatus.mForcedCharacter = static_cast< s32 >(character);
+            }
+        }
+
+        // Only when the server said so (an older slot does not give these two): then the stars stay.
+        sStatus.mHideComets = __NebulaArchipelago(NEBULA_AP_OPTION_SET, NEBULA_AP_OPT_INCLUDE_COMETS) != 0 &&
+                              __NebulaArchipelago(NEBULA_AP_OPTION, NEBULA_AP_OPT_INCLUDE_COMETS) == 0;
+        sStatus.mHidePurple = __NebulaArchipelago(NEBULA_AP_OPTION_SET, NEBULA_AP_OPT_INCLUDE_PURPLE) != 0 &&
+                              __NebulaArchipelago(NEBULA_AP_OPTION, NEBULA_AP_OPT_INCLUDE_PURPLE) == 0;
+
+        for (s32 i = 0; i < 6; i++) {
+            sStatus.mSkills[i] = sStatus.mMovementItems ? __NebulaArchipelago(NEBULA_AP_ITEM_COUNT, NEBULA_AP_ITEM_SPIN + i) : 0;
+        }
+
         sStatus.mPower = static_cast< s32 >(__NebulaArchipelago(NEBULA_AP_ITEM_COUNT, NEBULA_AP_ITEM_POWER_STAR));
         sStatus.mGreen = static_cast< s32 >(__NebulaArchipelago(NEBULA_AP_ITEM_COUNT, NEBULA_AP_ITEM_GREEN_STAR));
         sStatus.mGrandItems = static_cast< s32 >(__NebulaArchipelago(NEBULA_AP_ITEM_COUNT, NEBULA_AP_ITEM_GRAND_STAR));
@@ -215,6 +248,13 @@ namespace {
         }
     }
 
+    // Luigi's save is a save of its own (his stars are other locations, kLuigiOffset further on).
+    bool isLuigiSave() {
+        return !GameDataFunction::isDataMario();
+    }
+
+    const u32 cLuigiOffset = 300;
+
     // Reports every star the save holds (the host ignores one it already has).
     void scanStars() {
         if (!sValidChecked) {
@@ -222,21 +262,42 @@ namespace {
         }
 
         s32 owned = 0;
+        s32 ownedMain = 0;
+        s32 totalMain = 0;
+        s32 totalAll = 0;
+        const u32 locationOffset = isLuigiSave() ? cLuigiOffset : 0;
 
         for (s32 i = 0; i < cStarNum && i < 256; i++) {
+            const bool mainStar = sValid[i] && cApStars[i].mKind != ApKind_purple && cApStars[i].mKind != ApKind_festival;
+
+            if (mainStar) {
+                totalMain++;
+            }
+
+            if (sValid[i]) {
+                totalAll++;
+            }
+
             if (!sValid[i] || !GameDataFunction::hasPowerStar(cApStars[i].mStage, cApStars[i].mScenario)) {
                 continue;
             }
 
             owned++;
 
+            if (mainStar) {
+                ownedMain++;
+            }
+
             if (!sReported[i]) {
                 sReported[i] = true;
-                __NebulaArchipelago(NEBULA_AP_LOCATION, i + 1);
+                __NebulaArchipelago(NEBULA_AP_LOCATION, i + 1 + locationOffset);
             }
         }
 
         sOwned = owned;
+        sOwnedMain = ownedMain;
+        sTotalMain = totalMain;
+        sTotalAll = totalAll;
 
         if (owned != sLoggedOwned) {
             sLoggedOwned = owned;
@@ -270,7 +331,9 @@ namespace {
 
         bool reached;
 
-        if (__NebulaArchipelago(NEBULA_AP_GOAL_OPTION, 0) == NEBULA_AP_GOAL_POWER_STARS) {
+        const u32 goalOption = __NebulaArchipelago(NEBULA_AP_GOAL_OPTION, 0);
+
+        if (goalOption == NEBULA_AP_GOAL_POWER_STARS) {
             const u32 target = __NebulaArchipelago(NEBULA_AP_OPTION, NEBULA_AP_OPT_STARS_TO_FINISH);
             reached = sOwned >= static_cast< s32 >(target != 0 ? target : 120);
         } else {
@@ -280,11 +343,22 @@ namespace {
             // player takes it (the result sequence knows the star from then on).
             reached = GameDataFunction::hasPowerStar("KoopaBattleVs3Galaxy", 1) ||
                       GameSequenceFunction::isPowerStarAtResultSequence("KoopaBattleVs3Galaxy", 1);
+
+            if (goalOption == NEBULA_AP_GOAL_ALL_STARS && (sTotalAll == 0 || sOwned < sTotalAll)) {
+                // Every star there is, the Purple Coin stars too.
+                reached = false;
+            }
+
+            if (goalOption == NEBULA_AP_GOAL_ENDING_AND_STARS && (sTotalMain == 0 || sOwnedMain < sTotalMain)) {
+                // The ending only counts together with every star that exists before it (the Purple Coin stars come after the
+                // ending); the last scan counted them in the save.
+                reached = false;
+            }
         }
 
         if (reached) {
             sGoalReported = true;
-            __NebulaArchipelago(NEBULA_AP_GOAL, 0);
+            __NebulaArchipelago(NEBULA_AP_GOAL, isLuigiSave() ? 1 : 0);
             writeLog("goal reached");
         }
     }
@@ -421,6 +495,35 @@ namespace {
             MR::incPlayerLeft();
             MR::requestOneUp();
             writeLog("received a 1-Up Mushroom");
+        } else if (item == NEBULA_AP_ITEM_ONE_UP_BURST) {
+            for (s32 i = 0; i < 3; i++) {
+                MR::incPlayerLeft();
+            }
+
+            MR::requestOneUp();
+            writeLog("received three 1-Up Mushrooms");
+        } else if (item == NEBULA_AP_ITEM_STAR_BITS_200) {
+            MR::addStarPiece(200);
+            writeLog("received 200 Star Bits");
+        } else if (item == NEBULA_AP_ITEM_FULL_HEAL) {
+            MarioActor* pActor = MarioAccess::getPlayerActor();
+
+            if (pActor == nullptr || pActor->mHealth == 0 || MR::isPlayerDead()) {
+                sItemWait = cTrapRetryFrames;
+                return;
+            }
+
+            // A Full Heal at full health is spent for nothing: waiting for a hit would hold every item behind it.
+            if (pActor->mHealth < pActor->mMaxHealth) {
+                if (!pActor->isEnableNerveChange()) {
+                    sItemWait = cTrapRetryFrames;
+                    return;
+                }
+
+                pActor->incLife(pActor->mMaxHealth);
+            }
+
+            writeLog("received a Full Heal");
         } else if (item == NEBULA_AP_ITEM_STAR_BITS_50) {
             MR::addStarPiece(50);
             writeLog("received 50 Star Bits");
@@ -428,6 +531,20 @@ namespace {
             MarioActor* pActor = MarioAccess::getPlayerActor();
 
             if (pActor == nullptr || pActor->mHealth == 0 || MR::isPlayerDead()) {
+                sItemWait = cTrapRetryFrames;
+                return;
+            }
+
+            if (pActor->_9C8 == nullptr) {
+                // Rainbow Mario's model is not there in this stage: asking for it would crash the game; try again later.
+                static s32 sTold = 0;
+
+                if (sTold < 3) {
+                    sTold++;
+                    NebulaArchipelago::logNote("rainbow star waits", MR::isLoadedObjectOrLayoutArchive("InvincibleMario") ? "InvincibleMario loaded" : "InvincibleMario not loaded",
+                            MR::isLoadedObjectOrLayoutArchive("InvincibleLuigi") ? "InvincibleLuigi loaded" : "InvincibleLuigi not loaded");
+                }
+
                 sItemWait = cTrapRetryFrames;
                 return;
             }
@@ -480,13 +597,16 @@ namespace NebulaArchipelago {
             }
         }
 
-        const s32 file = GameDataFunction::getUserFileIndex();
+        // Mario's save of a slot keeps the slot's own number; Luigi's has another (each save has its own items to receive).
+        const s32 file = GameDataFunction::getUserFileIndex() + (isLuigiSave() ? 10 : 0);
 
         if (file != sFile) {
             // Another save file: its stars are reported again (the host ignores a location it already has).
             sFile = file;
+            sGoalReported = false;
             memset(sReported, 0, sizeof(sReported));
             sOwned = 0;
+            sOwnedMain = 0;
             sLoggedOwned = -1;
             sScanWait = 0;
             sItemWait = cItemFrames;
@@ -546,6 +666,103 @@ namespace NebulaArchipelago {
         } else {
             applyItem(file);
         }
+    }
+
+    // The skies: each kind (a plain sky, a sky with a projection map, the three skies inside the domes) is shuffled among its own,
+    // as a single cycle (every sky is replaced by another), by the multiworld's seed. The summer sky is in too: its inner space
+    // (Sky::init) follows the sky object, not the model. `isDome`: the sky inside a dome (AstroDomeSky), which has its own three.
+    const char* getShuffledSkyOf(const char* pName, bool isDome) {
+        if (pName == nullptr || !isHostActive() || !status().mSkyShuffle) {
+            return pName;
+        }
+
+        const u32 seed = __NebulaArchipelago(NEBULA_AP_SEED, 0);
+
+        if (seed == 0) {
+            return pName;
+        }
+
+        static const char* const cPlain[] = {"GalaxySky",     "MilkyWaySky",   "PhantomSky",   "DesertSky",    "AuroraSky",
+                                             "StarrySky",     "FamicomMarioSky", "KoopaVS2Sky", "ChildRoomSky", "AstroDomeSkyA", "VRDarkSpace", "SummerSky"};
+        static const char* const cProjection[] = {"HalfGalaxySky", "GreenPlanetOrbitSky", "CloudSky", "RockPlanetOrbitSky", "KoopaVS1Sky", "CometNearOrbitSky", "VROrbit", "VRSandwichSun"};
+        static const char* const cDome[] = {"AstroDomeSkyA", "AstroDomeSkyB", "AstroDomeSkyC"};
+        const char* const* pPool = nullptr;
+        s32 num = 0;
+        u32 salt = 0;
+
+        if (isDome) {
+            for (s32 i = 0; i < 3 && pPool == nullptr; i++) {
+                if (strcmp(cDome[i], pName) == 0) {
+                    pPool = cDome;
+                    num = 3;
+                    salt = 0xD3u;
+                }
+            }
+        } else {
+            for (s32 i = 0; i < 12 && pPool == nullptr; i++) {
+                if (strcmp(cPlain[i], pName) == 0) {
+                    pPool = cPlain;
+                    num = 12;
+                    salt = 0x51u;
+                }
+            }
+
+            for (s32 i = 0; i < 8 && pPool == nullptr; i++) {
+                if (strcmp(cProjection[i], pName) == 0) {
+                    pPool = cProjection;
+                    num = 8;
+                    salt = 0xA7u;
+                }
+            }
+        }
+
+        if (pPool == nullptr) {
+            return pName;
+        }
+
+        // Sattolo's shuffle: one cycle through the pool, so that no sky stays.
+        s32 order[16];
+
+        for (s32 i = 0; i < num; i++) {
+            order[i] = i;
+        }
+
+        u32 state = (seed ^ (salt * 2246822519u)) * 2654435761u + 12345u;
+
+        for (s32 i = num - 1; i > 0; i--) {
+            state ^= state << 13;
+            state ^= state >> 17;
+            state ^= state << 5;
+            const s32 j = static_cast< s32 >(state % static_cast< u32 >(i));
+            const s32 swap = order[i];
+            order[i] = order[j];
+            order[j] = swap;
+        }
+
+        for (s32 i = 0; i < num; i++) {
+            if (strcmp(pPool[i], pName) == 0) {
+                const char* pResult = pPool[order[i]];
+                static u32 sLogged[3];
+                const s32 poolIndex = salt == 0x51u ? 0 : (salt == 0xA7u ? 1 : 2);
+
+                if ((sLogged[poolIndex] & (1u << i)) == 0) {
+                    sLogged[poolIndex] |= 1u << i;
+                    logNote("sky shuffle", pName, pResult);
+                }
+
+                return pResult;
+            }
+        }
+
+        return pName;
+    }
+
+    const char* getShuffledSky(const char* pName) {
+        return getShuffledSkyOf(pName, false);
+    }
+
+    const char* getShuffledDomeSky(const char* pName) {
+        return getShuffledSkyOf(pName, true);
     }
 
     u32 getShuffledMusic(u32 soundID) {
@@ -1001,6 +1218,10 @@ namespace NebulaArchipelago {
 
 // The colour of a star tells the class of the item it holds: green for a normal item, blue for useful, gold for progression and
 // red for a trap (the hues the star already has: PowerStar.btp's frames 0 to 3).
+bool NebulaArchipelago::areStarColorsOn() {
+    return isHostActive() && status().mStarColors;
+}
+
 bool NebulaArchipelago::getStarColorFrame(s32 scenario, s32* pFrame) {
     if (!isHostActive() || !status().mStarColors) {
         return false;
@@ -1019,7 +1240,7 @@ bool NebulaArchipelago::getStarColorFrame(s32 scenario, s32* pFrame) {
             continue;
         }
 
-        switch (__NebulaArchipelago(NEBULA_AP_STAR_CLASS, i + 1)) {
+        switch (__NebulaArchipelago(NEBULA_AP_STAR_CLASS, i + 1 + (isLuigiSave() ? cLuigiOffset : 0))) {
         case NEBULA_AP_CLASS_FILLER:
             *pFrame = 2;
             return true;
@@ -1039,6 +1260,68 @@ bool NebulaArchipelago::getStarColorFrame(s32 scenario, s32* pFrame) {
 
     return false;
 }
+
+// ---- The green sphere in the domes ----
+
+namespace NebulaArchipelago {
+    bool useGreenSphere(const char* pContentName) {
+        if (pContentName == nullptr || !isHostActive() || hasMiniatureModel(pContentName)) {
+            return false;
+        }
+
+        if (strncmp(pContentName, "KoopaBattleVs", strlen("KoopaBattleVs")) == 0) {
+            return false;
+        }
+
+        return __NebulaArchipelago(NEBULA_AP_SPHERE_GUARD, 0) != 0;
+    }
+
+    static bool sSphereGuard = false;
+
+    void beginSphereGuard() {
+        if (!sSphereGuard) {
+            sSphereGuard = true;
+            __NebulaArchipelago(NEBULA_AP_SPHERE_GUARD, 1);
+            writeLog("green spheres: a dome with a sphere is being made");
+        }
+    }
+
+    void endSphereGuard() {
+        if (sSphereGuard) {
+            sSphereGuard = false;
+            __NebulaArchipelago(NEBULA_AP_SPHERE_GUARD, 2);
+        }
+    }
+};  // namespace NebulaArchipelago
+
+// ---- Mario's and Luigi's colours ----
+
+namespace NebulaArchipelago {
+    bool getPlayerColor(s32 part, u8* pRed, u8* pGreen, u8* pBlue) {
+        if (part < 0 || part >= cPlayerColorParts || !isHostActive()) {
+            return false;
+        }
+
+        // The slot's options color_0 to color_9 (the APWorld's mario_cap_color ... luigi_shoes_color): 0x01000000 | 0xRRGGBB,
+        // or 0 when the player left the part alone.
+        const u32 option = NEBULA_AP_OPT_COLOR_FIRST + static_cast< u32 >(part);
+
+        if (__NebulaArchipelago(NEBULA_AP_OPTION_SET, option) == 0) {
+            return false;
+        }
+
+        const u32 value = __NebulaArchipelago(NEBULA_AP_OPTION, option);
+
+        if ((value & 0x01000000) == 0) {
+            return false;
+        }
+
+        *pRed = static_cast< u8 >(value >> 16);
+        *pGreen = static_cast< u8 >(value >> 8);
+        *pBlue = static_cast< u8 >(value);
+        return true;
+    }
+};  // namespace NebulaArchipelago
 
 // ---- The shop ----
 
@@ -1160,23 +1443,44 @@ namespace NebulaArchipelago {
 
 namespace NebulaArchipelago {
     const char* getShuffledEnemy(const char* pName, const JMapInfoIter& rIter) {
-        // Enemies that walk, stand or fly where they are put and need nothing from their placement.
-        static const char* const sPool[] = {"Kuribo", "BombHei", "Takobo", "Meramera", "PackunPetit", "Mogu", "BasaBasa"};
-        const s32 poolNum = sizeof(sPool) / sizeof(sPool[0]);
+        // Two families, each replaced among itself so that the new enemy suits the place:
+        //  - the enemies that stand on the ground where they are put (a Goomba, a Bob-omb, an Octoomba, an Octoguy, a Piranha Plant,
+        //    a Monty Mole, a Dry Bones, a hopping spider); a Fire Boo, which floats where it is, may stand for one too;
+        //  - the ones that hang or float in the air (the Swoopins, the Fire Boos and their ice kinds), among themselves.
+        // None of them needs a path, a switch or an argument from its placement (checked below).
+        static const char* const sGround[] = {"Kuribo", "BombHei", "Takobo", "TakoHei", "PackunPetit", "Mogu", "Karon", "JumpSpider", "Meramera"};
+        const s32 groundSources = 8;  // the first eight (a Fire Boo is a target only: it is in the air family as a source)
+        const s32 groundNum = sizeof(sGround) / sizeof(sGround[0]);
+        static const char* const sAir[] = {"BasaBasa", "BasaBasaIce", "Meramera", "IceMeramera"};
+        const s32 airNum = sizeof(sAir) / sizeof(sAir[0]);
 
         if (pName == nullptr || !isHostActive() || !rIter.isValid()) {
             return pName;
         }
 
+        const char* const* pPool = nullptr;
+        s32 poolNum = 0;
         s32 own = -1;
 
-        for (s32 i = 0; i < poolNum; i++) {
-            if (strcmp(pName, sPool[i]) == 0) {
+        for (s32 i = 0; i < groundSources; i++) {
+            if (strcmp(pName, sGround[i]) == 0) {
+                pPool = sGround;
+                poolNum = groundNum;
                 own = i;
             }
         }
 
-        if (own < 0 || !optionIs(NEBULA_AP_OPT_ENEMY_SHUFFLE)) {
+        if (pPool == nullptr) {
+            for (s32 i = 0; i < airNum; i++) {
+                if (strcmp(pName, sAir[i]) == 0) {
+                    pPool = sAir;
+                    poolNum = airNum;
+                    own = i;
+                }
+            }
+        }
+
+        if (pPool == nullptr || !optionIs(NEBULA_AP_OPT_ENEMY_SHUFFLE)) {
             return pName;
         }
 
@@ -1211,8 +1515,20 @@ namespace NebulaArchipelago {
 
         // Another kind than its own, evenly.
         const s32 pick = static_cast< s32 >(hash % static_cast< u32 >(poolNum - 1));
+        const char* pResult = pPool[pick >= own ? pick + 1 : pick];
 
-        return sPool[pick >= own ? pick + 1 : pick];
+        static s32 sLogged = 0;
+
+        if (sLogged < 400) {
+            sLogged++;
+            char what[64];
+            char where[64];
+            snprintf(what, sizeof(what), "%s -> %s", pName, pResult);
+            snprintf(where, sizeof(where), "at %d %d %d", static_cast< int >(x), static_cast< int >(y), static_cast< int >(z));
+            logNote("enemy shuffle", what, where);
+        }
+
+        return pResult;
     }
 
     static s32 sSaveIndicatorFrames = 0;
@@ -1231,6 +1547,46 @@ namespace NebulaArchipelago {
         }
 
         return sSaveIndicatorFrames > 0;
+    }
+
+    s32 getForcedCharacter() {
+        if (!isHostActive()) {
+            return -1;
+        }
+
+        return status().mForcedCharacter;
+    }
+
+    bool isScenarioHidden(const char* pStageName, s32 scenarioNo) {
+        if (pStageName == nullptr || !isHostActive()) {
+            return false;
+        }
+
+        const Status& rStatus = status();
+
+        if (!rStatus.mHideComets && !rStatus.mHidePurple) {
+            return false;
+        }
+
+        for (s32 i = 0; i < cStarNum && i < 256; i++) {
+            const ApStar& rStar = cApStars[i];
+
+            if (rStar.mScenario == scenarioNo && strcmp(rStar.mStage, pStageName) == 0) {
+                return (rStatus.mHideComets && rStar.mKind == ApKind_comet) || (rStatus.mHidePurple && rStar.mKind == ApKind_purple);
+            }
+        }
+
+        return false;
+    }
+
+    bool isSkillLocked(s32 skill) {
+        if (skill < 0 || skill > 5 || !isHostActive()) {
+            return false;
+        }
+
+        const Status& rStatus = status();
+
+        return rStatus.mMovementItems && rStatus.mSkills[skill] == 0;
     }
 
     bool isTransformationLocked(s32 morphType) {

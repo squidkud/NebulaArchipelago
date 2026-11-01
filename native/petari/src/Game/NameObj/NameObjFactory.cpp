@@ -14,8 +14,13 @@
 #include "Game/Player/MarioActor.hpp"
 #include "Game/Ride.hpp"
 #include "Game/Screen.hpp"
+#include "Game/Util/EventUtil.hpp"
 #include "Game/Util/FileUtil.hpp"
 #include "Game/Util/StringUtil.hpp"
+#include <cstring>
+#ifdef TARGET_PC
+#include "Game/System/NebulaArchipelago.hpp"
+#endif
 
 namespace {
     template < typename T >
@@ -8123,6 +8128,17 @@ namespace NameObjFactory {
         for (s32 i = 0; i < collector.getArchiveNum(); i++) {
             MR::mountAsyncArchiveByObjectOrLayoutName(collector.getArchive(i), nullptr);
         }
+
+#ifdef TARGET_PC
+        // The Rainbow Star item can come in any galaxy: the models of Rainbow Mario are requested with every galaxy's files
+        // (the game only loads them where a real Rainbow Star is placed, and without them the item cannot work). A file
+        // already requested is not requested twice.
+        if (NebulaArchipelago::isActive()) {
+            MR::mountAsyncArchiveByObjectOrLayoutName("InvincibleMarioHandL", nullptr);
+            MR::mountAsyncArchiveByObjectOrLayoutName("InvincibleMarioHandR", nullptr);
+            MR::mountAsyncArchiveByObjectOrLayoutName(MR::isPlayerLuigi() ? "InvincibleLuigi" : "InvincibleMario", nullptr);
+        }
+#endif
     }
 
     bool isReadResourceFromDVD(const char* pName, const JMapInfoIter& rIter) {
@@ -8191,6 +8207,24 @@ namespace NameObjFactory {
                     pName2ArchiveFunc->mArchiveFunc(pCollector, rIter);
                 }
             }
+
+#ifdef TARGET_PC
+            // The skybox_shuffle: the sky that stands in place of this one is loaded too.
+            const char* pSky = NebulaArchipelago::getShuffledSky(pName);
+
+            if (pSky != pName && strcmp(pSky, pName) != 0) {
+                pCollector->addArchive(pSky);
+            }
+
+            if (strcmp(pName, "FileSelector") == 0) {
+                // The sky of the title and file selection screens (FileSelectSky) is shuffled too.
+                const char* pTitleSky = NebulaArchipelago::getShuffledSky("CometNearOrbitSky");
+
+                if (strcmp(pTitleSky, "CometNearOrbitSky") != 0) {
+                    pCollector->addArchive(pTitleSky);
+                }
+            }
+#endif
         }
     }
 };  // namespace NameObjFactory

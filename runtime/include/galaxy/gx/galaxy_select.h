@@ -37,6 +37,8 @@ inline constexpr GalaxyStage kGalaxyStages[] = {
     {"TearDropGalaxy", 1u}, {"FishTunnelGalaxy", 1u}, {"TransformationExGalaxy", 1u},
     {"SnowCapsuleGalaxy", 1u}, {"TeresaMario2DGalaxy", 1u}, {"CubeBubbleExLv2Galaxy", 1u},
     {"TamakoroExLv2Galaxy", 1u}, {"SurfingLv2Galaxy", 1u},
+    // The Grand Finale Galaxy (the Star Festival, the game's 121st star), which the game opens only with both characters complete.
+    {"PeachCastleFinalGalaxy", 1u},
 };
 inline constexpr std::size_t kGalaxyStageCount = sizeof(kGalaxyStages) / sizeof(kGalaxyStages[0]);
 inline constexpr const char* kObservatoryId = "AstroGalaxy";

@@ -130,6 +130,11 @@ int main() {
         expect(!socket.connect(closed, 1000, error) && !error.empty(), "a closed port is reported");
     }
 
+    {
+        net::WebSocket idle;  // never opened: no ping can be sent, and the idle clock reads a small, non-negative time
+        expect(!idle.send_ping() && idle.idle_ms() >= 0 && idle.idle_ms() < 60000, "a closed socket cannot ping");
+    }
+
     if (s_failures == 0) std::printf("websocket_client: all tests passed\n");
     return s_failures == 0 ? 0 : 1;
 }

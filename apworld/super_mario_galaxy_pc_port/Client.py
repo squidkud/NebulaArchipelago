@@ -10,7 +10,7 @@ import typing
 import Utils
 from CommonClient import ClientCommandProcessor, CommonContext, get_base_parser, gui_enabled, logger, server_loop
 
-from .Locations import all_stars
+from .Locations import every_star
 from .TrackerData import format_places, format_summary, summarize
 
 GAME_NAME = "Super Mario Galaxy PC Port"
@@ -45,9 +45,9 @@ class SMGCommandProcessor(ClientCommandProcessor):
         if not by_stage:
             logger.info(f"No galaxy of this multiworld has \"{galaxy}\" in its name.")
             return
-        for star in all_stars:
+        for star in every_star:
             if star.stage in by_stage and star.code in known:
-                logger.info(f"  [{'x' if star.code in self.ctx.checked_locations else ' '}] {star.name}")
+                logger.info(f"  [{'x' if star.code in self.ctx.checked_locations else ' '}] {star.location_name}")
 
     def _cmd_places(self) -> None:
         """Which galaxy each miniature of the Observatory shows (when the galaxies are shuffled)."""

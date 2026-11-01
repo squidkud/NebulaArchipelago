@@ -352,7 +352,7 @@ enum {
 enum {
     NEBULA_AP_ACTIVE = 1,   /* -> 1 when the client runs (archipelago.ini names a server and a slot), else 0 */
     NEBULA_AP_LOCATION,     /* value: a location number the save has reached; -> 0 */
-    NEBULA_AP_GOAL,         /* the goal the slot asks for is reached; -> 0 */
+    NEBULA_AP_GOAL,         /* value: 0 Mario, 1 Luigi: the goal the slot asks for is reached with that character; -> 0 */
     NEBULA_AP_GOAL_OPTION,  /* -> the slot's goal: NEBULA_AP_GOAL_ENDING or NEBULA_AP_GOAL_POWER_STARS */
     NEBULA_AP_NEXT_ITEM,    /* value: the save file (1 to 3) -> the next item that file has not applied */
     NEBULA_AP_ITEM_APPLIED, /* value: the save file: it applied the item NEBULA_AP_NEXT_ITEM gave; -> 0 */
@@ -373,6 +373,7 @@ enum {
     NEBULA_AP_SHOP_BUY,     /* value: a shop item: it was bought (the game took the Star Bits); -> 0 */
     NEBULA_AP_SHOP_ICON,    /* value: a shop item: this game's own item on the shelf (1 1-Up ... 19 Flying), or 0 for another player's item / no picture */
     NEBULA_AP_SHOP_HINT,    /* the shop is open: its unbought shelves are declared as hints to the players concerned; -> 0 */
+    NEBULA_AP_SPHERE_GUARD, /* value 0: -> 1 when the green spheres in the domes are allowed; 1: a dome holds one (a file marks it until 2 or a normal exit); 2: the dome is left; -> 0 */
 };
 enum {
     NEBULA_AP_CLASS_FILLER = 0,
@@ -383,6 +384,8 @@ enum {
 enum {
     NEBULA_AP_GOAL_ENDING = 0,      /* the ending seen (Bowser's Galaxy Reactor) */
     NEBULA_AP_GOAL_POWER_STARS = 1, /* the number of Power Stars the slot asks for */
+    NEBULA_AP_GOAL_ENDING_AND_STARS = 2, /* the ending seen, and every star that exists before it held */
+    NEBULA_AP_GOAL_ALL_STARS = 3,        /* the ending seen, and every star there is held (Purple Coin stars too) */
 };
 enum {
     NEBULA_AP_ITEM_ONE_UP = 1,      /* one extra life */
@@ -404,6 +407,15 @@ enum {
     NEBULA_AP_ITEM_FIRE_FLOWER,         /* counted: Fire Mario */
     NEBULA_AP_ITEM_ICE_FLOWER,          /* counted: Ice Mario */
     NEBULA_AP_ITEM_FLYING_STAR,         /* counted: Flying Mario (the Red Star) */
+    NEBULA_AP_ITEM_STAR_BITS_200 = 20,  /* 200 Star Bits */
+    NEBULA_AP_ITEM_ONE_UP_BURST,        /* three 1-Up Mushrooms */
+    NEBULA_AP_ITEM_FULL_HEAL,           /* health filled up (waits while it is full) */
+    NEBULA_AP_ITEM_SPIN = 23,           /* counted: Mario's moves, usable only once received (NEBULA_AP_OPT_MOVEMENT_ITEMS) */
+    NEBULA_AP_ITEM_WALL_JUMP,
+    NEBULA_AP_ITEM_LONG_JUMP,
+    NEBULA_AP_ITEM_BACKFLIP,
+    NEBULA_AP_ITEM_SIDE_FLIP,
+    NEBULA_AP_ITEM_TRIPLE_JUMP,
     NEBULA_AP_ITEM_UNKNOWN = 0xFFFF,
 };
 /* The slot's options (slot_data "options"); the colours are 16 to 39. */
@@ -411,19 +423,23 @@ enum {
     NEBULA_AP_OPT_GOAL = 1,
     NEBULA_AP_OPT_STAR_ITEMS = 2,         /* 1: the stars the game counts are the items received */
     NEBULA_AP_OPT_START_OBSERVATORY = 3,  /* 1: a new save starts in the Observatory */
-    NEBULA_AP_OPT_CHARACTER = 4,          /* 0 Mario, 1 Luigi */
+    NEBULA_AP_OPT_CHARACTER = 4,          /* 0 Mario, 1 Luigi, 2 both: who plays; a single one is the only one a save file can be */
     NEBULA_AP_OPT_UNLOCK_LUIGI = 5,       /* 1: Luigi can be chosen on any save file */
     NEBULA_AP_OPT_DOME_SHUFFLE = 6,       /* 1: the domes' galaxies are shuffled */
     NEBULA_AP_OPT_STARS_TO_FINISH = 7,
     NEBULA_AP_OPT_EXACT_REQUIREMENTS = 8, /* 1: each galaxy asks exactly the stars NEBULA_AP_GALAXY_CAP says */
     NEBULA_AP_OPT_LUMA_COUNTS = 9,        /* 1: the Hungry Lumas ask the Star Bits NEBULA_AP_LUMA_COUNT says */
     NEBULA_AP_OPT_MUSIC_SHUFFLE = 12,     /* 1: the music is shuffled */
+    NEBULA_AP_OPT_SKYBOX_SHUFFLE = 15,    /* 1: the skies of the stages are swapped for other skies */
     NEBULA_AP_OPT_ENEMY_SHUFFLE = 14,     /* 1: plain enemies of the stages are swapped for other kinds */
     NEBULA_AP_OPT_TRANSFORMATION_ITEMS = 13, /* 1: a transformation does nothing until its item is received */
     NEBULA_AP_OPT_DEATH_LINK = 11,        /* 1: DeathLink */
     NEBULA_AP_OPT_STAR_COLORS = 10,       /* 1: a star's colour tells the class of its item (NEBULA_AP_STAR_CLASS) */
     NEBULA_AP_OPT_COLOR_FIRST = 16,
     NEBULA_AP_OPT_COLOR_LAST = 39,
+    NEBULA_AP_OPT_INCLUDE_COMETS = 41,    /* 0 (given): the Prankster Comet stars are not locations, so the star select hides them */
+    NEBULA_AP_OPT_INCLUDE_PURPLE = 42,    /* 0 (given): the Purple Coin stars are not locations, so the star select hides them */
+    NEBULA_AP_OPT_MOVEMENT_ITEMS = 40,    /* 1: a move does nothing special until its item is received */
 };
 /* archipelago_text(), what = NEBULA_AP_TEXT_*. */
 enum {

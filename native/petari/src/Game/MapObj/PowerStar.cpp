@@ -1,11 +1,13 @@
 #include "Game/MapObj/PowerStar.hpp"
 #include "Game/Camera/CameraTargetArg.hpp"
 #include "Game/LiveActor/LiveActorGroup.hpp"
+#include "Game/LiveActor/ModelManager.hpp"
 #include "Game/LiveActor/ModelObj.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/MapObj/PowerStarAppearPoint.hpp"
 #include "Game/MapObj/PowerStarHolder.hpp"
 #ifdef TARGET_PC
+#include "Game/Player/NebulaPlayerColors.hpp"
 #include "Game/System/NebulaArchipelago.hpp"
 #endif
 #include "Game/NameObj/NameObjArchiveListCollector.hpp"
@@ -411,6 +413,12 @@ void PowerStar::initMapToolInfo(const JMapInfoIter& rIter) {
 
 void PowerStar::initModel() {
     initModelManagerWithAnm(isGrandStar() ? "GrandStar" : "PowerStar", 0, false);
+
+#ifdef TARGET_PC
+    if (!isGrandStar() && mModelManager != nullptr) {
+        NebulaPlayerColors::applyStar(mModelManager->getJ3DModelData());
+    }
+#endif
 
     if (mIsGrandStar) {
         ::setupColorGrandStar(this, mColorFrame_v == 4);

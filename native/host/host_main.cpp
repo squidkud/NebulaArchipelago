@@ -1749,7 +1749,7 @@ uint32_t svc_archipelago(void*, uint32_t what, uint32_t value) {
         galaxy::archipelago::report_location(value);
         return 0u;
     case NEBULA_AP_GOAL:
-        galaxy::archipelago::report_goal();
+        galaxy::archipelago::report_goal(value);
         return 0u;
     case NEBULA_AP_GOAL_OPTION:
         return galaxy::archipelago::goal_option();
@@ -1794,6 +1794,11 @@ uint32_t svc_archipelago(void*, uint32_t what, uint32_t value) {
         return galaxy::archipelago::shop_icon(value);
     case NEBULA_AP_SHOP_HINT:
         galaxy::archipelago::request_shop_hints();
+        return 0u;
+    case NEBULA_AP_SPHERE_GUARD:
+        if (value == 0u) return galaxy::archipelago::spheres_allowed() ? 1u : 0u;
+        if (value == 1u) galaxy::archipelago::sphere_guard_begin();
+        if (value == 2u) galaxy::archipelago::sphere_guard_end();
         return 0u;
     default:
         return 0u;

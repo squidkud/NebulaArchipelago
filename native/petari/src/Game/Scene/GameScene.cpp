@@ -110,6 +110,7 @@ GameScene::GameScene()
 GameScene::~GameScene() {
 #ifdef TARGET_PC
     TicoGalaxy::forgetAll();
+    NebulaArchipelago::endSphereGuard();  // the dome (if it held a green sphere) was left without stopping the game
 #endif
     MR::destroySceneMessage();
     NPCFunction::deleteNPCData();

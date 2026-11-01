@@ -91,6 +91,12 @@ bool MarioActor::isRequestSpin() const {
         return false;
     }
 
+#ifdef TARGET_PC
+    if (NebulaArchipelago::isSkillLocked(NebulaArchipelago::Skill_Spin)) {
+        return false;  // the movement option: no Spin item yet
+    }
+#endif
+
     if (isJumping() && mMario->_3BC > 6 && MR::isStarPointerPointing2P(this, "\216\343" /* 弱 */, true, false) && MR::testCorePadTriggerA(1)) {
         return true;
     }

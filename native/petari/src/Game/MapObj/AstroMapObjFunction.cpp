@@ -11,6 +11,9 @@
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/StringUtil.hpp"
 #include <cstdio>
+#ifdef TARGET_PC
+#include "Game/System/NebulaArchipelago.hpp"
+#endif
 
 namespace {
     inline s32 findModelName(const JMapInfo* pInfo, const char* pModelName) {
@@ -95,6 +98,12 @@ namespace {
         }
 
         if (MR::isEqualString(modelName, "AstroCountDownPlate")) {
+#ifdef TARGET_PC
+            // Archipelago: the plate counting the missing stars is there from the start (the Grand Stars are items).
+            if (NebulaArchipelago::isActive()) {
+                return 0;
+            }
+#endif
             return 5;
         }
 
@@ -150,7 +159,14 @@ void AstroMapObjFunction::makeArchiveListFromArg0(NameObjArchiveListCollector* p
 
     const char* modelName = getModelName(objName, domeId);
 
-    pCollector->addArchive(modelName);
+    pCollector->addArchive(getDisplayModelName(objName, domeId));
+
+#ifdef TARGET_PC
+    if (MR::isEqualString(objName, "AstroDomeSky")) {
+        // The skybox_shuffle: the sky that stands in place of this dome's.
+        pCollector->addArchive(NebulaArchipelago::getShuffledDomeSky(modelName));
+    }
+#endif
 
     if (MR::isEqualString(modelName, "AstroDomeEntrance")) {
         makeArchiveListAstroNamePlate(pCollector, rIter);
@@ -229,6 +245,22 @@ const char* AstroMapObjFunction::getModelName(const char* pObjName, s32 domeId) 
     return pObjName;
 }
 
+// The model that is drawn for a dome's entrance. The entrance of the n-th dome opens the room that the dome shuffle sends the
+// player to: it is drawn as that room's entrance (everything else, when it appears and what it does, stays the n-th one's).
+const char* AstroMapObjFunction::getDisplayModelName(const char* pObjName, s32 domeId) {
+#ifdef TARGET_PC
+    if (MR::isEqualString(pObjName, "AstroDomeEntrance") && domeId >= 1 && domeId <= 6) {
+        const s32 room = NebulaArchipelago::getDomeOfDoor(domeId);
+
+        if (room >= 1 && room <= 6) {
+            return ::cAstroDomeEntranceNameTable[room - 1];
+        }
+    }
+#endif
+
+    return getModelName(pObjName, domeId);
+}
+
 const JMapInfo* AstroMapObjFunction::createAstroNamePlateParser() {
     char arcName[64];
     snprintf(arcName, sizeof(arcName), "%s.arc", ::cAstroNamePlateArcName);
@@ -260,7 +292,7 @@ bool AstroMapObjFunction::trySetAndShowNamePlate(GalaxyNamePlate* pNamePlate, co
     areaArg = MR::getAreaObjArg(astroOverlookAreaObj, 0);
     snprintf(upperFlagId, sizeof(upperFlagId), "UpperFlag%d", areaArg);
 
-    const char* modelName = getModelName(pObjName, domeId);
+    const char* modelName = getDisplayModelName(pObjName, domeId);
     s32 i = ::findModelName(pInfo, modelName);
 
     f32 offsetY;
@@ -277,7 +309,12 @@ bool AstroMapObjFunction::trySetAndShowNamePlate(GalaxyNamePlate* pNamePlate, co
     const wchar_t* msg;
 
     if (MR::isEqualString(pObjName, "AstroDomeEntrance")) {
+#ifdef TARGET_PC
+        // The name is the one of the room behind the door (the dome shuffle).
+        msg = MR::getScenarioNameOnCurrentLanguage("AstroDome", domeId >= 1 && domeId <= 6 ? NebulaArchipelago::getDomeOfDoor(domeId) : domeId);
+#else
         msg = MR::getScenarioNameOnCurrentLanguage("AstroDome", domeId);
+#endif
     } else if (MR::isEqualString(pObjName, "AstroLibrary")) {
         msg = MR::getGameMessageDirect("AstroName_LibraryRoom");
     } else if (MR::isEqualString(pObjName, "AstroChildRoom")) {

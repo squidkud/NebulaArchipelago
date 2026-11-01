@@ -53,7 +53,7 @@ void AstroMapObj::init(const JMapInfoIter& rIter) {  // Pain
     _D8 = AstroMapObjFunction::getDomeIdFromArg0(rIter);
     mapObjInitInfo.setupHioNode("\222\156\214\140\203\111\203\165\203\127\203\106" /* 地形オブジェ */);
     mapObjInitInfo.setupDefaultPos();
-    mapObjInitInfo.setupModelName(AstroMapObjFunction::getModelName(_CC, _D8));
+    mapObjInitInfo.setupModelName(AstroMapObjFunction::getDisplayModelName(_CC, _D8));
     mapObjInitInfo.setupConnectToScene();
     mapObjInitInfo.setupFarClipping(-1.0f);
     mapObjInitInfo.setupEffect(_CC);

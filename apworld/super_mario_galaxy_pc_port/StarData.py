@@ -12,7 +12,9 @@ GALAXIES: (game name, English name, dome, star count that opens it at most).
 STARS: (game name of the galaxy, scenario (1-based, as the game numbers it), English name, kind).
   kinds: star (a mission), comet (a Prankster Comet), secret (a hidden star), purple (Purple Coin star, after the
   ending), luigi (Luigi's hide and seek, a star the game gives Mario once he has rescued Luigi), green (Green Star),
-  grand (Grand Star), ending (Bowser's Galaxy Reactor: the end of the game, not a location).
+  grand (Grand Star), ending (Bowser's Galaxy Reactor: the end of the game, not a location), festival (the Grand Finale
+  Galaxy's Star Festival: the 121st star, whose entrance the game opens only once Mario and Luigi both have 120 stars; a location only with the
+  goal 242 Stars).
 """
 
 GALAXIES = [
@@ -57,6 +59,7 @@ GALAXIES = [
     ('CubeBubbleExLv2Galaxy', 'Bubble Blast Galaxy', 0, 0),
     ('HeavensDoorGalaxy', 'Gateway Galaxy', 0, 0),
     ('KoopaBattleVs3Galaxy', "Bowser's Galaxy Reactor", 0, 0),
+    ('PeachCastleFinalGalaxy', 'Grand Finale Galaxy', 0, 0),
 ]
 
 STARS = [
@@ -180,4 +183,5 @@ STARS = [
     ('HeavensDoorGalaxy', 1, 'Gateway Galaxy - Grand Star Rescue', 'grand'),
     ('HeavensDoorGalaxy', 2, "Gateway Galaxy - Gateway's Purple Coins", 'purple'),
     ('KoopaBattleVs3Galaxy', 1, "Bowser's Galaxy Reactor - The Fate of the Universe", 'ending'),
+    ('PeachCastleFinalGalaxy', 1, 'Grand Finale Galaxy - The Star Festival', 'festival'),
 ]

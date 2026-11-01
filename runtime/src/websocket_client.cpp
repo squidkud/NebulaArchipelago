@@ -807,6 +807,7 @@ bool WebSocket::connect(const WebSocketUrl& url, int timeout_ms, std::string& er
         return false;
     }
     open_ = true;
+    last_activity_ = std::chrono::steady_clock::now();
     const std::string extra = response.substr(header_end + 4u);
     if (!extra.empty()) decoder_.feed(extra.data(), extra.size());
     return true;
@@ -865,8 +866,17 @@ WebSocket::Event WebSocket::receive(std::string& message, int timeout_ms) {
             close();
             return Event::Closed;
         }
+        last_activity_ = std::chrono::steady_clock::now();
         decoder_.feed(buffer, static_cast<std::size_t>(count));
     }
+}
+
+long long WebSocket::idle_ms() const noexcept {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - last_activity_).count();
+}
+
+bool WebSocket::send_ping() {
+    return open_ && send_frame(0x9, std::string_view());
 }
 
 void WebSocket::close() {

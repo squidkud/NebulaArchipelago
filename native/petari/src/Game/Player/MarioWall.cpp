@@ -10,6 +10,9 @@
 #include "Game/Util/MathUtil.hpp"
 #include <JSystem/JMath/JMath.hpp>
 #include <cstring>
+#ifdef TARGET_PC
+#include "Game/System/NebulaArchipelago.hpp"
+#endif
 
 bool Mario::isWalling() const {
     return getCurrentStatus() == MarioStatus_Wall;
@@ -601,6 +604,12 @@ bool MarioWall::startJump() {
         return false;
     }
 
+#ifdef TARGET_PC
+    if (NebulaArchipelago::isSkillLocked(NebulaArchipelago::Skill_WallJump)) {
+        return false;
+    }
+#endif
+
     TVec3f velocity(getPlayer()->getWallNorm());
     _24 = velocity;
     if (!getPlayer()->mDrawStates._3 && _14 < 15 && !MR::isNearZero(_30)) {
@@ -627,6 +636,12 @@ bool MarioWall::startBackJump(u32 type) {
     if (getPlayer()->isInhibitWall()) {
         return false;
     }
+
+#ifdef TARGET_PC
+    if (NebulaArchipelago::isSkillLocked(NebulaArchipelago::Skill_WallJump)) {
+        return false;
+    }
+#endif
 
     TVec3f velocity(getPlayer()->getWallNorm());
     if (getPlayer()->mMovementStates.jumping && velocity.dot(getPlayer()->mJumpVec) > 0.0f) {
