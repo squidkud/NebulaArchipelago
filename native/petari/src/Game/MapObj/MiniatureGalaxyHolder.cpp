@@ -75,6 +75,16 @@ s32 MiniatureGalaxyHolder::calcIndex(const LiveActor* pActor) const {
     s32 mStarNum = MR::getPowerStarNumToOpenGalaxy(galaxyName);
     s32 index = 0;
     MiniatureGalaxy* actorGalaxy = findMiniatureGalaxy(galaxyName);
+#ifdef TARGET_PC
+    s32 actorIndex = -1;
+
+    for (int i = 0; i < mMiniatureGalaxyGroup->getObjNum(); i++) {
+        if (mMiniatureGalaxyGroup->getActor(i) == actorGalaxy) {
+            actorIndex = i;
+            break;
+        }
+    }
+#endif
 
     for (int i = 0; i < mMiniatureGalaxyGroup->getObjNum(); i++) {
         MiniatureGalaxy* currMiniGalaxy = static_cast< MiniatureGalaxy* >(mMiniatureGalaxyGroup->getActor(i));
@@ -90,6 +100,11 @@ s32 MiniatureGalaxyHolder::calcIndex(const LiveActor* pActor) const {
             index++;
         } else if (MR::getPowerStarNumToOpenGalaxy(currMiniGalaxy->mGalaxyName) < mStarNum) {
             index++;
+#ifdef TARGET_PC
+        } else if (MR::getPowerStarNumToOpenGalaxy(currMiniGalaxy->mGalaxyName) == mStarNum && i < actorIndex) {
+            // Galaxies asking the same number of stars (the Archipelago slot's own requirements) keep the order they were placed in.
+            index++;
+#endif
         }
     }
 
@@ -106,14 +121,14 @@ void MiniatureGalaxyHolder::updateCometStatus() {
     for (int i = 0; i < mMiniatureGalaxyGroup->getObjNum(); i++) {
         MiniatureGalaxy* miniatureGalaxy = static_cast< MiniatureGalaxy* >(mMiniatureGalaxyGroup->getActor(i));
 
-        if (MR::isGalaxyCometLandInStage(miniatureGalaxy->mGalaxyName)) {
+        if (MR::isGalaxyCometLandInStage(miniatureGalaxy->mContentGalaxyName)) {
             mCometGalaxy = miniatureGalaxy;
             break;
         }
     }
 
     if (mCometGalaxy != nullptr) {
-        mCometID = MR::getEncounterGalaxyCometNameId(mCometGalaxy->mGalaxyName);
+        mCometID = MR::getEncounterGalaxyCometNameId(mCometGalaxy->mContentGalaxyName);
     }
 }
 

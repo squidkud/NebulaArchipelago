@@ -11,6 +11,9 @@
 #include "Game/Util/ScreenUtil.hpp"
 #include "Game/Util/SequenceUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
+#ifdef TARGET_PC
+#include "Game/System/NebulaArchipelago.hpp"
+#endif
 
 namespace NrvSurprisedGalaxy {
     NEW_NERVE(SurprisedGalaxyNrvExit, SurprisedGalaxy, Exit);
@@ -29,6 +32,11 @@ void SurprisedGalaxy::init(const JMapInfoIter& rIter) {
     } else {
         mGalaxyName = &objName[strlen("Surp")];
     }
+
+    mContentGalaxyName = mGalaxyName;
+#ifdef TARGET_PC
+    mContentGalaxyName = NebulaArchipelago::getShuffledGalaxy(mGalaxyName);
+#endif
 
     MR::initDefaultPos(this, rIter);
     initModelManagerWithAnm("MiniSurprisedGalaxy", nullptr, false);
@@ -91,7 +99,7 @@ void SurprisedGalaxy::exeExit() {
     MR::onGameEventFlagGalaxyOpen(mGalaxyName);
     MR::endDemo(this, "\203\115\203\203\203\211\203\116\203\126\201\133\210\332\223\256" /* ギャラクシー移動 */);
     MR::permitTrigSE();
-    MR::requestStartScenarioSelect(mGalaxyName);
+    MR::requestStartScenarioSelect(mContentGalaxyName);
 }
 
 void SurprisedGalaxy::exeWait() {

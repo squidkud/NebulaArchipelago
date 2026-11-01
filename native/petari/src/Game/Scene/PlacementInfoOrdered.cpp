@@ -6,6 +6,9 @@
 #include "Game/Util/JMapUtil.hpp"
 #include "Game/Util/MemoryUtil.hpp"
 #include "Game/Util/SceneUtil.hpp"
+#ifdef TARGET_PC
+#include "Game/System/NebulaArchipelago.hpp"
+#endif
 
 namespace {
     CreationFuncPtr getCreator(const PlacementInfoOrdered::Identifier& rIdentifier) {
@@ -169,6 +172,10 @@ void PlacementInfoOrdered::attach(const JMapInfo* pInfo, PlacementInfoOrdered* p
         JMapInfoIter iter(pInfo, i);
         const char* pName = "";
         MR::getObjectName(&pName, iter);
+#ifdef TARGET_PC
+        // Archipelago's enemy_shuffle: a plain enemy stands for another kind (the files of the new kind load with it).
+        pName = NebulaArchipelago::getShuffledEnemy(pName, iter);
+#endif
         s32 shapeId = -1;
         MR::getJMapInfoShapeIdWithInit(iter, &shapeId);
         Identifier identifier(pName, shapeId);

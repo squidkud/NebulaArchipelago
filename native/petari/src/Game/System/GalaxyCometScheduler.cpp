@@ -1,3 +1,6 @@
+#ifdef TARGET_PC
+#include "Game/System/NebulaArchipelago.hpp"
+#endif
 #include "Game/System/GalaxyCometScheduler.hpp"
 #include "Game/System/NebulaDiscTables.hpp"
 #include "Game/System/GalaxyCometState.hpp"
@@ -212,6 +215,12 @@ void GalaxyCometTimeTable::deserializeStateFromGameData(const GalaxyCometSeriali
 }
 
 bool GalaxyCometTimeTable::isLand() const {
+#ifdef TARGET_PC
+    // Archipelago: no comet visits the galaxies at random; the comet stars are chosen in the star select.
+    if (NebulaArchipelago::isActive()) {
+        return false;
+    }
+#endif
     if (mIsReady == false) {
         return false;
     }
@@ -357,6 +366,11 @@ void GalaxyCometScheduler::setScheduleFirstContact() {
 }
 
 void GalaxyCometScheduler::setScheduleMostForwardCometAppear() {
+#ifdef TARGET_PC
+    if (NebulaArchipelago::isActive()) {
+        return;
+    }
+#endif
     if (isHideAll()) {
         for (s32 i = 0; i < mTimeTables.size(); i++) {
             GalaxyCometTimeTable* timeTable = mTimeTables[i];

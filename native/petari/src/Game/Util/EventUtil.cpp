@@ -18,6 +18,7 @@
 #include <cstdio>
 #ifdef TARGET_PC
 #include "Game/System/NebulaAchievements.hpp"
+#include "Game/System/NebulaArchipelago.hpp"
 #endif
 
 void EventUtil_FORCE_MATCH_STRINGS() {
@@ -94,6 +95,7 @@ namespace MR {
         GameDataFunction::incPlayerMissNum();
 #ifdef TARGET_PC
         NebulaAchievements::countStat(NebulaStat_LivesLost, 1);
+        NebulaArchipelago::onLifeLost();
 #endif
     }
 

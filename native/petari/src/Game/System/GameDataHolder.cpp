@@ -1,3 +1,6 @@
+#ifdef TARGET_PC
+#include "Game/System/NebulaArchipelago.hpp"
+#endif
 #include "Game/System/GameDataHolder.hpp"
 #include "Game/System/GameDataGalaxyStorage.hpp"
 #include "Game/System/GameDataPlayerStatus.hpp"
@@ -196,6 +199,13 @@ s32 GameDataHolder::getPowerStarNumOwned(const char* pGalaxyName) const {
 }
 
 s32 GameDataHolder::calcCurrentPowerStarNum() const {
+#ifdef TARGET_PC
+    // Archipelago's star items: the star counter is the Power, Green and Grand Star items received.
+    s32 archipelagoNum;
+    if (NebulaArchipelago::overridePowerStarNum(&archipelagoNum)) {
+        return archipelagoNum;
+    }
+#endif
     return mAllGalaxyStorage->calcCurrentPowerStarNum();
 }
 
@@ -224,6 +234,17 @@ void GameDataHolder::onGalaxyScenarioFlagAlreadyVisited(const char* pGalaxyName,
 }
 
 bool GameDataHolder::isAppearGalaxy(const char* pGalaxyName) const {
+#ifdef TARGET_PC
+    if (NebulaArchipelago::isDomeGalaxyAppearing(pGalaxyName)) {
+        return true;
+    }
+
+    bool lumaAppears;
+    if (NebulaArchipelago::overrideLumaAppear(pGalaxyName, &lumaAppears)) {
+        return lumaAppears;
+    }
+#endif
+
     char name[64];
     snprintf(name, sizeof(name), "Appear%s", pGalaxyName);
 

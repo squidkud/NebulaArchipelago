@@ -102,6 +102,19 @@ add_library(galaxy_runtime_settings STATIC
 target_link_libraries(galaxy_runtime_settings PUBLIC galaxy_runtime_abi galaxy_atomic_file)
 galaxy_host_options(galaxy_runtime_settings)
 
+# The Archipelago multiworld client (galaxy/archipelago.h): a WebSocket client, a small JSON reader and the protocol.
+add_library(galaxy_archipelago STATIC
+    runtime/src/archipelago.cpp
+    runtime/src/json_lite.cpp
+    runtime/src/websocket_client.cpp)
+find_package(Threads REQUIRED)
+target_link_libraries(galaxy_archipelago PUBLIC galaxy_runtime_abi galaxy_atomic_file Threads::Threads)
+if(WIN32)
+    target_link_libraries(galaxy_archipelago PUBLIC ws2_32 secur32)
+endif()
+target_compile_features(galaxy_archipelago PRIVATE cxx_std_20)
+galaxy_host_options(galaxy_archipelago)
+
 add_library(galaxy_frame_cadence_diagnostics STATIC runtime/src/frame_cadence_diagnostics.cpp)
 target_link_libraries(galaxy_frame_cadence_diagnostics PUBLIC galaxy_runtime_abi)
 galaxy_host_options(galaxy_frame_cadence_diagnostics)
@@ -586,7 +599,7 @@ add_executable(NebulaNative native/host/host_main.cpp runtime/src/native_thp_vid
 target_include_directories(NebulaNative PRIVATE native/include runtime/include)
 target_compile_definitions(NebulaNative PRIVATE NEBULA_HOST_RENDERER=1 NEBULA_HOST_D3D12=1 _CRT_SECURE_NO_WARNINGS)
 target_compile_features(NebulaNative PRIVATE cxx_std_20)
-target_link_libraries(NebulaNative PRIVATE galaxy_gx galaxy_save_files galaxy_disc_files)
+target_link_libraries(NebulaNative PRIVATE galaxy_gx galaxy_save_files galaxy_disc_files galaxy_archipelago)
 if(MSVC)
     # Symbols for crash dumps and the thread profiler; code generation is unchanged.
     target_compile_options(NebulaNative PRIVATE /Zi)
@@ -644,6 +657,9 @@ target_include_directories(galaxy_native_calendar_tests PRIVATE native/include n
     native/petari/libs/RVL_SDK/include)
 # The game's types.h defines nullptr as 0 unless it is a macro already: here it names the keyword itself.
 target_compile_definitions(galaxy_native_calendar_tests PRIVATE _ALLOW_KEYWORD_MACROS nullptr=nullptr)
+galaxy_test(galaxy_json_lite_tests SOURCES ${rt}/json_lite_tests.cpp LIBS galaxy_archipelago)
+galaxy_test(galaxy_websocket_client_tests SOURCES ${rt}/websocket_client_tests.cpp LIBS galaxy_archipelago)
+galaxy_test(galaxy_archipelago_tests SOURCES ${rt}/archipelago_tests.cpp LIBS galaxy_archipelago)
 galaxy_test(galaxy_runtime_settings_tests SOURCES ${rt}/runtime_settings_tests.cpp LIBS galaxy_runtime_settings)
 galaxy_test(galaxy_achievements_tests SOURCES ${rt}/achievements_tests.cpp LIBS galaxy_runtime_settings)
 galaxy_test(galaxy_stats_tests SOURCES ${rt}/stats_tests.cpp LIBS galaxy_runtime_settings)
@@ -821,7 +837,7 @@ if(NEBULA_VULKAN)
     add_executable(NebulaNativeVk native/host/host_main.cpp runtime/src/native_thp_video.cpp)
     target_include_directories(NebulaNativeVk PRIVATE native/include runtime/include)
     target_compile_definitions(NebulaNativeVk PRIVATE NEBULA_HOST_RENDERER=1 _CRT_SECURE_NO_WARNINGS)
-    target_link_libraries(NebulaNativeVk PRIVATE galaxy_gx_vk galaxy_save_files galaxy_disc_files)
+    target_link_libraries(NebulaNativeVk PRIVATE galaxy_gx_vk galaxy_save_files galaxy_disc_files galaxy_archipelago)
     if(MSVC)
         target_compile_options(NebulaNativeVk PRIVATE /Zi)
         target_link_options(NebulaNativeVk PRIVATE /DEBUG /OPT:REF /OPT:ICF /PDBALTPATH:NebulaNativeVk.pdb)

@@ -1,4 +1,7 @@
 #include "Game/Player/MarioActor.hpp"
+#ifdef TARGET_PC
+#include "Game/System/NebulaArchipelago.hpp"
+#endif
 #include "Game/Util/GamePadUtil.hpp"
 #include "Game/Util/StarPointerUtil.hpp"
 
@@ -87,6 +90,12 @@ bool MarioActor::isRequestSpin() const {
     if (_935) {
         return false;
     }
+
+#ifdef TARGET_PC
+    if (NebulaArchipelago::isSkillLocked(NebulaArchipelago::Skill_Spin)) {
+        return false;  // the movement option: no Spin item yet
+    }
+#endif
 
     if (isJumping() && mMario->_3BC > 6 && MR::isStarPointerPointing2P(this, "\216\343" /* 弱 */, true, false) && MR::testCorePadTriggerA(1)) {
         return true;
@@ -257,6 +266,10 @@ void MarioActor::getStickValue(f32* pStickX, f32* pStickY) {
     if (pStickY != nullptr) {
         *pStickY = MR::getPlayerStickY();
     }
+
+#ifdef TARGET_PC
+    NebulaArchipelago::distortStick(pStickX, pStickY);
+#endif
 }
 
 void MarioActor::updateActionTrigger() {

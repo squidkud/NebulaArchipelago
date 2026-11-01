@@ -283,6 +283,14 @@ namespace GameSequenceFunction {
     }
 #ifdef TARGET_PC
 
+    void startGameDataAutoSaveSequence() {
+        ::getGameSequenceProgress()->getGalaxyCometScheduler()->updateStateToGameData();
+
+        const bool backup = GameDataFunction::isPassedStoryEvent("\203\163\201\133\203\140\217\351\225\202\217\343\214\343" /* ピーチ城浮上後 */) && !GameDataFunction::hasGrandStar(1);
+
+        ::getSaveDataHandleSequence()->startSaveAuto(backup);
+    }
+
     void setGameDataSaveWindowFollows() {
         ::getSaveDataHandleSequence()->setWindowFollows(true);
     }

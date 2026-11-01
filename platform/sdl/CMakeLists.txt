@@ -126,6 +126,9 @@ add_library(galaxy_gx_vk STATIC
     ${rt}/atomic_file.cpp
     ${rt}/disc_files.cpp
     ${rt}/save_files.cpp
+    ${rt}/archipelago.cpp
+    ${rt}/json_lite.cpp
+    ${rt}/websocket_client.cpp
     ${rt}/mii_import.cpp
     ${rt}/mii_formats.cpp
     ${rt}/mod_xml.cpp

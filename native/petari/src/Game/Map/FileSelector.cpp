@@ -1,3 +1,6 @@
+#ifdef TARGET_PC
+#include "Game/System/NebulaArchipelago.hpp"
+#endif
 #include "Game/Map/FileSelector.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Map/FileSelectCameraController.hpp"
@@ -950,6 +953,16 @@ bool FileSelector::isUserFileCorrupted(s32 id) const {
 bool FileSelector::isUserFileAppearLuigi(s32 id) const {
     id--;
 
+#ifdef TARGET_PC
+    // Archipelago: a slot that plays one character has no button to change; with both, Luigi can be chosen on any save file.
+    if (NebulaArchipelago::getForcedCharacter() >= 0) {
+        return false;
+    }
+
+    if (NebulaArchipelago::isLuigiUnlocked()) {
+        return true;
+    }
+#endif
     return !mUserFile[id].mIsPlayerMario || mUserFile[id].isViewCompleteEnding();
 }
 
@@ -1626,7 +1639,12 @@ void FileSelector::exeMiiSelectStart() {
             mMiiSelect->admitIcon();
         }
 
+#ifdef TARGET_PC
+        // Every icon is offered, Luigi's too, whatever the game has been through.
+        if (true) {
+#else
         if (isUserFileAppearLuigi(_B4->_140)) {
+#endif
             mMiiSelect->validateAllSpecialMii();
         } else {
             mMiiSelect->invalidateSpecialMii(FileSelectIconID::Luigi);

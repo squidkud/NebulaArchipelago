@@ -16,4 +16,6 @@ public:
     void exeWait();
 
     const char* mGalaxyName;
+    // Archipelago's galaxy shuffle: mGalaxyName is the place (it keeps what opens it), this is the galaxy that opens.
+    const char* mContentGalaxyName;
 };

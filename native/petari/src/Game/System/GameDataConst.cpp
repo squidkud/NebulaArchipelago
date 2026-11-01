@@ -4,6 +4,9 @@
 #include "Game/System/GameEventFlagTable.hpp"
 #include "Game/Util.hpp"
 #include <cstdio>
+#ifdef TARGET_PC
+#include "Game/System/NebulaArchipelago.hpp"
+#endif
 
 s32 GameDataConst::getPowerStarNumToOpenGalaxy(const char* pGalaxyName) {
     JMapInfo info;
@@ -14,6 +17,10 @@ s32 GameDataConst::getPowerStarNumToOpenGalaxy(const char* pGalaxyName) {
     u32 powerStarNum = 0;
     element.getValue< u32 >("PowerStarNum", &powerStarNum);
 
+#ifdef TARGET_PC
+    // Archipelago: no galaxy asks for more stars than the slot says (the APWorld's logic counts on it).
+    powerStarNum = NebulaArchipelago::limitPowerStarNumToOpenGalaxy(pGalaxyName, powerStarNum);
+#endif
     return powerStarNum;
 }
 

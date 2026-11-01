@@ -23,6 +23,7 @@
 #include "Game/Util/StringUtil.hpp"
 #include <cstdio>
 #include <cstring>
+#include "Game/NPC/TicoGalaxy.hpp"
 #include "Game/Screen/NebulaSettingsMenu.hpp"
 #include "Game/System/NebulaFrameGen.hpp"
 #include <nebula_game_api.h>
@@ -69,6 +70,7 @@
 #include "Game/Screen/NebulaAchievementBoard.hpp"
 #include "Game/Screen/NebulaAchievementToast.hpp"
 #include "Game/System/NebulaAchievements.hpp"
+#include "Game/System/NebulaArchipelago.hpp"
 #include "Game/Util/MessageUtil.hpp"
 #endif
 #include "Game/Util/ScreenUtil.hpp"
@@ -110,12 +112,19 @@ GameScene::GameScene()
 }
 
 GameScene::~GameScene() {
+#ifdef TARGET_PC
+    TicoGalaxy::forgetAll();
+    NebulaArchipelago::endSphereGuard();  // the dome (if it held a green sphere) was left without stopping the game
+#endif
     MR::destroySceneMessage();
     NPCFunction::deleteNPCData();
     MR::onStarPointerSceneOut();
 }
 
 void GameScene::init() {
+#ifdef TARGET_PC
+    TicoGalaxy::forgetAll();
+#endif
     SceneFunction::createHioBasicNode(this);
     SceneFunction::startStageFileLoad();
     MR::requestChangeArchivePlayer(MR::isPlayerLuigi() == false);
@@ -239,6 +248,9 @@ void GameScene::update() {
     updateNerve();
 #ifdef TARGET_PC
     NebulaAchievements::update();
+    // The Archipelago connection (archipelago.ini): the save's stars out, the server's items in while the player plays.
+    NebulaArchipelago::update(isNerve(GET_NERVE(GameScene, GameSceneAction)) && MR::isWipeOpen() && !MR::isWipeActive() &&
+                              !MR::isDemoActive() && !MR::isPlayerDead());
     if (sTestBoard && MR::isExistSceneObj(SceneObj_GameSceneLayoutHolder) && MR::getGameSceneLayoutHolder()->mAchievementBoard != nullptr) {
         sTestBoard = false;
         requestShowNebulaBoard();
@@ -252,6 +264,9 @@ void GameScene::update() {
     // alike (the settings menu and the HOME Menu hold the whole scene, the pop-up with it).
     if (MR::isExistSceneObj(SceneObj_GameSceneLayoutHolder) && MR::getGameSceneLayoutHolder()->mAchievementToast != nullptr) {
         MR::getGameSceneLayoutHolder()->mAchievementToast->update();
+    }
+    if (MR::isExistSceneObj(SceneObj_GameSceneLayoutHolder) && MR::getGameSceneLayoutHolder()->mSaveIndicator != nullptr) {
+        MR::getGameSceneLayoutHolder()->mSaveIndicator->update();
     }
 #endif
 
@@ -705,6 +720,9 @@ void GameScene::draw2D() const {
 void GameScene::drawOverlay() const {
     if (MR::isExistSceneObj(SceneObj_GameSceneLayoutHolder) && MR::getGameSceneLayoutHolder()->mAchievementToast != nullptr) {
         MR::getGameSceneLayoutHolder()->mAchievementToast->drawOnTop();
+    }
+    if (MR::isExistSceneObj(SceneObj_GameSceneLayoutHolder) && MR::getGameSceneLayoutHolder()->mSaveIndicator != nullptr) {
+        MR::getGameSceneLayoutHolder()->mSaveIndicator->drawOnTop();
     }
 }
 #endif

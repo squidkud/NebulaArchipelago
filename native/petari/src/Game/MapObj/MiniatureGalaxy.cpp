@@ -23,6 +23,10 @@
 #include "Game/Util/SoundUtil.hpp"
 #include "Game/Util/StarPointerUtil.hpp"
 #include "Game/Util/StringUtil.hpp"
+#ifdef TARGET_PC
+#include "Game/System/NebulaArchipelago.hpp"
+#include <cstdio>
+#endif
 
 namespace {
     const Vec cNamePlateOffset = {0.0f, 1500.0f, 0.0f};
@@ -76,7 +80,7 @@ namespace NrvMiniatureGalaxy {
 MiniatureGalaxy::MiniatureGalaxy(const char* pName)
     : LiveActor(pName), mType(-1), mState(MiniatureGalaxyState_Open), mUnknownModel(), mShadowModel(), mSelectModel(), mStarPlateModel(),
       mProjmapEffectMtxSetter(), mInitPos(gZeroVec), mObjectName(), mGalaxyName(), mCanZoomIn(1), mZoomLevel(::cZoomFrame), mOnesTexMtx(),
-      mTensTexMtx(), mOrbit(), mNamePlate() {
+      mTensTexMtx(), mOrbit(), mNamePlate(), mContentGalaxyName(), mContentObjectName(), mKoopaLook(false) {
     mShadowBaseMtx.identity();
     mPosMtx.identity();
 }
@@ -84,20 +88,60 @@ MiniatureGalaxy::MiniatureGalaxy(const char* pName)
 void MiniatureGalaxy::init(const JMapInfoIter& rIter) {
     MR::getObjectName(&mObjectName, rIter);
     mGalaxyName = ::getGalayNameFromObjectName(mObjectName);
+    mContentGalaxyName = mGalaxyName;
+    mContentObjectName = mObjectName;
+    mContentObjectBuffer[0] = '\0';
 
+#ifdef TARGET_PC
+    mContentGalaxyName = NebulaArchipelago::getShuffledGalaxy(mGalaxyName);
+
+    if (mContentGalaxyName != mGalaxyName) {
+        if (NebulaArchipelago::hasMiniatureModel(mContentGalaxyName)) {
+            snprintf(mContentObjectBuffer, sizeof(mContentObjectBuffer), "Mini%s", mContentGalaxyName);
+            mContentObjectName = mContentObjectBuffer;
+        } else if (NebulaArchipelago::useGreenSphere(mContentGalaxyName)) {
+            // A galaxy with no miniature (a Hungry Luma's or a secret one) is shown as the green sphere that the Observatory
+            // shows when a Hungry Luma opens a galaxy.
+            mContentObjectName = "MiniSurprisedGalaxy";
+            NebulaArchipelago::beginSphereGuard();
+        }
+    }
+#endif
+
+#ifdef TARGET_PC
+    NebulaArchipelago::logNote("mini init slot/content/model:", mGalaxyName, mContentGalaxyName);
+    NebulaArchipelago::logNote("  model", mContentObjectName, "");
+#endif
     MR::initDefaultPos(this, rIter);
     mInitPos.set(mPosition);
 
     s32 arg0 = -1;
     MR::getJMapInfoArg0NoInit(rIter, &arg0);
     mType = arg0;
+    mKoopaLook = mType == MiniatureGalaxyType_Koopa;
+#ifdef TARGET_PC
+    // A Bowser place that holds a galaxy which is not a boss looks like any other place: its own model, at once.
+    // (Only when a model of the content was found: a Bowser Reactor's own name has no model, it keeps the Bowser look.)
+    if (mKoopaLook && mContentGalaxyName != mGalaxyName && !NebulaArchipelago::isBossGalaxy(mContentGalaxyName) &&
+        mContentObjectName != mObjectName) {
+        mKoopaLook = false;
+    }
+#endif
 
-    initModelManagerWithAnm(isUseKoopaFaceModel() ? "MiniKoopaGalaxy" : mObjectName, nullptr, false);
+    initModelManagerWithAnm(isUseKoopaFaceModel() ? "MiniKoopaGalaxy" : mContentObjectName, nullptr, false);
 
+#ifdef TARGET_PC
+    NebulaArchipelago::logNote("  model loaded", mContentObjectName, "");
+#endif
     initEffectKeeper(0, nullptr, false);
     MR::connectToSceneNoShadowedMapObj(this);
 
     MR::initStarPointerTarget(this, ::cPointingRadius, TVec3f(0.0f, 0.0f, 0.0f));
+#ifdef TARGET_PC
+    if (strcmp(mContentObjectName, "MiniSurprisedGalaxy") == 0) {
+        MR::setStarPointerTargetRadius3d(this, ::cPointingRadius * 0.5f);
+    }
+#endif
     MR::invalidateClipping(this);
 
     initPartsModel();
@@ -121,8 +165,14 @@ void MiniatureGalaxy::init(const JMapInfoIter& rIter) {
     mOrbit = new AstroDomeOrbit();
     mOrbit->initWithoutIter();
 
-    mNamePlate = new GalaxyNamePlate(mGalaxyName, true);
+#ifdef TARGET_PC
+    NebulaArchipelago::logNote("  name plate", mContentGalaxyName, "");
+#endif
+    mNamePlate = new GalaxyNamePlate(mContentGalaxyName, true);
     mNamePlate->initWithoutIter();
+#ifdef TARGET_PC
+    NebulaArchipelago::logNote("  init done", mGalaxyName, "");
+#endif
 
     MR::registerDemoSimpleCastAll(mNamePlate);
 
@@ -134,6 +184,9 @@ void MiniatureGalaxy::initAfterPlacement() {
 }
 
 void MiniatureGalaxy::appear() {
+#ifdef TARGET_PC
+    NebulaArchipelago::logNote("mini appear", mGalaxyName, mContentObjectName);
+#endif
     const f32 rotations[] = {0.0f, 210.0f, 80.0f, 330.0f, 130.0f};
     ::setInitialRotation(mRotation, rotations[MiniatureGalaxyFunction::calcMiniatureGalaxyIndex(this)]);
 
@@ -153,7 +206,10 @@ void MiniatureGalaxy::appear() {
 
     LiveActor::appear();
 
-    MR::tryStartAllAnim(this, mObjectName);
+#ifdef TARGET_PC
+    NebulaArchipelago::logNote("  appear: anims", mContentObjectName, "");
+#endif
+    MR::tryStartAllAnim(this, mContentObjectName);
 
     mShadowModel->appear();
     MR::startBtk(mShadowModel, "MiniatureGalaxyShadow");
@@ -184,11 +240,14 @@ void MiniatureGalaxy::appear() {
         break;
     }
 
+#ifdef TARGET_PC
+    NebulaArchipelago::logNote("  appear done", mGalaxyName, "");
+#endif
     setNerve(GET_NERVE(MiniatureGalaxy, MiniatureGalaxyNrvWait));
 }
 
 void MiniatureGalaxy::kill() {
-    if (mType == MiniatureGalaxyType_Koopa) {
+    if (mKoopaLook) {
         if (isUseKoopaFaceModel()) {
             MR::forceDeleteEffect(this, "EyeLight");
         }
@@ -226,6 +285,31 @@ void MiniatureGalaxy::makeArchiveList(NameObjArchiveListCollector* pCollector, c
 
     MR::getObjectName(&objectName, rIter);
 
+#ifdef TARGET_PC
+    // The Archipelago galaxy shuffle: the slot's miniature shows another galaxy's model.
+    char contentObjectName[64];
+    const char* objectNameOfSlot = objectName;
+    const char* pContent = NebulaArchipelago::getShuffledGalaxy(objectName + strlen("Mini"));
+
+    if (NebulaArchipelago::hasMiniatureModel(pContent)) {
+        snprintf(contentObjectName, sizeof(contentObjectName), "Mini%s", pContent);
+        objectName = contentObjectName;
+    } else if (pContent != objectNameOfSlot + strlen("Mini") && NebulaArchipelago::useGreenSphere(pContent)) {
+        objectName = "MiniSurprisedGalaxy";
+    }
+
+    // A Bowser place holding a galaxy that is not a boss is a plain place (its own model).
+    // (Only when a model of the content was found: a Bowser Reactor's own name has no archive, it keeps the Bowser look;
+    // asking for "MiniKoopaBattleVs2Galaxy.arc" stops the game.)
+    if (type == MiniatureGalaxyType_Koopa && pContent != nullptr && pContent != objectNameOfSlot + strlen("Mini") &&
+        !NebulaArchipelago::isBossGalaxy(pContent) && objectName != objectNameOfSlot) {
+        type = MiniatureGalaxyType_Normal;
+    }
+#endif
+
+#ifdef TARGET_PC
+    NebulaArchipelago::logNote("mini archives", objectName, "");
+#endif
     if (type == MiniatureGalaxyType_Normal) {
         pCollector->addArchive(objectName);
         pCollector->addArchive("MiniatureGalaxyUnknown");
@@ -352,7 +436,7 @@ void MiniatureGalaxy::initPartsModel() {
 
     if (mType == MiniatureGalaxyType_Hatena) {
         pModelName = "MiniHatenaGalaxy";
-    } else if (mType == MiniatureGalaxyType_Koopa) {
+    } else if (mKoopaLook) {
         pModelName = "MiniatureGalaxyUnknownKoopa";
     }
 
@@ -395,8 +479,18 @@ void MiniatureGalaxy::initPartsModel() {
 }
 
 void MiniatureGalaxy::setScale(f32 scale) {
-    mScale.setAll< f32 >(scale);
-    MR::setStarPointerTargetRadius3d(this, ::cPointingRadius * scale);
+#ifdef TARGET_PC
+    // The green sphere is a small model next to the galaxies' miniatures: it is drawn bigger.
+    const bool isSphere = mContentObjectName != nullptr && strcmp(mContentObjectName, "MiniSurprisedGalaxy") == 0;
+    const f32 selfScale = isSphere ? scale * 3.0f : scale;
+    // The pointer's reach around the sphere is small: half of a galaxy's, and it does not grow with the picture.
+    const f32 pointRadius = isSphere ? ::cPointingRadius * scale * 0.5f : ::cPointingRadius * scale;
+#else
+    const f32 selfScale = scale;
+    const f32 pointRadius = ::cPointingRadius * scale;
+#endif
+    mScale.setAll< f32 >(selfScale);
+    MR::setStarPointerTargetRadius3d(this, pointRadius);
 
     mShadowModel->mScale.setAll< f32 >(scale);
 
@@ -483,7 +577,7 @@ void MiniatureGalaxy::appearUnknownModel(const char* pBrkName) {
     mUnknownModel->appear();
     MR::startBrk(mUnknownModel, pBrkName);
 
-    if (mType == MiniatureGalaxyType_Normal) {
+    if (mType == MiniatureGalaxyType_Normal || (mType == MiniatureGalaxyType_Koopa && !mKoopaLook)) {
         MR::startBtk(mUnknownModel, "MiniatureGalaxyUnknown");
     } else if (mType == MiniatureGalaxyType_Hatena) {
         MR::startBtk(mUnknownModel, "MiniHatenaGalaxy");
@@ -493,7 +587,7 @@ void MiniatureGalaxy::appearUnknownModel(const char* pBrkName) {
         mStarPlateModel->appear();
         MR::startBrk(mStarPlateModel, pBrkName);
         MR::startBck(mStarPlateModel, "MiniatureGalaxyStarNumber");
-        MR::setBckFrameAndStop(mStarPlateModel, mType == MiniatureGalaxyType_Koopa ? 1.0f : 0.0f);
+        MR::setBckFrameAndStop(mStarPlateModel, mKoopaLook ? 1.0f : 0.0f);
     }
 
     hideUnknownModel();
@@ -507,7 +601,7 @@ void MiniatureGalaxy::showUnknownModel() {
         MR::showModelIfHidden(mStarPlateModel);
     }
 
-    if (mType == MiniatureGalaxyType_Koopa) {
+    if (mKoopaLook) {
         MR::emitEffect(mUnknownModel, "EyeLight");
     }
 }
@@ -526,7 +620,7 @@ void MiniatureGalaxy::hideUnknownModel() {
         MR::hideModelIfShown(mStarPlateModel);
     }
 
-    if (mType == MiniatureGalaxyType_Koopa) {
+    if (mKoopaLook) {
         MR::forceDeleteEffect(mUnknownModel, "EyeLight");
     }
 }
@@ -566,11 +660,17 @@ void MiniatureGalaxy::showNamePlate(bool a1) {
 }
 
 bool MiniatureGalaxy::isUseKoopaFaceModel() const {
-    if (mType != MiniatureGalaxyType_Koopa) {
+    if (!mKoopaLook) {
         return false;
     }
 
-    return ::isUseKoopaFaceModel(mObjectName, mGalaxyName);
+#ifdef TARGET_PC
+    if (strcmp(mContentObjectName, "MiniSurprisedGalaxy") == 0) {
+        return false;
+    }
+#endif
+
+    return ::isUseKoopaFaceModel(mContentObjectName, mContentGalaxyName);
 }
 
 void MiniatureGalaxy::playPointedME() {
@@ -698,6 +798,11 @@ void MiniatureGalaxy::exeOpen() {
         disappearSelectModel();
 
         MR::onGameEventFlagGalaxyOpen(mGalaxyName);
+#ifdef TARGET_PC
+        if (mContentGalaxyName != mGalaxyName) {
+            MR::onGameEventFlagGalaxyOpen(mContentGalaxyName);
+        }
+#endif
         GalaxyStatusAccessor accessor = MR::makeGalaxyStatusAccessor(mGalaxyName);
 
         if (accessor.isExistGrandStar()) {

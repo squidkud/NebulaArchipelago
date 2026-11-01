@@ -1,5 +1,8 @@
 #include "Game/Screen/StarPointerLayout.hpp"
 #ifdef TARGET_PC
+#include "Game/System/NebulaArchipelago.hpp"
+#endif
+#ifdef TARGET_PC
 #include "Game/Util/MotionSignal.hpp"
 #endif
 #include "Game/LiveActor/Nerve.hpp"
@@ -532,6 +535,13 @@ void StarPointerLayout::calcAnim() {
 }
 
 void StarPointerLayout::draw() const {
+#ifdef TARGET_PC
+    // The Archipelago shop is used with the pad: no pointer cursor over it.
+    if (NebulaArchipelago::isShopOpen()) {
+        mBlur->hideAll();
+        return;
+    }
+#endif
     if (!isAppear()) {
         mBlur->hideAll();
         return;

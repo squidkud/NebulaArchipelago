@@ -19,7 +19,8 @@ namespace nw4r {
 // not in a star's get sequence or a movie), after every other 2D element, so the HUD never covers it.
 class NebulaAchievementToast : public LayoutActor {
 public:
-    NebulaAchievementToast();
+    // `isSaveIndicator`: the small "Saving..." of the automatic save, at the bottom-left, instead of the pop-up of achievements.
+    NebulaAchievementToast(bool isSaveIndicator = false);
 
     virtual void init(const JMapInfoIter& rIter);
     virtual void control();
@@ -30,9 +31,11 @@ public:
 
 private:
     void loadTextures();
-    void start(const wchar_t* pName, const NebulaAchievementIcon* pIcon);
+    void start(const wchar_t* pName, const NebulaAchievementIcon* pIcon, bool isNotice);
     void setIcon(const NebulaAchievementIcon* pIcon, f32* pWidth, f32* pHeight);
     void place(f32 rise, f32 alpha, f32 iconScale);
+    void controlSave();
+    void startSave();
 
     /* 0x20 */ nw4r::lyt::Pane* mToast;
     /* 0x24 */ nw4r::lyt::Pane* mWindow;
@@ -46,5 +49,9 @@ private:
     /* 0x44 */ s32 mHoldFrames;
     /* 0x48 */ f32 mWidth;
     /* 0x4C */ f32 mHeight;
+    /* 0x54 */ nw4r::lyt::TexMap* mLogo;  // the Archipelago logo (the notices' icon)
+    s32 mNoticeIcon;  // the item number whose icon the notice shows (0: the logo)
+    bool mIsSave;  // the save indicator
+    /* 0x50 */ bool mIsNotice;  // the pop-up shows a notice of the Archipelago connection, not an achievement
 };
 #endif

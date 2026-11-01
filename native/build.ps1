@@ -11,6 +11,13 @@ $ErrorActionPreference = "Stop"
 $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
 $vcvars = Join-Path $vs "VC\Auxiliary\Build\vcvars64.bat"
 $cmake = Join-Path $vs "Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe"
+if (-not (Test-Path $cmake)) {
+    # The CMake component of Visual Studio is not installed: use the standalone CMake (not devkitPro's).
+    $cmake = "C:\Program Files\CMake\bin\cmake.exe"
+}
+if (-not (Test-Path $cmake)) {
+    throw "CMake introuvable : installez CMake (cmake.org/download) dans C:\Program Files\CMake."
+}
 $ninja = (Get-Command ninja -ErrorAction Stop).Source
 # CMake reads these into its own files: forward slashes.
 $llvm = "C:/Program Files/LLVM/bin"

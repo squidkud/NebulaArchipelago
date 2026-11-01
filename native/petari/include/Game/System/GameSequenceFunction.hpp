@@ -63,5 +63,7 @@ namespace GameSequenceFunction {
 #ifdef TARGET_PC
     // After startGameDataSaveSequence: the caller opens a system window once the save is done (SaveDataHandleSequence).
     void setGameDataSaveWindowFollows();
+    // Save without question or key to press (the automatic save after a star).
+    void startGameDataAutoSaveSequence();
 #endif
 };  // namespace GameSequenceFunction

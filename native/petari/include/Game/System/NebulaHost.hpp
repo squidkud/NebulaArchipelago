@@ -73,6 +73,15 @@ namespace NebulaHost {
         return nebula_host()->stat_get(nebula_host()->user, pName);
     }
 
+    // The host's Archipelago client (NEBULA_AP_*, NEBULA_AP_TEXT_*): NebulaArchipelago asks it.
+    inline u32 archipelago(u32 what, u32 value) {
+        return nebula_host()->archipelago(nebula_host()->user, what, value);
+    }
+
+    inline u32 archipelagoText(u32 what, char* pBuffer, u32 size) {
+        return nebula_host()->archipelago_text(nebula_host()->user, what, pBuffer, size);
+    }
+
     inline void settingsView(NebulaSettingsView* pView) {
         nebula_host()->settings_view(nebula_host()->user, pView);
     }

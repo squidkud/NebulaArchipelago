@@ -36,6 +36,7 @@
 #include "galaxy/platform_time.h"
 #include "galaxy/pointer_control.h"
 #include "galaxy/achievements.h"
+#include "galaxy/archipelago.h"
 #include "galaxy/stats.h"
 #if defined(_WIN32) && !defined(NEBULA_HOST_SDL)
 // A real Wii Remote over Windows HID (wiimote_hid.h).
@@ -1467,6 +1468,151 @@ uint64_t svc_stat_get(void*, const char* name) {
 #else
     (void)name;
     return 0u;
+#endif
+}
+
+// The Archipelago client (galaxy/archipelago.h; archipelago.ini next to the settings starts it): the game reports the
+// locations its save reached and the goal, and takes the items the server sent. The headless host has no client.
+#if defined(NEBULA_HOST_RENDERER)
+static_assert(NEBULA_AP_ITEM_ONE_UP == galaxy::archipelago::kItemOneUp &&
+                  NEBULA_AP_ITEM_STAR_BITS_50 == galaxy::archipelago::kItemStarBits50 &&
+                  NEBULA_AP_ITEM_POWER_STAR == galaxy::archipelago::kItemPowerStar &&
+                  NEBULA_AP_ITEM_GREEN_STAR == galaxy::archipelago::kItemGreenStar &&
+                  NEBULA_AP_ITEM_GRAND_STAR == galaxy::archipelago::kItemGrandStar &&
+                  NEBULA_AP_ITEM_UNKNOWN == galaxy::archipelago::kItemUnknown &&
+                  NEBULA_AP_GOAL_ENDING == galaxy::archipelago::kGoalEnding &&
+                  NEBULA_AP_GOAL_POWER_STARS == galaxy::archipelago::kGoalPowerStars &&
+                  NEBULA_AP_OPT_GOAL == static_cast<uint32_t>(galaxy::archipelago::Option::Goal) &&
+                  NEBULA_AP_OPT_STAR_ITEMS == static_cast<uint32_t>(galaxy::archipelago::Option::StarItems) &&
+                  NEBULA_AP_OPT_START_OBSERVATORY == static_cast<uint32_t>(galaxy::archipelago::Option::StartObservatory) &&
+                  NEBULA_AP_OPT_CHARACTER == static_cast<uint32_t>(galaxy::archipelago::Option::Character) &&
+                  NEBULA_AP_OPT_UNLOCK_LUIGI == static_cast<uint32_t>(galaxy::archipelago::Option::UnlockLuigi) &&
+                  NEBULA_AP_OPT_DOME_SHUFFLE == static_cast<uint32_t>(galaxy::archipelago::Option::DomeShuffle) &&
+                  NEBULA_AP_OPT_STARS_TO_FINISH == static_cast<uint32_t>(galaxy::archipelago::Option::StarsToFinish) &&
+                  NEBULA_AP_OPT_EXACT_REQUIREMENTS == static_cast<uint32_t>(galaxy::archipelago::Option::ExactRequirements) &&
+                  NEBULA_AP_OPT_LUMA_COUNTS == static_cast<uint32_t>(galaxy::archipelago::Option::LumaCounts) &&
+                  NEBULA_AP_OPT_MUSIC_SHUFFLE == static_cast<uint32_t>(galaxy::archipelago::Option::MusicShuffle) &&
+                  NEBULA_AP_OPT_TRANSFORMATION_ITEMS == static_cast<uint32_t>(galaxy::archipelago::Option::TransformationItems) &&
+                  NEBULA_AP_OPT_ENEMY_SHUFFLE == static_cast<uint32_t>(galaxy::archipelago::Option::EnemyShuffle) &&
+                  NEBULA_AP_OPT_DEATH_LINK == static_cast<uint32_t>(galaxy::archipelago::Option::DeathLink) &&
+                  NEBULA_AP_ITEM_FIRE_TRAP == galaxy::archipelago::kItemFireTrap &&
+                  NEBULA_AP_ITEM_SHOCK_TRAP == galaxy::archipelago::kItemShockTrap &&
+                  NEBULA_AP_ITEM_FREEZE_TRAP == galaxy::archipelago::kItemFreezeTrap &&
+                  NEBULA_AP_ITEM_SPIKE_TRAP == galaxy::archipelago::kItemSpikeTrap &&
+                  NEBULA_AP_ITEM_STAR_BIT_THIEF == galaxy::archipelago::kItemStarBitThief &&
+                  NEBULA_AP_ITEM_RAINBOW_STAR == galaxy::archipelago::kItemRainbowStar &&
+                  NEBULA_AP_ITEM_QUAKE_TRAP == galaxy::archipelago::kItemQuakeTrap &&
+                  NEBULA_AP_ITEM_CONFUSION_TRAP == galaxy::archipelago::kItemConfusionTrap &&
+                  NEBULA_AP_ITEM_BEE_MUSHROOM == galaxy::archipelago::kItemBeeMushroom &&
+                  NEBULA_AP_ITEM_BOO_MUSHROOM == galaxy::archipelago::kItemBooMushroom &&
+                  NEBULA_AP_ITEM_SPRING_MUSHROOM == galaxy::archipelago::kItemSpringMushroom &&
+                  NEBULA_AP_ITEM_FIRE_FLOWER == galaxy::archipelago::kItemFireFlower &&
+                  NEBULA_AP_ITEM_ICE_FLOWER == galaxy::archipelago::kItemIceFlower &&
+                  NEBULA_AP_ITEM_FLYING_STAR == galaxy::archipelago::kItemFlyingStar &&
+                  NEBULA_AP_OPT_STAR_COLORS == static_cast<uint32_t>(galaxy::archipelago::Option::StarColors) &&
+                  NEBULA_AP_CLASS_FILLER == galaxy::archipelago::Engine::kClassFiller &&
+                  NEBULA_AP_CLASS_PROGRESSION == galaxy::archipelago::Engine::kClassProgression &&
+                  NEBULA_AP_CLASS_USEFUL == galaxy::archipelago::Engine::kClassUseful &&
+                  NEBULA_AP_CLASS_TRAP == galaxy::archipelago::Engine::kClassTrap &&
+                  NEBULA_AP_OPT_COLOR_FIRST == static_cast<uint32_t>(galaxy::archipelago::Option::ColorFirst) &&
+                  NEBULA_AP_OPT_COLOR_LAST == static_cast<uint32_t>(galaxy::archipelago::Option::ColorLast),
+              "nebula_game_api.h and galaxy/archipelago.h number the Archipelago items, goals and options alike");
+#endif
+
+uint32_t svc_archipelago(void*, uint32_t what, uint32_t value) {
+#if !defined(NEBULA_HOST_RENDERER)
+    (void)what, (void)value;
+    return 0u;
+#else
+    switch (what) {
+    case NEBULA_AP_ACTIVE:
+        return galaxy::archipelago::active() ? 1u : 0u;
+    case NEBULA_AP_LOCATION:
+        galaxy::archipelago::report_location(value);
+        return 0u;
+    case NEBULA_AP_GOAL:
+        galaxy::archipelago::report_goal(value);
+        return 0u;
+    case NEBULA_AP_GOAL_OPTION:
+        return galaxy::archipelago::goal_option();
+    case NEBULA_AP_NEXT_ITEM:
+        return galaxy::archipelago::next_item(value);
+    case NEBULA_AP_ITEM_APPLIED:
+        galaxy::archipelago::item_applied(value);
+        return 0u;
+    case NEBULA_AP_STATE:
+        return static_cast<uint32_t>(galaxy::archipelago::state());
+    case NEBULA_AP_ITEM_COUNT:
+        return galaxy::archipelago::item_count(value);
+    case NEBULA_AP_OPTION:
+        return galaxy::archipelago::option_value(value);
+    case NEBULA_AP_OPTION_SET:
+        return galaxy::archipelago::option_set(value) ? 1u : 0u;
+    case NEBULA_AP_GALAXY_CAP:
+        return galaxy::archipelago::list_value(galaxy::archipelago::Engine::kListGalaxyCaps, value);
+    case NEBULA_AP_DOME_ORDER:
+        return galaxy::archipelago::list_value(galaxy::archipelago::Engine::kListDomeOrder, value);
+    case NEBULA_AP_LUMA_COUNT:
+        return galaxy::archipelago::list_value(galaxy::archipelago::Engine::kListLumaCounts, value);
+    case NEBULA_AP_GALAXY_SHUFFLE:
+        return galaxy::archipelago::list_value(galaxy::archipelago::Engine::kListGalaxyShuffle, value);
+    case NEBULA_AP_DEATH_REPORT:
+        galaxy::archipelago::report_death();
+        return 0u;
+    case NEBULA_AP_DEATH_TAKE:
+        return galaxy::archipelago::take_death() ? 1u : 0u;
+    case NEBULA_AP_STAR_CLASS:
+        return galaxy::archipelago::star_class(value);
+    case NEBULA_AP_SEED:
+        return galaxy::archipelago::seed_id();
+    case NEBULA_AP_SHOP_PRICE:
+        return galaxy::archipelago::list_value(galaxy::archipelago::Engine::kListShopPrices, value);
+    case NEBULA_AP_SHOP_BOUGHT:
+        return galaxy::archipelago::shop_bought(value) ? 1u : 0u;
+    case NEBULA_AP_SHOP_BUY:
+        galaxy::archipelago::report_location(galaxy::archipelago::kShopFirst + value);
+        return 0u;
+    case NEBULA_AP_SHOP_ICON:
+        return galaxy::archipelago::shop_icon(value);
+    case NEBULA_AP_SHOP_HINT:
+        galaxy::archipelago::request_shop_hints();
+        return 0u;
+    case NEBULA_AP_SPHERE_GUARD:
+        if (value == 0u) return galaxy::archipelago::spheres_allowed() ? 1u : 0u;
+        if (value == 1u) galaxy::archipelago::sphere_guard_begin();
+        if (value == 2u) galaxy::archipelago::sphere_guard_end();
+        return 0u;
+    default:
+        return 0u;
+    }
+#endif
+}
+
+uint32_t svc_archipelago_text(void*, uint32_t what, char* buffer, uint32_t size) {
+#if !defined(NEBULA_HOST_RENDERER)
+    (void)what, (void)buffer, (void)size;
+    return 0u;
+#else
+    if (buffer == nullptr || size == 0u) return 0u;
+    switch (what) {
+    case NEBULA_AP_TEXT_NOTICE:
+        return static_cast<uint32_t>(galaxy::archipelago::pop_notice(buffer, size));
+    case NEBULA_AP_TEXT_LOG:
+        buffer[size - 1u] = '\0';
+        galaxy::archipelago::game_log(buffer);
+        return 0u;
+    case NEBULA_AP_TEXT_SHOP_LABEL: {
+        buffer[size - 1u] = '\0';
+        const std::string label = galaxy::archipelago::shop_label(static_cast<uint32_t>(std::strtoul(buffer, nullptr, 10)));
+        const std::size_t length = std::min<std::size_t>(label.size(), size - 1u);
+        std::memcpy(buffer, label.data(), length);
+        buffer[length] = '\0';
+        return static_cast<uint32_t>(length);
+    }
+    default:
+        buffer[0] = '\0';
+        return 0u;
+    }
 #endif
 }
 
@@ -4017,6 +4163,11 @@ int main(int argc, char** argv) {
 #endif
 
     boot_mark("settings and mods");
+#if defined(NEBULA_HOST_RENDERER)
+    // Archipelago: starts only when archipelago.ini (next to the settings) names a server and a slot.
+    galaxy::archipelago::start(galaxy::runtime_settings_folder(), [](const char* text) { log_line("archipelago:", text); });
+#endif
+
     static NebulaHostServices services{};
     services.version = NEBULA_GAME_API_VERSION;
     services.size = sizeof(services);
@@ -4069,6 +4220,8 @@ int main(int argc, char** argv) {
     services.disc_find = svc_disc_find;
     services.disc_entry = svc_disc_entry;
     services.disc_child = svc_disc_child;
+    services.archipelago = svc_archipelago;
+    services.archipelago_text = svc_archipelago_text;
     services.disc_read = svc_disc_read;
     services.disc_id = svc_disc_id;
     services.vi_frame = svc_vi_frame;

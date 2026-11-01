@@ -1,5 +1,6 @@
 #include "Game/System/NebulaText.hpp"
 #include <JSystem/JUtility/JUTNativeLog.hpp>
+#include "Game/System/NebulaArchipelago.hpp"
 
 #ifdef TARGET_PC
 #include "Game/Screen/LayoutCoreUtil.hpp"
@@ -376,7 +377,7 @@ namespace NebulaText {
         sTalk[length++] = 0x1A;
         sTalk[length++] = 0x0106;
         sTalk[length++] = 0x0001;
-        get(sTalk + length, capacity - length, "LumaBoard");
+        get(sTalk + length, capacity - length, NebulaArchipelago::hasShop() ? "LumaShop" : "LumaBoard");
         sTalkFitted = false;
         return sTalk;
     }

@@ -1,10 +1,15 @@
 #include "Game/MapObj/PowerStar.hpp"
 #include "Game/Camera/CameraTargetArg.hpp"
 #include "Game/LiveActor/LiveActorGroup.hpp"
+#include "Game/LiveActor/ModelManager.hpp"
 #include "Game/LiveActor/ModelObj.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/MapObj/PowerStarAppearPoint.hpp"
 #include "Game/MapObj/PowerStarHolder.hpp"
+#ifdef TARGET_PC
+#include "Game/Player/NebulaPlayerColors.hpp"
+#include "Game/System/NebulaArchipelago.hpp"
+#endif
 #include "Game/NameObj/NameObjArchiveListCollector.hpp"
 #include "Game/Util/ActorCameraUtil.hpp"
 #include "Game/Util/ActorMovementUtil.hpp"
@@ -215,6 +220,12 @@ void PowerStar::setupColor(LiveActor* pActor, const NameObj* a2, s32 a3) {
         val = 3;
     }
 
+#ifdef TARGET_PC
+    if (!MR::isGrandStarInCurrentStageWithDeclarer(a2->mName, a3)) {
+        NebulaArchipelago::getStarColorFrame(a3, &val);
+    }
+#endif
+
     if (MR::isGrandStarInCurrentStageWithDeclarer(a2->mName, a3)) {
         ::setupColorGrandStar(pActor, hasPowerStar);
     } else {
@@ -251,6 +262,12 @@ void PowerStar::requestPointLight(const LiveActor* pActor, const NameObj* a2, s3
         colorIdx = 3;
     }
 
+#ifdef TARGET_PC
+    if (colorIdx != 4 && !MR::isGrandStarInCurrentStageWithDeclarer(a2->mName, a3)) {
+        NebulaArchipelago::getStarColorFrame(a3, &colorIdx);
+    }
+#endif
+
     ::requestPointLight(pActor, colorIdx);
 }
 
@@ -273,6 +290,14 @@ f32 PowerStar::getPowerStarWaitRotateSpeed() {
 }
 
 s32 PowerStar::getBtpFrameCurrentStage(s32 a1) {
+#ifdef TARGET_PC
+    s32 apFrame;
+
+    if (NebulaArchipelago::getStarColorFrame(a1, &apFrame)) {
+        return apFrame;
+    }
+#endif
+
     if (MR::isPowerStarGreenInCurrentStage(a1)) {
         return 2;
     }
@@ -388,6 +413,12 @@ void PowerStar::initMapToolInfo(const JMapInfoIter& rIter) {
 
 void PowerStar::initModel() {
     initModelManagerWithAnm(isGrandStar() ? "GrandStar" : "PowerStar", 0, false);
+
+#ifdef TARGET_PC
+    if (!isGrandStar() && mModelManager != nullptr) {
+        NebulaPlayerColors::applyStar(mModelManager->getJ3DModelData());
+    }
+#endif
 
     if (mIsGrandStar) {
         ::setupColorGrandStar(this, mColorFrame_v == 4);

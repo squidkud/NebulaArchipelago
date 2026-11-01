@@ -10,6 +10,9 @@
 #include "Game/Screen/BackButton.hpp"
 #include "Game/System/GalaxyStatusAccessor.hpp"
 #include "Game/System/GameDataConst.hpp"
+#ifdef TARGET_PC
+#include "Game/System/NebulaArchipelago.hpp"
+#endif
 #include "Game/Util/EffectUtil.hpp"
 #include "Game/Util/EventUtil.hpp"
 #include "Game/Util/GamePadUtil.hpp"
@@ -177,7 +180,11 @@ void ScenarioSelectLayout::appear() {
     if (isNewScenario) {
         MR::showPaneRecursive(this, "New");
         MR::copyPaneTrans(&mNewTextFollowPos, this, ::cStarPaneName[normalScenarioCompleteNum - 1]);
-    } else if (!MR::isScenarioDecided()) {
+    } else if (!MR::isScenarioDecided()
+#ifdef TARGET_PC
+               && !NebulaArchipelago::isActive()
+#endif
+    ) {
         const char* stageName = MR::getCurrentStageName();
 
         s32 hiddenIndex = 0;
@@ -483,6 +490,24 @@ bool ScenarioSelectLayout::calcDisplayScenarioNum(s32* pNormalScenarioCompleteNu
         return !MR::hasPowerStarInCurrentStage(MR::getCurrentScenarioNo());
     }
 
+#ifdef TARGET_PC
+    if (NebulaArchipelago::isActive()) {
+        // Archipelago: every star of the galaxy is there to pick (a star's place in the multiworld does not follow the
+        // game's order); the ones not taken yet show as such.
+        // The extra stars too (the comets', Luigi's, the hidden ones): all of them, the four places of the lower row.
+        *pNormalScenarioCompleteNum = MR::getCurrentStageNormalScenarioNum();
+        *pExtraScenarioCompleteNum = 0;
+
+        // The kinds the slot leaves out (comet stars, Purple Coin stars) are not shown at all.
+        for (s32 j = 0; j < getHiddenScenarioNum() && *pExtraScenarioCompleteNum < 4; j++) {
+            if (!NebulaArchipelago::isScenarioHidden(MR::getCurrentStageName(), MR::getCurrentStageNormalScenarioNum() + j + 1)) {
+                *pExtraScenarioCompleteNum += 1;
+            }
+        }
+
+        return false;
+    }
+#endif
     bool isNewScenario = false;
     s32 index;
 
@@ -521,6 +546,13 @@ void ScenarioSelectLayout::appearAllStar(s32 normalScenarioCompleteNum, s32 extr
         for (s32 i = 0; i < normalScenarioCompleteNum; i++) {
             s32 starState;
 
+#ifdef TARGET_PC
+            if (NebulaArchipelago::isActive()) {
+                appearStar(i, i + 1, MR::hasPowerStarInCurrentStage(i + 1) ? 2 : 0);
+                continue;
+            }
+#endif
+
             if (!isNewScenario) {
                 starState = 2;
             } else if (i < normalScenarioCompleteNum - 1) {
@@ -533,6 +565,25 @@ void ScenarioSelectLayout::appearAllStar(s32 normalScenarioCompleteNum, s32 extr
         }
 
         s32 starIndex = 3;
+
+#ifdef TARGET_PC
+        if (NebulaArchipelago::isActive()) {
+            s32 shown = 0;
+
+            for (s32 j = 0; j < getHiddenScenarioNum() && shown < 4; j++) {
+                const s32 scenarioNo = MR::getCurrentStageNormalScenarioNum() + j + 1;
+
+                if (NebulaArchipelago::isScenarioHidden(MR::getCurrentStageName(), scenarioNo)) {
+                    continue;
+                }
+
+                appearStar(starIndex + shown, scenarioNo, MR::hasPowerStarInCurrentStage(scenarioNo) ? 2 : 0);
+                shown++;
+            }
+
+            return;
+        }
+#endif
 
         for (s32 j = 0; j < getHiddenScenarioNum(); j++) {
             s32 scenarioNo = MR::getCurrentStageNormalScenarioNum() + j + 1;

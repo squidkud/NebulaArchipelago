@@ -2,6 +2,9 @@
 #include "Game/AudioLib/AudBgm.hpp"
 #include "Game/AudioLib/AudBgmKeeper.hpp"
 #include <JSystem/JAudio2/JAISound.hpp>
+#ifdef TARGET_PC
+#include "Game/System/NebulaArchipelago.hpp"
+#endif
 
 AudBgmMgr::AudBgmMgr() : _8FC(false) {
     for (int idx = 0; idx < 2; idx++) {
@@ -29,7 +32,12 @@ void AudBgmMgr::movement() {
     }
 }
 
-JAISoundHandle* AudBgmMgr::start(s32 bgmIndex, u32 soundID, bool lock) {
+JAISoundHandle* AudBgmMgr::start(s32 bgmIndex, u32 originalID, bool lock) {
+    u32 soundID = originalID;
+#ifdef TARGET_PC
+    // Archipelago's music shuffle: another theme plays (the original ID stays the one remembered below).
+    soundID = NebulaArchipelago::getShuffledMusic(soundID);
+#endif
     if (mBgm[bgmIndex] != nullptr) {
         mBgm[bgmIndex]->rejectFromSyncStream();
         mBgm[bgmIndex]->stop(false);
@@ -59,7 +67,7 @@ JAISoundHandle* AudBgmMgr::start(s32 bgmIndex, u32 soundID, bool lock) {
     if (handle != nullptr) {
         mLastBGM[bgmIndex] = mCurrentBGM[bgmIndex];
         sendToRhythmSystem(bgmIndex);
-        mCurrentBGM[bgmIndex] = soundID;
+        mCurrentBGM[bgmIndex] = originalID;
     }
 
     return handle;

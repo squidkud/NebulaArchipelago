@@ -79,4 +79,10 @@ public:
     /* 0x1B8 */ J3DTexMtx mTensTexMtx;
     /* 0x24C */ AstroDomeOrbit* mOrbit;
     /* 0x250 */ GalaxyNamePlate* mNamePlate;
+    // The Archipelago galaxy shuffle: mGalaxyName and mObjectName stay the slot's (they decide when the miniature appears
+    // and opens, and the stars it asks); these are the galaxy it shows, names and launches (the same when nothing is shuffled).
+    const char* mContentGalaxyName;
+    const char* mContentObjectName;
+    char mContentObjectBuffer[64];
+    bool mKoopaLook;  // the Bowser look (face model, eye light): only a Bowser place with its own boss
 };

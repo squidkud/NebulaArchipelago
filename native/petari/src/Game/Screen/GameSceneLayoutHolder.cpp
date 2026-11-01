@@ -57,6 +57,8 @@ GameSceneLayoutHolder::GameSceneLayoutHolder()
 #ifdef TARGET_PC
     mAchievementToast = new NebulaAchievementToast();
     mAchievementToast->initWithoutIter();
+    mSaveIndicator = new NebulaAchievementToast(true);
+    mSaveIndicator->initWithoutIter();
     mAchievementBoard = nullptr;
     if (NebulaAchievementLuma::isHere()) {
         mAchievementBoard = new NebulaAchievementBoard();

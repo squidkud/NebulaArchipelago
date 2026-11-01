@@ -1,10 +1,12 @@
 #include "Game/Screen/NebulaAchievementToast.hpp"
 #include <JSystem/JUtility/JUTNativeLog.hpp>
+#include "Game/System/NebulaItemIcons.hpp"
 
 #ifdef TARGET_PC
 #include "Game/Screen/LayoutManager.hpp"
 #include "Game/System/LayoutHolder.hpp"
 #include "Game/System/NebulaAchievements.hpp"
+#include "Game/System/NebulaArchipelago.hpp"
 #include "Game/System/NebulaText.hpp"
 #include "Game/Util/DemoUtil.hpp"
 #include "Game/Util/LayoutUtil.hpp"
@@ -24,6 +26,7 @@
 #include <revolution/os.h>
 
 namespace {
+
     enum {
         StepIdle,
         StepRise,
@@ -41,6 +44,7 @@ namespace {
     const f32 cLineSpace = 8.0f;
     const f32 cTextMax = 440.0f;
     const f32 cScale = 0.5f;
+    const f32 cSaveScale = 0.4f;  // the save indicator is smaller
     const f32 cMargin = 8.0f;
 
     const s32 cRiseFrames = 24;
@@ -49,6 +53,8 @@ namespace {
     const s32 cFallFrames = 16;
     const s32 cHoldFrames = 270;
     const s32 cHoldFramesQueued = 180;  // when another one waits
+    const s32 cHoldFramesNotice = 90;      // an Archipelago notice when another one waits
+    const s32 cHoldFramesNoticeLast = 150; // and the last one
 
     // The game's message tags, as MessageData holds them natively: 0x1A, the tag's byte length and group as two
     // bytes, the tag id, then 16-bit parameters (an 8-bit one in the high byte).
@@ -132,9 +138,9 @@ namespace {
     }
 };  // namespace
 
-NebulaAchievementToast::NebulaAchievementToast()
-    : LayoutActor("NebulaAchievementToast", true), mToast(nullptr), mWindow(nullptr), mText(nullptr), mGlyph(nullptr), mIcon(nullptr),
-      mPicture(nullptr), mTextures(nullptr), mStep(StepIdle), mFrame(0), mHoldFrames(cHoldFrames), mWidth(0.0f), mHeight(0.0f) {
+NebulaAchievementToast::NebulaAchievementToast(bool isSaveIndicator)
+    : LayoutActor(isSaveIndicator ? "NebulaSaveIndicator" : "NebulaAchievementToast", true), mToast(nullptr), mWindow(nullptr), mText(nullptr), mGlyph(nullptr), mIcon(nullptr),
+      mPicture(nullptr), mTextures(nullptr), mStep(StepIdle), mFrame(0), mHoldFrames(cHoldFrames), mWidth(0.0f), mHeight(0.0f), mLogo(nullptr), mNoticeIcon(0), mIsSave(isSaveIndicator), mIsNotice(false) {
 }
 
 void NebulaAchievementToast::init(const JMapInfoIter& rIter) {
@@ -143,9 +149,12 @@ void NebulaAchievementToast::init(const JMapInfoIter& rIter) {
     // Its own name for the canvas rules (LayoutAspect): the window follows the right and bottom edges.
     LayoutManager* pManager = getLayoutManager();
     static const char cLayoutName[] = "NebulaAchievementToast";
+    static const char cSaveLayoutName[] = "NebulaSaveIndicator";
+    const char* pLayoutName = mIsSave ? cSaveLayoutName : cLayoutName;
+    const u32 layoutNameSize = mIsSave ? sizeof(cSaveLayoutName) : sizeof(cLayoutName);
     delete[] pManager->mLayoutName;
-    pManager->mLayoutName = new char[sizeof(cLayoutName)];
-    memcpy(pManager->mLayoutName, cLayoutName, sizeof(cLayoutName));
+    pManager->mLayoutName = new char[layoutNameSize];
+    memcpy(pManager->mLayoutName, pLayoutName, layoutNameSize);
 
     // The centred window holds everything: its text, and an icon pane made here holding the upper window's text pane
     // (for a glyph) and a picture (for a texture).
@@ -186,7 +195,7 @@ void NebulaAchievementToast::init(const JMapInfoIter& rIter) {
         for (u32 i = 0; i < materialNum; i++) {
             if (pMaterials[i] != nullptr) {
                 GXColorS10 color = pMaterials[i]->GetTevColor(1);
-                color.a = 235;
+                color.a = mIsSave ? 0 : 235;  // the save indicator is the text alone, with no blue block behind it
                 pMaterials[i]->SetTevColor(1, color);
             }
         }
@@ -220,8 +229,11 @@ void NebulaAchievementToast::loadTextures() {
             JUTNativeLog("NebulaAchievementToast: no %s in %s\n", pIcon->mTexture, pIcon->mArchive);
         }
     }
-    if (mTextures[0] != nullptr) {
-        mPicture = nw4r::lyt::Layout::NewObj< nw4r::lyt::Picture >(*mTextures[0]);
+    // The Archipelago logo and the icons of the items received (NebulaItemIcons).
+    mLogo = const_cast< nw4r::lyt::TexMap* >(NebulaItemIcons::getLogo());
+    const nw4r::lyt::TexMap* pFirst = mTextures[0] != nullptr ? mTextures[0] : mLogo;
+    if (pFirst != nullptr) {
+        mPicture = nw4r::lyt::Layout::NewObj< nw4r::lyt::Picture >(*pFirst);
     }
     if (mPicture != nullptr) {
         mPicture->SetName("NebulaIconPic");
@@ -250,13 +262,22 @@ void NebulaAchievementToast::control() {
         return;
     }
 
+    if (mIsSave) {
+        controlSave();
+        return;
+    }
+
     switch (mStep) {
     case StepIdle: {
         // At once, whatever the scene is doing: over cutscenes and their bars, menus and wipes.
         const NebulaAchievementIcon* pIcon = nullptr;
         const wchar_t* pName = NebulaAchievements::getWaiting(&pIcon);
         if (pName != nullptr) {
-            start(pName, pIcon);
+            start(pName, pIcon, false);
+        } else if ((pName = NebulaArchipelago::getWaitingNotice()) != nullptr) {
+            // What the Archipelago connection says (connected, an item sent or received), with the Archipelago logo.
+            mNoticeIcon = NebulaArchipelago::getWaitingNoticeIcon();
+            start(pName, nullptr, true);
         }
         break;
     }
@@ -267,8 +288,13 @@ void NebulaAchievementToast::control() {
         place(easeOutBack(t, 1.2f), t * 3.0f, mFrame > cIconDelay ? easeOutBack(icon, 2.6f) : 0.0f);
         if (mFrame >= cRiseFrames + cIconFrames) {
             // Up and settled: it counts as shown even if the scene ends now.
-            NebulaAchievements::popWaiting();
-            mHoldFrames = NebulaAchievements::isMoreWaiting() ? cHoldFramesQueued : cHoldFrames;
+            if (mIsNotice) {
+                NebulaArchipelago::popNotice();
+                mHoldFrames = NebulaArchipelago::isMoreNotices() ? cHoldFramesNotice : cHoldFramesNoticeLast;
+            } else {
+                NebulaAchievements::popWaiting();
+                mHoldFrames = NebulaAchievements::isMoreWaiting() ? cHoldFramesQueued : cHoldFrames;
+            }
             mStep = StepHold;
             mFrame = 0;
         }
@@ -294,6 +320,72 @@ void NebulaAchievementToast::control() {
     }
 }
 
+// The small "Saving..." of the automatic save, bottom-left: it rises, stays while the three seconds run (the player plays
+// on), then plays the sound of a save done and leaves. The seconds are NebulaArchipelago's: they go on across a scene change.
+void NebulaAchievementToast::controlSave() {
+    switch (mStep) {
+    case StepIdle:
+        if (NebulaArchipelago::isSaveIndicatorRunning()) {
+            startSave();
+        }
+        break;
+    case StepRise: {
+        mFrame++;
+        const f32 t = clamp01(static_cast< f32 >(mFrame) / cRiseFrames);
+        place(easeOutBack(t, 1.2f), t * 3.0f, 0.0f);
+        if (mFrame >= cRiseFrames) {
+            mStep = StepHold;
+            mFrame = 0;
+        }
+        break;
+    }
+    case StepHold:
+        if (!NebulaArchipelago::tickSaveIndicator()) {
+            MR::startSystemSE("SE_SY_SAVE_SUCCESS");
+            mStep = StepFall;
+            mFrame = 0;
+        }
+        break;
+    case StepFall: {
+        mFrame++;
+        const f32 t = clamp01(static_cast< f32 >(mFrame) / cFallFrames);
+        place(1.0f - easeInCubic(t), (1.0f - t) * 2.5f, 0.0f);
+        if (mFrame >= cFallFrames) {
+            mToast->SetVisible(false);
+            mStep = StepIdle;
+            mFrame = 0;
+        }
+        break;
+    }
+    }
+}
+
+void NebulaAchievementToast::startSave() {
+    wchar_t text[96];
+    wchar_t* pText = addFontSizeTag(text, 1);
+    pText = addColorTag(pText, 0);
+    wchar_t saving[48];
+    NebulaText::get(saving, 48, "SaveIndicator");
+    addString(pText, saving, 48);
+    MR::setTextBoxMessageRecursive(this, "ConfirmC", text);
+
+    f32 textWidth, textHeight;
+    fitText(mText, 0.0f, cLineSpace, &textWidth, &textHeight);
+    mText->mScale = nw4r::math::VEC2(1.0f, 1.0f);
+    mWidth = cPadding + textWidth + cPadding;
+    mHeight = cPadding + textHeight + cPadding;
+    mWindow->mSize = nw4r::lyt::Size(mWidth, mHeight);
+    mWindow->mTranslate = nw4r::math::VEC3(0.0f, 0.0f, 0.0f);
+    mText->mTranslate = nw4r::math::VEC3(-mWidth * 0.5f + cPadding, textHeight * 0.5f, 0.0f);
+    mIcon->SetVisible(false);
+    mToast->mScale = nw4r::math::VEC2(cSaveScale, cSaveScale);
+
+    mStep = StepRise;
+    mFrame = 0;
+    place(0.0f, 0.0f, 0.0f);
+    mToast->SetVisible(true);
+}
+
 // The icon as a glyph of the picture font, or a picture of its texture; its drawn size.
 void NebulaAchievementToast::setIcon(const NebulaAchievementIcon* pIcon, f32* pWidth, f32* pHeight) {
     const s32 texture = pIcon != nullptr && pIcon->mGlyph == 0 ? NebulaAchievements::findIconTexture(pIcon) : -1;
@@ -317,6 +409,28 @@ void NebulaAchievementToast::setIcon(const NebulaAchievementIcon* pIcon, f32* pW
         return;
     }
 
+    // The Archipelago's notices: the received item's icon when it has one, else the logo.
+    if (pIcon == nullptr && mIsNotice && mLogo != nullptr && mPicture != nullptr) {
+        const nw4r::lyt::TexMap* pItemTexture = NebulaItemIcons::getItem(mNoticeIcon);
+        const nw4r::lyt::TexMap* pTexture = pItemTexture != nullptr ? pItemTexture : mLogo;
+
+        mPicture->GetMaterial()->SetTexture(0, *pTexture);
+        nw4r::math::VEC2(*pCoords)[4] = mPicture->mTexCoordAry.mData;
+        if (pCoords != nullptr && mPicture->mTexCoordAry.mNum > 0) {
+            pCoords[0][0] = nw4r::math::VEC2(0.0f, 0.0f);
+            pCoords[0][1] = nw4r::math::VEC2(1.0f, 0.0f);
+            pCoords[0][2] = nw4r::math::VEC2(0.0f, 1.0f);
+            pCoords[0][3] = nw4r::math::VEC2(1.0f, 1.0f);
+        }
+        *pHeight = cIconSize;
+        *pWidth = cIconSize;
+        mPicture->mSize = nw4r::lyt::Size(*pWidth, *pHeight);
+        mPicture->mTranslate = nw4r::math::VEC3(0.0f, 0.0f, 0.0f);
+        mPicture->SetVisible(true);
+        mGlyph->SetVisible(false);
+        return;
+    }
+
     // A glyph (or a texture that is missing: the Power Star).
     wchar_t picture[8];
     MR::addPictureFontTag(picture, pIcon != nullptr && pIcon->mGlyph != 0 ? pIcon->mGlyph : '7');
@@ -329,11 +443,16 @@ void NebulaAchievementToast::setIcon(const NebulaAchievementIcon* pIcon, f32* pW
     }
 }
 
-void NebulaAchievementToast::start(const wchar_t* pName, const NebulaAchievementIcon* pIcon) {
+void NebulaAchievementToast::start(const wchar_t* pName, const NebulaAchievementIcon* pIcon, bool isNotice) {
+    mIsNotice = isNotice;
     wchar_t text[160];
     wchar_t* pText = addFontSizeTag(text, 0);
     pText = addColorTag(pText, 4);
-    pText += NebulaText::get(pText, 48, "AchievementGet");
+    if (isNotice) {
+        pText = addString(pText, L"Archipelago", 48);
+    } else {
+        pText += NebulaText::get(pText, 48, "AchievementGet");
+    }
     pText = addString(pText, L"\n", 2);
     pText = addFontSizeTag(pText, 1);
     pText = addColorTag(pText, 0);
@@ -374,10 +493,11 @@ void NebulaAchievementToast::start(const wchar_t* pName, const NebulaAchievement
 void NebulaAchievementToast::place(f32 rise, f32 alpha, f32 iconScale) {
     nw4r::lyt::Pane* pRoot = getLayoutManager()->mLayout->mpRootPane;
     const f32 adjust = mToast->IsLocationAdjust() && MR::isScreen16Per9() ? 0.75f : 1.0f;
-    const f32 width = mWidth * cScale * adjust;
-    const f32 height = mHeight * cScale;
+    const f32 scale = mIsSave ? cSaveScale : cScale;
+    const f32 width = mWidth * scale * adjust;
+    const f32 height = mHeight * scale;
     const f32 bottom = -pRoot->mSize.height * 0.5f;
-    mToast->mTranslate.x = pRoot->mSize.width * 0.5f - cMargin * adjust - width * 0.5f;
+    mToast->mTranslate.x = mIsSave ? -pRoot->mSize.width * 0.5f + cMargin * adjust + width * 0.5f : pRoot->mSize.width * 0.5f - cMargin * adjust - width * 0.5f;
     mToast->mTranslate.y = bottom - height * 0.5f + rise * (height + cMargin);
     mToast->mAlpha = static_cast< u8 >(255.0f * clamp01(alpha) + 0.5f);
     mIcon->mScale = nw4r::math::VEC2(iconScale, iconScale);

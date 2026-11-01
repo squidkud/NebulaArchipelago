@@ -11,7 +11,10 @@
 #include "Game/Screen/NebulaUi.hpp"
 #include "Game/System/LayoutHolder.hpp"
 #include "Game/System/NebulaAchievements.hpp"
+#include "Game/System/NebulaArchipelago.hpp"
+#include "Game/System/NebulaItemIcons.hpp"
 #include "Game/System/NebulaText.hpp"
+#include "Game/Util/EventUtil.hpp"
 #include "Game/Util/GamePadUtil.hpp"
 #include "Game/Util/LayoutUtil.hpp"
 #include "Game/Util/MessageUtil.hpp"
@@ -219,6 +222,7 @@ namespace {
         Window* mBadge;
         TextBox* mGlyph;
         Picture* mPicture;
+        Picture* mShopPicture;  // the shelf's item (its own picture, or the Archipelago logo)
         TextBox* mNameShadow;
         TextBox* mName;
         TextBox* mHint;
@@ -319,6 +323,23 @@ struct NebulaBoardParts {
     s32 mCardFocus;  // among the cards shown; -1 none (the pointer over nothing)
     s32 mShownNum;
     s32 mUnlockedNum;
+    // The shop's question before a purchase (its own small window over the board, answered with the D-pad and A).
+    Pane* mConfirm;
+    Window* mConfirmDim;
+    Window* mConfirmPanel;
+    TextBox* mConfirmText;
+    Chip mConfirmYes;
+    Chip mConfirmNo;
+    bool mConfirmOn;
+    s32 mConfirmIndex;   // the shelf asked about
+    s32 mConfirmChoice;  // 0 Yes, 1 No
+    f32 mConfirmLevel;   // 0 to 1, the window's appearance
+    f32 mConfirmTextWidth;
+    f32 mConfirmTextHeight;
+    s32 mShopRefresh;    // frames until the shelves are read again (the server's answers come later)
+    bool mShop;      // an Archipelago slot with a shop: the shelves take the place of the achievements
+    s32 mShopNum;    // the shelves
+    s32 mWallet;     // the Star Bits the player has (the shop's header)
     f32 mScroll;
     f32 mScrollTarget;
     f32 mScrollVelocity;
@@ -422,6 +443,30 @@ namespace {
         }
     }
 
+    // A shelf's picture: the texture whole on the picture pane (a square), else nothing.
+    void setShopPicture(Picture* pPicture, const nw4r::lyt::TexMap* pTexture, f32 size, u32 tint) {
+        if (pPicture == nullptr) {
+            return;
+        }
+        if (pTexture == nullptr) {
+            pPicture->SetVisible(false);
+            return;
+        }
+        pPicture->GetMaterial()->SetTexture(0, *pTexture);
+        nw4r::math::VEC2(*pCoords)[4] = pPicture->mTexCoordAry.mData;
+        if (pCoords != nullptr && pPicture->mTexCoordAry.mNum > 0) {
+            pCoords[0][0] = nw4r::math::VEC2(0.0f, 0.0f);
+            pCoords[0][1] = nw4r::math::VEC2(1.0f, 0.0f);
+            pCoords[0][2] = nw4r::math::VEC2(0.0f, 1.0f);
+            pCoords[0][3] = nw4r::math::VEC2(1.0f, 1.0f);
+        }
+        pPicture->mSize = nw4r::lyt::Size(size, size);
+        for (u32 i = 0; i < 4; i++) {
+            pPicture->SetVtxColor(i, color(tint));
+        }
+        pPicture->SetVisible(true);
+    }
+
     bool isInGroup(s32 tab, s32 group) {
         return tab == TabAll || (tab == TabStory && group == 0) || (tab == TabChallenges && group == 1) || (tab == TabExtras && group == 2);
     }
@@ -449,6 +494,127 @@ namespace {
         return -(top + bottom) * 0.5f;
     }
 
+    // The footer's first hint: the tabs' keys, or (in the shop) the buy button.
+    void setFooterHint(NebulaBoardParts* p) {
+        wchar_t glyphs[16] = {0};
+        wchar_t text[48];
+        if (p->mShop) {
+            NebulaText::get(text, 48, "HintBuy");
+        } else {
+            wchar_t* q = glyphs;
+            q = MR::addPictureFontTag(q, cGlyphMinus);
+            MR::addPictureFontTag(q, cGlyphPlus);
+            NebulaText::get(text, 48, "HintTabs");
+        }
+        setText(p->mHintGlyphs[HintTabs], glyphs);
+        setText(p->mHintLabels[HintTabs], text);
+        p->mHintGlyphs[HintTabs]->SetVisible(!p->mShop);
+    }
+
+    // The shelves of the Star Bit shop on the cards: the picture of what the shelf holds (this game's own item, else the
+    // Archipelago logo), its name, its price or "Bought!". No progress bar. The cards after the last shelf are not shown.
+    void refreshShop(NebulaBoardParts* p) {
+        const s32 wallet = MR::getStarPieceNum();
+        p->mWallet = wallet;
+        p->mUnlockedNum = 0;
+        for (s32 i = 0; i < p->mCardNum; i++) {
+            Card& rCard = p->mCards[i];
+            if (i >= p->mShopNum) {
+                rCard.mUnlocked = false;
+                rCard.mGoal = 0;
+                rCard.mDate = 0;
+                rCard.mHintText[0] = 0;
+                continue;
+            }
+            const bool bought = NebulaArchipelago::isShopBought(i);
+            const s32 price = NebulaArchipelago::getShopPrice(i);
+            const bool on = bought || wallet >= price;
+            p->mUnlockedNum += bought ? 1 : 0;
+            wchar_t label[96];
+            if (!NebulaArchipelago::getShopLabel(i, label, 96)) {
+                NebulaText::get(label, 96, "ShopUnknown");
+            }
+            setText(rCard.mName, label);
+            setText(rCard.mNameShadow, label);
+            rCard.mUnlocked = bought;
+            rCard.mDate = bought ? 1 : 0;
+            rCard.mGoal = 0;  // no bar toward the price
+            rCard.mCurrent = 0;
+            if (bought) {
+                NebulaText::get(rCard.mHintText, 192, "ShopBought");
+            } else {
+                wchar_t number[16];
+                formatNumber(number, 16, static_cast< u64 >(price));
+                const char* const names[] = {"n"};
+                const wchar_t* const values[] = {number};
+                fill(rCard.mHintText, 192, "ShopPrice", names, values, 1);
+            }
+            setText(rCard.mMeta, L"");
+            paint(rCard.mBody, on ? cCardFill : cLockedFill, on ? cCardRing : cLockedRing);
+            paint(rCard.mBadge, on ? cBadgeFill : cLockedBadgeFill, on ? cCardRing : cLockedRing);
+            setTextColor(rCard.mName, on ? cWhite : cLockedText, on ? cWhite : cLockedText);
+            setTextColor(rCard.mHint, on ? cSubText : cLockedSubText, on ? cSubText : cLockedSubText);
+            rCard.mNameShadow->SetVisible(on);
+            // The picture of the item: its own, else the logo of the multiworld.
+            const nw4r::lyt::TexMap* pTexture = NebulaItemIcons::getItem(NebulaArchipelago::getShopIcon(i));
+            if (pTexture == nullptr) {
+                pTexture = NebulaItemIcons::getLogo();
+            }
+            setShopPicture(rCard.mShopPicture, pTexture, cIcon + 8.0f, on ? cWhite : cIconLocked);
+            if (rCard.mPicture != nullptr) {
+                rCard.mPicture->SetVisible(false);
+            }
+            if (rCard.mGlyph != nullptr) {
+                rCard.mGlyph->SetVisible(rCard.mShopPicture == nullptr);
+                if (rCard.mShopPicture == nullptr) {
+                    setGlyph(rCard.mGlyph, bought ? '7' : ';', cIcon);
+                    setTextColor(rCard.mGlyph, on ? cWhite : cIconLocked, on ? cWhite : cIconLocked);
+                }
+            }
+        }
+        p->mArranged = false;  // the texts changed: laid out again at the next frame
+    }
+
+    // A (or a click) on a shelf: the question comes first (the item and its price); a shelf that cannot be bought only
+    // sounds the "no".
+    void askBuy(NebulaBoardParts* p, s32 index) {
+        if (!p->mShop || index < 0 || index >= p->mShopNum) {
+            return;
+        }
+        if (NebulaArchipelago::isShopBought(index) || !NebulaArchipelago::isShopOnline() || MR::getStarPieceNum() < NebulaArchipelago::getShopPrice(index)) {
+            MR::startSystemSE("SE_SY_TALK_SELECT_NO");
+            return;
+        }
+        wchar_t label[96];
+        if (!NebulaArchipelago::getShopLabel(index, label, 96)) {
+            NebulaText::get(label, 96, "ShopUnknown");
+        }
+        wchar_t number[16];
+        formatNumber(number, 16, static_cast< u64 >(NebulaArchipelago::getShopPrice(index)));
+        const char* const names[] = {"item", "n"};
+        const wchar_t* const values[] = {label, number};
+        wchar_t question[256];
+        fill(question, 256, "ShopConfirm", names, values, 2);
+        wrapWords(p->mConfirmText, question, 420.0f, &p->mConfirmTextWidth, &p->mConfirmTextHeight);
+        p->mConfirmOn = true;
+        p->mConfirmIndex = index;
+        p->mConfirmChoice = 0;
+        MR::startSystemSE("SE_SY_BUTTON_CURSOR_ON");
+    }
+
+    // Buys the shelf (the question was answered Yes): the Star Bits go, the item is sent. A sound tells whether it worked.
+    void buyShelf(NebulaBoardParts* p, s32 index) {
+        if (!p->mShop || index < 0 || index >= p->mShopNum) {
+            return;
+        }
+        if (NebulaArchipelago::buyShopItem(index)) {
+            MR::startSystemSE("SE_SY_TALK_SELECT_YES");
+            refreshShop(p);
+        } else {
+            MR::startSystemSE("SE_SY_TALK_SELECT_NO");
+        }
+    }
+
     // Where everything goes for the screen's shape, and what the tab and filter show.
     void arrange(NebulaBoardParts* p) {
         readScreen(&p->mScaleX, &p->mWidth, &p->mHeight);
@@ -460,7 +626,7 @@ namespace {
         p->mListLeft = left;
         p->mListRight = right - 12.0f;  // the scroll bar's room
         p->mFilterY = p->mTabY - cTabHeight * 0.5f - 10.0f - cFilterHeight * 0.5f;
-        p->mListTop = p->mTab == TabStats ? p->mTabY - cTabHeight * 0.5f - 16.0f : p->mFilterY - cFilterHeight * 0.5f - 14.0f;
+        p->mListTop = p->mTab == TabStats || p->mShop ? p->mTabY - cTabHeight * 0.5f - 16.0f : p->mFilterY - cFilterHeight * 0.5f - 14.0f;
         p->mListBottom = -p->mHeight * 0.5f + cFooter + 10.0f;
         p->mFooterY = -p->mHeight * 0.5f + cFooter * 0.5f;
 
@@ -486,7 +652,7 @@ namespace {
             const bool inFilter = p->mFilterMode == FilterAll || (p->mFilterMode == FilterUnlocked) == rCard.mUnlocked;
             // A secret shows only once unlocked; the 120-star goals once Halfway There is.
             const bool listed = rCard.mUnlocked || NebulaAchievements::isShownLocked(i);
-            rCard.mShown = inTab && inFilter && listed;
+            rCard.mShown = p->mShop ? i < p->mShopNum : inTab && inFilter && listed;
             rCard.mOrder = rCard.mShown ? p->mShownNum++ : -1;
             rCard.mRoot->SetVisible(false);
 
@@ -589,6 +755,14 @@ namespace {
             }
             formatCount(count, 48, unlocked, total);
         }
+        if (p->mShop) {
+            // The shop's row: the Star Bits the player has.
+            wchar_t number[16];
+            formatNumber(number, 16, static_cast< u64 >(p->mWallet));
+            const char* const names[] = {"n"};
+            const wchar_t* const values[] = {number};
+            fill(count, 48, "ShopWallet", names, values, 1);
+        }
         setText(p->mTabCount, count);
         measure(p->mTabCount, 4000.0f, &width, &height);
 
@@ -671,11 +845,18 @@ namespace {
         p->mPercent->mTranslate = nw4r::math::VEC3(right, textCentre(headerY, cSummarySize), 0.0f);
         const f32 barRight = right - percentWidth - 12.0f;
         shape(p->mSummaryTrack, barRight - barWidth * 0.5f, headerY, barWidth, 10.0f, 5.0f);
-        const f32 done = p->mCardNum > 0 ? static_cast< f32 >(p->mUnlockedNum) / p->mCardNum : 0.0f;
+        const s32 total = p->mShop ? p->mShopNum : p->mCardNum;
+        const f32 done = total > 0 ? static_cast< f32 >(p->mUnlockedNum) / total : 0.0f;
         const f32 fillWidth = barWidth * done * easeOut(open);
         shape(p->mSummaryBar, barRight - barWidth + fillWidth * 0.5f, headerY, fillWidth < 10.0f ? 10.0f : fillWidth, 10.0f, 5.0f);
-        p->mSummaryBar->SetVisible(p->mUnlockedNum > 0);
+        p->mSummaryBar->SetVisible(p->mUnlockedNum > 0 && !p->mShop);
         p->mSummary->mTranslate = nw4r::math::VEC3(barRight - barWidth - 12.0f, textCentre(headerY, cSummarySize), 0.0f);
+        // The shop has no bar and no percentage in its header: the count alone, at the right edge.
+        p->mSummaryTrack->SetVisible(!p->mShop);
+        p->mPercent->SetVisible(!p->mShop);
+        if (p->mShop) {
+            p->mSummary->mTranslate = nw4r::math::VEC3(right, textCentre(headerY, cSummarySize), 0.0f);
+        }
 
         // The tabs and, under them, the filters: the chosen one bright, the others dimmed; the highlight grows and
         // shines as the game's buttons do.
@@ -687,13 +868,16 @@ namespace {
             const bool chosen = tab ? k == p->mTab : k == p->mFilterMode;
             const bool focused = (tab ? p->mZone == ZoneTabs && p->mTabFocus == k : p->mZone == ZoneFilter && p->mFilterMode == k) &&
                                  (!p->mPointerMode || p->mPointerIn);
-            rChip.mRoot->SetVisible(tab || filters);
+            rChip.mRoot->SetVisible(!p->mShop && (tab || filters));
+            if (p->mShop) {
+                continue;
+            }
             placeChip(rChip, rChip.mX, tab ? p->mTabY : p->mFilterY, chosen, focused, pulse);
             rChip.mText->mTranslate = nw4r::math::VEC3(0.0f, textCentre(0.0f, tab ? cTabSize : cFilterSize), 0.0f);
             rChip.mText->mAlpha = toAlpha(chosen ? 1.0f : 0.8f);
         }
-        p->mTabCount->mTranslate = nw4r::math::VEC3(right, textCentre(p->mFilterY, cFilterSize + 1.0f), 0.0f);
-        p->mTabCount->SetVisible(filters);
+        p->mTabCount->mTranslate = nw4r::math::VEC3(right, textCentre(p->mShop ? p->mTabY : p->mFilterY, cFilterSize + 1.0f), 0.0f);
+        p->mTabCount->SetVisible(filters || p->mShop);
 
         // The list: a tab's change slides it in; the scissor cuts what reaches past the edges.
         const f32 switched = easeOut(static_cast< f32 >(p->mSwitchFrame) / cSwitchFrames);
@@ -736,6 +920,10 @@ namespace {
             const f32 badgeX = -cw * 0.5f + cCardPad + cBadge * 0.5f;
             shape(rCard.mBadge, badgeX, 0.0f, cBadge, cBadge, cBadge * 0.5f);
             placeIcon(rCard.mGlyph, rCard.mPicture, badgeX, 0.0f, cIcon);
+            if (rCard.mShopPicture != nullptr) {
+                rCard.mShopPicture->mTranslate = nw4r::math::VEC3(badgeX, 0.0f, 0.0f);
+                rCard.mShopPicture->SetVisible(p->mShop);
+            }
 
             // The name, the sentence and the progress bar as one block, centred on the card by their letters.
             const bool bar = !rCard.mUnlocked && rCard.mGoal > 0;
@@ -771,6 +959,44 @@ namespace {
                 const f32 part = barWidth * rCard.mCurrent / rCard.mGoal;
                 const f32 shown = part < cBarHeight ? cBarHeight : part;
                 shape(rCard.mBar, textX + shown * 0.5f, barY, shown, cBarHeight, cBarHeight * 0.5f);
+            }
+        }
+
+        // The shop's question: a dim over the board, the window with the sentence and its two buttons.
+        {
+            const f32 target = p->mConfirmOn ? 1.0f : 0.0f;
+            p->mConfirmLevel += (target - p->mConfirmLevel) * 0.35f;
+            if (__builtin_fabsf(target - p->mConfirmLevel) < 0.02f) {
+                p->mConfirmLevel = target;
+            }
+            const bool shown = p->mConfirmLevel > 0.0f;
+            p->mConfirm->SetVisible(shown);
+            if (shown) {
+                const f32 level = p->mConfirmLevel;
+                p->mConfirm->mAlpha = toAlpha(level);
+                p->mConfirm->mScale = nw4r::math::VEC2(0.92f + 0.08f * level, 0.92f + 0.08f * level);
+                shape(p->mConfirmDim, 0.0f, 0.0f, p->mWidth, p->mHeight, 1.0f);
+                const f32 textHeight = p->mConfirmTextHeight;
+                const f32 buttonY = -textHeight * 0.5f - 34.0f;
+                const f32 panelWidth = (p->mConfirmTextWidth > 300.0f ? p->mConfirmTextWidth : 300.0f) + 64.0f;
+                const f32 panelTop = textHeight * 0.5f + 28.0f;
+                const f32 panelBottom = buttonY - cTabHeight * 0.5f - 22.0f;
+                shape(p->mConfirmPanel, 0.0f, (panelTop + panelBottom) * 0.5f, panelWidth, panelTop - panelBottom, 16.0f);
+                p->mConfirmText->mTranslate = nw4r::math::VEC3(0.0f, 0.0f, 0.0f);
+                p->mConfirmYes.mHeight = cTabHeight;
+                p->mConfirmNo.mHeight = cTabHeight;
+                f32 w, h;
+                measure(p->mConfirmYes.mText, 4000.0f, &w, &h);
+                p->mConfirmYes.mWidth = w + cTabPadding * 2.0f + 24.0f;
+                measure(p->mConfirmNo.mText, 4000.0f, &w, &h);
+                p->mConfirmNo.mWidth = w + cTabPadding * 2.0f + 24.0f;
+                const f32 widest = p->mConfirmYes.mWidth > p->mConfirmNo.mWidth ? p->mConfirmYes.mWidth : p->mConfirmNo.mWidth;
+                p->mConfirmYes.mWidth = widest;
+                p->mConfirmNo.mWidth = widest;
+                placeChip(p->mConfirmYes, -widest * 0.5f - 12.0f, buttonY, true, p->mConfirmChoice == 0, pulse);
+                placeChip(p->mConfirmNo, widest * 0.5f + 12.0f, buttonY, true, p->mConfirmChoice == 1, pulse);
+                p->mConfirmYes.mText->mTranslate = nw4r::math::VEC3(0.0f, textCentre(0.0f, cTabSize), 0.0f);
+                p->mConfirmNo.mText->mTranslate = nw4r::math::VEC3(0.0f, textCentre(0.0f, cTabSize), 0.0f);
             }
         }
 
@@ -869,7 +1095,7 @@ namespace {
     }
 
     void selectTab(NebulaBoardParts* p, s32 tab) {
-        if (tab < 0 || tab >= TabNum || tab == p->mTab) {
+        if (p->mShop || tab < 0 || tab >= TabNum || tab == p->mTab) {
             return;
         }
         p->mSwitchDirection = tab > p->mTab ? 1 : -1;
@@ -891,7 +1117,7 @@ namespace {
     }
 
     void selectFilter(NebulaBoardParts* p, s32 mode) {
-        if (mode < 0 || mode >= FilterNum || mode == p->mFilterMode) {
+        if (p->mShop || mode < 0 || mode >= FilterNum || mode == p->mFilterMode) {
             return;
         }
         p->mFilterMode = mode;
@@ -950,7 +1176,7 @@ namespace {
             s32 focus = p->mCardFocus < 0 ? 0 : p->mCardFocus;
             if (direction == NebulaMenuFocus::Direction_Up) {
                 if (focus < columns) {
-                    p->mZone = ZoneFilter;
+                    p->mZone = p->mShop ? ZoneList : ZoneFilter;
                 } else {
                     focus -= columns;
                 }
@@ -981,6 +1207,9 @@ namespace {
     // The pointer: what it is over takes the highlight, silently (as in the settings menu); A picks a tab, the filter
     // or Back; held A drags the list. True when Back was picked.
     bool handlePointer(NebulaBoardParts* p) {
+        if (p->mShop) {
+            return false;  // the shop is used with the pad: no pointer, no cursor
+        }
         f32 x, y;
         const bool in = readPointer(p, &x, &y);
         const bool moved = in && (!p->mPointerIn || __builtin_fabsf(x - p->mPointerX) > 1.5f || __builtin_fabsf(y - p->mPointerY) > 1.5f);
@@ -1001,13 +1230,13 @@ namespace {
 
         const bool inList = x >= p->mListLeft - 4.0f && x <= p->mListRight + 14.0f && y <= p->mListTop + 4.0f && y >= p->mListBottom - 4.0f;
         s32 overTab = -1;
-        for (s32 i = 0; i < TabNum; i++) {
+        for (s32 i = 0; i < TabNum && !p->mShop; i++) {
             if (isInside(x, y, p->mTabs[i].mX, p->mTabY, p->mTabs[i].mWidth, cTabHeight + 4.0f)) {
                 overTab = i;
             }
         }
         s32 overFilter = -1;
-        for (s32 i = 0; i < FilterNum && p->mTab != TabStats; i++) {
+        for (s32 i = 0; i < FilterNum && p->mTab != TabStats && !p->mShop; i++) {
             if (isInside(x, y, p->mFilters[i].mX, p->mFilterY, p->mFilters[i].mWidth, cFilterHeight + 4.0f)) {
                 overFilter = i;
             }
@@ -1045,6 +1274,8 @@ namespace {
                 selectTab(p, overTab);
             } else if (overFilter >= 0) {
                 selectFilter(p, overFilter);
+            } else if (p->mShop && overCard >= 0) {
+                buyShelf(p, overCard);
             } else if (inList) {
                 p->mDragging = true;
                 p->mDragMoved = false;
@@ -1237,6 +1468,14 @@ void NebulaAchievementBoard::init(const JMapInfoIter& rIter) {
             snprintf(name, sizeof(name), "NbC%02dP", i);
             rCard.mPicture = makePicture(rCard.mRoot, name, p->mTextures[texture]);
         }
+        if (nw4r::lyt::TexMap* pLogo = const_cast< nw4r::lyt::TexMap* >(NebulaItemIcons::getLogo())) {
+            // The shop's picture of the shelf's item (its texture is chosen when the shop opens).
+            snprintf(name, sizeof(name), "NbC%02dQ", i);
+            rCard.mShopPicture = makePicture(rCard.mRoot, name, pLogo);
+            if (rCard.mShopPicture != nullptr) {
+                rCard.mShopPicture->SetVisible(false);
+            }
+        }
         snprintf(name, sizeof(name), "NbC%02dn", i);
         rCard.mNameShadow = makeText(p, rCard.mRoot, name, 96);
         snprintf(name, sizeof(name), "NbC%02dN", i);
@@ -1381,6 +1620,29 @@ void NebulaAchievementBoard::init(const JMapInfoIter& rIter) {
         setTextStyle(p->mHintLabels[i], cFooterSize, cSubText, cSubText, 5);
     }
 
+    // The shop's question before a purchase: made last so that it is drawn over the rest.
+    p->mConfirm = makeGroup(pBoard, "NbAsk");
+    if (p->mConfirm == nullptr) {
+        p->mBoard = nullptr;
+        return;
+    }
+    p->mConfirmDim = makeWindow(p, p->mConfirm, "NbAskDim");
+    p->mConfirmPanel = makeWindow(p, p->mConfirm, "NbAskPan");
+    p->mConfirmText = makeText(p, p->mConfirm, "NbAskTxt", 256);
+    if (p->mConfirmDim == nullptr || p->mConfirmPanel == nullptr || p->mConfirmText == nullptr ||
+        !makeChip(p, p->mConfirm, &p->mConfirmYes, "NbAskYes", false) || !makeChip(p, p->mConfirm, &p->mConfirmNo, "NbAskNo", false)) {
+        p->mBoard = nullptr;
+        return;
+    }
+    paint(p->mConfirmDim, 0x000000B4, 0x00000000);
+    paint(p->mConfirmPanel, cPanelFill | 0xFF, cPanelRing);
+    setTextStyle(p->mConfirmText, cNameSize + 1.0f, cWhite, cWhite, 4);
+    NebulaText::get(text, 48, "ShopYes");
+    setText(p->mConfirmYes.mText, text);
+    NebulaText::get(text, 48, "ShopNo");
+    setText(p->mConfirmNo.mText, text);
+    p->mConfirm->SetVisible(false);
+
     // The backdrop fades in and out with the board.
     if (Pane* pBackground = mBackground->getLayoutManager()->mLayout->mpRootPane) {
         setInfluencedAlphaRecursive(pBackground, 0);
@@ -1399,6 +1661,23 @@ void NebulaAchievementBoard::open() {
     NebulaAchievements::flushStats();
     mIsOpen = true;
     setSharp(SharpBoard, true);
+    p->mShop = NebulaArchipelago::hasShop();
+    p->mShopNum = 0;
+    if (p->mShop) {
+        p->mShopNum = NebulaArchipelago::getShopNum();
+        if (p->mShopNum > p->mCardNum) {
+            p->mShopNum = p->mCardNum;  // a card for each shelf (there are far more achievements than shelves)
+        }
+    }
+    p->mConfirmOn = false;
+    p->mConfirmLevel = 0.0f;
+    p->mConfirmIndex = -1;
+    p->mShopRefresh = 0;
+    NebulaArchipelago::setShopOpen(p->mShop);
+    if (p->mShop) {
+        // The shelves on display become hints in the clients of the players whose items stand on them.
+        NebulaArchipelago::requestShopHints();
+    }
     p->mTab = TabAll;
     p->mFilterMode = FilterAll;
     p->mZone = ZoneList;
@@ -1431,8 +1710,24 @@ void NebulaAchievementBoard::open() {
     NebulaFileProgress file;
     NebulaAchievements::getFileProgress(&file);
     p->mUnlockedNum = 0;
-    for (s32 i = 0; i < p->mCardNum; i++) {
+    setFooterHint(p);
+    {
+        wchar_t title[64];
+        NebulaText::get(title, 64, p->mShop ? "ShopTitle" : "BoardTitle");
+        setText(p->mTitle, title);
+        setText(p->mTitleShadow, title);
+    }
+    if (p->mShop) {
+        refreshShop(p);
+    }
+    for (s32 i = 0; i < p->mCardNum && !p->mShop; i++) {
         Card& rCard = p->mCards[i];
+        {
+            wchar_t name[96];
+            NebulaAchievements::getName(name, 96, NebulaAchievements::getId(i));
+            setText(rCard.mName, name);
+            setText(rCard.mNameShadow, name);
+        }
         rCard.mDate = NebulaAchievements::getUnlockDate(i);
         rCard.mUnlocked = rCard.mDate != 0;
         p->mUnlockedNum += rCard.mUnlocked ? 1 : 0;
@@ -1471,11 +1766,12 @@ void NebulaAchievementBoard::open() {
 
     // The header: how many are unlocked.
     wchar_t text[48];
-    formatCount(text, 48, p->mUnlockedNum, p->mCardNum);
+    const s32 headerTotal = p->mShop ? p->mShopNum : p->mCardNum;
+    formatCount(text, 48, p->mUnlockedNum, headerTotal);
     setText(p->mSummary, text);
     setTextStyle(p->mSummary, cSummarySize, cWhite, cWhite, 5);
     wchar_t percent[8];
-    formatInt(percent, 8, p->mCardNum > 0 ? p->mUnlockedNum * 100 / p->mCardNum : 0, 1);
+    formatInt(percent, 8, headerTotal > 0 ? p->mUnlockedNum * 100 / headerTotal : 0, 1);
     const char* const percentNames[] = {"n"};
     const wchar_t* const percentValues[] = {percent};
     fill(text, 48, "BoardPercent", percentNames, percentValues, 1);
@@ -1601,16 +1897,21 @@ void NebulaAchievementBoard::drawOnTop() const {
     }
     mBackground->draw();
     // The board, then its list alone, cut to the list's window so that what scrolls out never covers the tabs or the
-    // footer.
+    // footer; the shop's question last, over everything.
     const bool listShown = p->mList->IsVisible();
+    const bool askShown = p->mConfirm->IsVisible();
     p->mList->SetVisible(false);
+    p->mConfirm->SetVisible(false);
     draw();
     p->mList->SetVisible(listShown);
-    if (!listShown || getLayoutManager()->mIsScreenHidden) {
-        return;
+    if (listShown && !getLayoutManager()->mIsScreenHidden) {
+        drawClipped(p->mList, getLayoutManager()->mDrawInfo, p->mBoard->mTranslate.y, p->mListLeft - 16.0f, p->mListRight + 10.0f,
+                    p->mListTop + 2.0f, p->mListBottom - 6.0f);
     }
-    drawClipped(p->mList, getLayoutManager()->mDrawInfo, p->mBoard->mTranslate.y, p->mListLeft - 16.0f, p->mListRight + 10.0f,
-                p->mListTop + 2.0f, p->mListBottom - 6.0f);
+    p->mConfirm->SetVisible(askShown);
+    if (askShown && !getLayoutManager()->mIsScreenHidden) {
+        p->mConfirm->Draw(getLayoutManager()->mDrawInfo);
+    }
 }
 
 void NebulaAchievementBoard::control() {
@@ -1672,13 +1973,43 @@ void NebulaAchievementBoard::exeWait() {
     if (MR::isSystemWipeActive()) {
         return;  // the board takes no input while it comes out of the black
     }
+    if (p->mShop && p->mConfirmOn) {
+        // The purchase question: left and right choose, A answers, B is No.
+        const s32 press = NebulaMenuFocus::readPress(&p->mRepeat);
+        if (press != 0 && p->mConfirmLevel > 0.5f) {
+            // (any direction swaps the two buttons)
+            p->mConfirmChoice = p->mConfirmChoice == 0 ? 1 : 0;
+            MR::startSystemSE("SE_SY_BUTTON_CURSOR_ON");
+        }
+        if (p->mConfirmLevel > 0.5f && MR::testCorePadTriggerA(WPAD_CHAN0)) {
+            p->mConfirmOn = false;
+            if (p->mConfirmChoice == 0) {
+                buyShelf(p, p->mConfirmIndex);
+            } else {
+                MR::startSystemSE("SE_SY_TALK_SELECT_NO");
+            }
+        } else if (MR::testSystemTriggerB()) {
+            p->mConfirmOn = false;
+            MR::startSystemSE("SE_SY_TALK_SELECT_NO");
+        }
+        return;
+    }
     scrollByWheel(p, wheel);
     if (MR::testSystemTriggerB()) {
         MR::startSystemSE("SE_SY_GALAMAP_WINDOW_CLOSE");
         setNerve(&NrvNebulaAchievementBoard::NebulaAchievementBoardNrvDisappear::sInstance);
         return;
     }
-    if (MR::testCorePadTriggerMinus(WPAD_CHAN0)) {
+    if (p->mShop) {
+        if (++p->mShopRefresh >= 30) {
+            // The server's answers (what a shelf holds) arrive after the shop opens.
+            p->mShopRefresh = 0;
+            refreshShop(p);
+        }
+        if (!p->mPointerMode && p->mZone == ZoneList && MR::testCorePadTriggerA(WPAD_CHAN0)) {
+            askBuy(p, p->mCardFocus);
+        }
+    } else if (MR::testCorePadTriggerMinus(WPAD_CHAN0)) {
         stepTab(p, -1);
     } else if (MR::testCorePadTriggerPlus(WPAD_CHAN0)) {
         stepTab(p, 1);
@@ -1717,6 +2048,8 @@ void NebulaAchievementBoard::exeDisappear() {
         return;
     }
     p->mShown = false;
+    p->mConfirmOn = false;
+    NebulaArchipelago::setShopOpen(false);
     mBackground->kill();
     kill();
     mIsOpen = false;

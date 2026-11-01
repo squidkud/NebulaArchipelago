@@ -1,4 +1,7 @@
 #include "Game/System/SaveDataHandleSequence.hpp"
+#ifdef TARGET_PC
+#include "Game/System/NebulaArchipelago.hpp"
+#endif
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Screen/SaveIcon.hpp"
 #include "Game/Screen/SysInfoWindow.hpp"
@@ -37,7 +40,8 @@ SaveDataHandleSequence::SaveDataHandleSequence()
       mNerveForError(), mTempBuffer(), mOnSaveSuccessFunc(), mJustBeforeSaveFunc(), mSaveIcon()
 #ifdef TARGET_PC
       ,
-      mWindowFollows(false)
+      mWindowFollows(false),
+      mAutoSave(false)
 #endif
 {
     mTempBuffer = new (32) u8[SaveDataHandler::getEnoughtTempBufferSize()];
@@ -107,10 +111,16 @@ void SaveDataHandleSequence::draw() const {
 }
 
 void SaveDataHandleSequence::startPreLoad() {
+#ifdef TARGET_PC
+    mAutoSave = false;
+#endif
     setNerve(GET_NERVE_ANON(SaveDataHandleSequencePreLoad));
 }
 
 void SaveDataHandleSequence::startCreateUserFile(int index) {
+#ifdef TARGET_PC
+    mAutoSave = false;
+#endif
     restoreUserFile(mCurrentUserFile, index, true);
     mCurrentUserFile->resetAllData();
     mCurrentUserFile->setCreated();
@@ -120,6 +130,9 @@ void SaveDataHandleSequence::startCreateUserFile(int index) {
 }
 
 void SaveDataHandleSequence::startDeleteUserFile(int index) {
+#ifdef TARGET_PC
+    mAutoSave = false;
+#endif
     restoreUserFile(mCurrentUserFile, index, true);
     mCurrentUserFile->resetAllData();
     mSaveDataHandler->initializeUserFileMemory(index, mCurrentUserFile);
@@ -131,6 +144,7 @@ void SaveDataHandleSequence::startSave(bool isConfirmRemind, bool isSaveAndQuitM
     mIsSaveAndQuitMsg = isSaveAndQuitMsg;
 #ifdef TARGET_PC
     mWindowFollows = false;
+    mAutoSave = false;
 #endif
     mWorkUserFile = mCurrentUserFile;
 
@@ -142,17 +156,38 @@ void SaveDataHandleSequence::startSaveBackup(bool isConfirmRemind, bool isSaveAn
     mIsSaveAndQuitMsg = isSaveAndQuitMsg;
 #ifdef TARGET_PC
     mWindowFollows = false;
+    mAutoSave = false;
 #endif
     mWorkUserFile = mBackupUserFile;
 
     setNerve(GET_NERVE_ANON(SaveDataHandleSequenceSaveConfirm));
 }
 
+#ifdef TARGET_PC
+void SaveDataHandleSequence::startSaveAuto(bool backup) {
+    mIsConfirmRemind = false;
+    mIsSaveAndQuitMsg = false;
+    mWindowFollows = false;
+    mAutoSave = true;
+    mWorkUserFile = backup ? mBackupUserFile : mCurrentUserFile;
+    mWorkUserFile->setCreated();
+    mWorkUserFile->updateLastModified();
+
+    setNerve(GET_NERVE_ANON(SaveDataHandleSequenceSave));
+}
+#endif
+
 void SaveDataHandleSequence::startSaveAll() {
+#ifdef TARGET_PC
+    mAutoSave = false;
+#endif
     setNerve(GET_NERVE_ANON(SaveDataHandleSequenceSaveAllWithoutKeyWait));
 }
 
 void SaveDataHandleSequence::startLoad(int userFileIndex, bool isPlayerMario) {
+#ifdef TARGET_PC
+    mAutoSave = false;
+#endif
     restoreUserFile(mCurrentUserFile, userFileIndex, isPlayerMario);
 
     _24 = 2;
@@ -346,7 +381,7 @@ void SaveDataHandleSequence::exeSave() {
     }
 #ifdef TARGET_PC
     // Saving... is followed by the done message (or an error's window).
-    else if (MR::isFirstStep(this)) {
+    else if (MR::isFirstStep(this) && !mAutoSave) {
         mSysInfoWindowSave->setDimHandOver(SysInfoWindow::DimHandOver_Always);
     }
 #endif
@@ -367,6 +402,15 @@ void SaveDataHandleSequence::exeSaveWindowDisappear() {
         (*mOnSaveSuccessFunc)();
     }
 
+#ifdef TARGET_PC
+    if (mAutoSave) {
+        // Automatic save: no "saved" message to confirm.
+        mAutoSave = false;
+        _24 = 2;
+        setNerve(GET_NERVE_ANON(SaveDataHandleSequenceNoOperation));
+        return;
+    }
+#endif
     setNerve(GET_NERVE_ANON(SaveDataHandleSequenceSaveDoneKeyWait));
 }
 
@@ -572,6 +616,12 @@ void SaveDataHandleSequence::restoreUserFileConfigData(UserFile* pUserFile, int 
 }
 
 void SaveDataHandleSequence::restoreUserFileGameData(UserFile* pUserFile, int index, bool isPlayerMario) {
+#ifdef TARGET_PC
+    // Archipelago: a slot that plays one character has only that character's saves.
+    if (NebulaArchipelago::getForcedCharacter() >= 0) {
+        isPlayerMario = NebulaArchipelago::getForcedCharacter() == 0;
+    }
+#endif
     char dataName[16];
     snprintf(dataName, sizeof(dataName), "%s%1d", isPlayerMario ? "mario" : "luigi", index);
 
@@ -588,6 +638,18 @@ void SaveDataHandleSequence::restoreSysConfigFile(SysConfigFile* pSysConfigFile)
 }
 
 bool SaveDataHandleSequence::trySave() {
+#ifdef TARGET_PC
+    if (mAutoSave) {
+        // Automatic save: written in the background, with no window, no icon and no sound of its own (the small
+        // "Saving..." at the corner of the screen tells it and plays the sound three seconds later).
+        if (MR::isFirstStep(this)) {
+            mSaveDataHandler->requestSaveSaveData();
+            NebulaArchipelago::beginSaveIndicator();
+        }
+
+        return mSaveDataHandler->isDone();
+    }
+#endif
     if (MR::isFirstStep(this)) {
         mSaveDataHandler->requestSaveSaveData();
         mSysInfoWindowSave->appear("System_Save01", SysInfoWindow::Type_Blocking, SysInfoWindow::TextPos_Center, SysInfoWindow::MessageType_System);
@@ -601,7 +663,13 @@ bool SaveDataHandleSequence::trySave() {
         MR::startSystemLevelSE("SE_SY_LV_SAVING");
     }
 
-    if (MR::isGreaterStep(this, 120) && mSaveDataHandler->isDone()) {
+#ifdef TARGET_PC
+    // The automatic save shows the window for a short moment only (the manual one keeps the original two seconds).
+    const s32 minStep = mAutoSave ? 45 : 120;
+#else
+    const s32 minStep = 120;
+#endif
+    if (MR::isGreaterStep(this, minStep) && mSaveDataHandler->isDone()) {
         return true;
     }
 
@@ -609,6 +677,12 @@ bool SaveDataHandleSequence::trySave() {
 }
 
 bool SaveDataHandleSequence::trySaveWindowDisappear(bool* pIsErr, const Nerve* pNerveForError) {
+#ifdef TARGET_PC
+    if (mAutoSave) {
+        // No window was shown.
+        return executeSaveFinish(pIsErr, pNerveForError);
+    }
+#endif
     if (MR::isFirstStep(this)) {
         mSaveIcon->kill();
         mSysInfoWindowSave->disappear();
@@ -697,6 +771,10 @@ bool SaveDataHandleSequence::executeSaveFinish(bool* pIsErr, const Nerve* pNerve
     }
 
     if (result == SaveRequest::Result_Done) {
+#ifdef TARGET_PC
+        // (The automatic save's sound comes with its "Saving..." indicator.)
+        if (!mAutoSave)
+#endif
         MR::startSystemSE("SE_SY_SAVE_SUCCESS");
 
         *pIsErr = false;

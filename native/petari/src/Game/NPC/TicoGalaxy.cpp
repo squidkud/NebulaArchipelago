@@ -16,6 +16,41 @@ namespace {
 TicoGalaxy::TicoGalaxy(const char* pName) : TicoFat(pName), mGalaxyName() {
 }
 
+#ifdef TARGET_PC
+namespace {
+    const s32 cMaxTicos = 16;
+    TicoGalaxy* sTicos[cMaxTicos];
+    bool sWaiting[cMaxTicos];
+};  // namespace
+
+TicoGalaxy::~TicoGalaxy() {
+    for (s32 i = 0; i < cMaxTicos; i++) {
+        if (sTicos[i] == this) {
+            sTicos[i] = nullptr;
+            sWaiting[i] = false;
+        }
+    }
+}
+
+void TicoGalaxy::forgetAll() {
+    for (s32 i = 0; i < cMaxTicos; i++) {
+        sTicos[i] = nullptr;
+        sWaiting[i] = false;
+    }
+}
+
+void TicoGalaxy::reviveWaiting() {
+    for (s32 i = 0; i < cMaxTicos; i++) {
+        TicoGalaxy* pTico = sTicos[i];
+
+        if (pTico != nullptr && sWaiting[i] && pTico->_1E0 != 0 && pTico->enableAppear()) {
+            sWaiting[i] = false;
+            pTico->appear();
+        }
+    }
+}
+#endif
+
 void TicoGalaxy::init(const JMapInfoIter& rIter) {
     TicoFat::init(rIter);
 
@@ -28,6 +63,17 @@ void TicoGalaxy::init(const JMapInfoIter& rIter) {
 
     mStarRing = new TicoStarRing("\203\130\203\136\201\133\203\212\203\223\203\117\203\140\203\122" /* スターリングチコ */);
     mStarRing->initWithoutIter();
+
+#ifdef TARGET_PC
+    // The Luma that the shut dome keeps away (TicoFat::init made it dead) waits for the dome to open.
+    for (s32 i = 0; i < cMaxTicos; i++) {
+        if (sTicos[i] == nullptr) {
+            sTicos[i] = this;
+            sWaiting[i] = MR::isDead(this);
+            break;
+        }
+    }
+#endif
 }
 
 void TicoGalaxy::initAfterPlacement() {

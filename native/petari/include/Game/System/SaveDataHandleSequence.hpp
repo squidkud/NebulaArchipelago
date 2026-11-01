@@ -37,6 +37,9 @@ public:
     void setWindowFollows(bool follows) {
         mWindowFollows = follows;
     }
+    // Automatic save (after a star): no question and no key to press, only the small "Saving..." window for a moment.
+    // The backup file when asked.
+    void startSaveAuto(bool backup);
 #endif
     void startLoad(int, bool);
     void storeMiiOrIconId(int, const void*, const u32*);
@@ -102,5 +105,6 @@ public:
     /* 0x44 */ SaveIcon* mSaveIcon;
 #ifdef TARGET_PC
     bool mWindowFollows;
+    bool mAutoSave;
 #endif
 };

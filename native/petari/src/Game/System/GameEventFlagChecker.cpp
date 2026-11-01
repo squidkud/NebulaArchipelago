@@ -4,6 +4,9 @@
 #include "Game/System/GameEventFlagStorage.hpp"
 #include "Game/System/GameEventFlagTable.hpp"
 #include "Game/Util/SingletonHolder.hpp"
+#ifdef TARGET_PC
+#include "Game/System/NebulaArchipelago.hpp"
+#endif
 
 GameEventFlagChecker::GameEventFlagChecker(GameDataHolder* pHolder) : mDataHolder(pHolder), mFlagStorage() {
     SingletonHolder< GameEventFlagTableInstance >::init();
@@ -12,6 +15,13 @@ GameEventFlagChecker::GameEventFlagChecker(GameDataHolder* pHolder) : mDataHolde
 }
 
 bool GameEventFlagChecker::canOn(const char* pFlagName) const {
+#ifdef TARGET_PC
+    // Archipelago's star items: the Grand and Green Star flags are the items received.
+    bool archipelagoResult;
+    if (NebulaArchipelago::overrideEventFlag(pFlagName, &archipelagoResult)) {
+        return archipelagoResult;
+    }
+#endif
     const GameEventFlag* pFlag = GameEventFlagTable::findFlag(pFlagName);
 
     switch (pFlag->mType) {
@@ -65,6 +75,12 @@ bool GameEventFlagChecker::canOn(const char* pFlagName) const {
     }
 }
 bool GameEventFlagChecker::isOn(const char* pFlagName) const {
+#ifdef TARGET_PC
+    bool archipelagoResult;
+    if (NebulaArchipelago::overrideEventFlag(pFlagName, &archipelagoResult)) {
+        return archipelagoResult;
+    }
+#endif
     const GameEventFlag* pFlag = GameEventFlagTable::findFlag(pFlagName);
 
     if ((pFlag->mSaveFlag & 0x1) != 0) {
@@ -144,6 +160,11 @@ bool GameEventFlagChecker::isOnGalaxyDepended(const char* pGalaxyName) const {
     bool isGalaxyDepended = true;
 
     for (s32 i = 0; i < length; i++) {
+#ifdef TARGET_PC
+        if (NebulaArchipelago::ignoreGalaxyOpenCondition(pGalaxyName, galaxyDependedFlags[i])) {
+            continue;
+        }
+#endif
         if (isOn(galaxyDependedFlags[i]) == false) {
             isGalaxyDepended = false;
             break;

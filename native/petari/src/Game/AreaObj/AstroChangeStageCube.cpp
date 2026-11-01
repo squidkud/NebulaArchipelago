@@ -8,6 +8,9 @@
 #include "Game/Util/ScreenUtil.hpp"
 #include "Game/Util/SequenceUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
+#ifdef TARGET_PC
+#include "Game/System/NebulaArchipelago.hpp"
+#endif
 
 namespace {
     const s32 cChangeStageWaitFrame = 5;
@@ -25,6 +28,12 @@ void AstroChangeStageCube::init(const JMapInfoIter& rIter) {
     switch (mObjArg0) {
     case 0:
         _3C = MR::getCurrentScenarioNo();
+#ifdef TARGET_PC
+        // The dome shuffle: the room (the scenario of the dome's stage) comes out at the door that opens it.
+        if (MR::isEqualStageName("AstroDome")) {
+            _3C = NebulaArchipelago::getDomeOpenNumber(_3C);
+        }
+#endif
         break;
     case 1:
     case 2:
@@ -124,7 +133,12 @@ void AstroChangeStageCube::movement() {
             MR::requestChangeStageInGameMoving("LibraryRoom", 1, JMapIdInfo(_3C, 0));
             break;
         case 5:
+#ifdef TARGET_PC
+            // The dome shuffle: the door of the dome `mObjArg2` leads to the room that opens with its Grand Star.
+            MR::requestGoToAstroDomeFromAstroGalaxy(NebulaArchipelago::getDomeOfDoor(mObjArg2), _3C);
+#else
             MR::requestGoToAstroDomeFromAstroGalaxy(mObjArg2, _3C);
+#endif
             break;
         }
     }

@@ -1,4 +1,7 @@
 #include "Game/System/GameEventFlag.hpp"
+#ifdef TARGET_PC
+#include "Game/System/NebulaArchipelago.hpp"
+#endif
 
 GameEventFlagAccessor::GameEventFlagAccessor(const GameEventFlag* pFlag) : mFlag(pFlag) {
 }
@@ -40,6 +43,14 @@ const char* GameEventFlagAccessor::getGalaxyNameWithStarPiece() const {
 }
 
 s32 GameEventFlagAccessor::getNeedStarPieceNum() const {
+#ifdef TARGET_PC
+    s32 archipelagoNum = 0;
+
+    if (NebulaArchipelago::overrideStarPieceNum(mFlag->mName, &archipelagoNum)) {
+        return archipelagoNum;
+    }
+#endif
+
     return mFlag->mNeedStarPieceNum * 10;
 }
 

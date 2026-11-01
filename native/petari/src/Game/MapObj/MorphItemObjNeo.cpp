@@ -1,4 +1,5 @@
 #include "Game/MapObj/MorphItemObjNeo.hpp"
+#include "Game/System/NebulaArchipelago.hpp"
 #include "Game/Camera/CameraTargetArg.hpp"
 #include "Game/Camera/CameraTargetMtx.hpp"
 #include "Game/LiveActor/HitSensor.hpp"
@@ -572,6 +573,13 @@ bool MorphItemObjNeo::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pR
 
             return false;
         }
+
+#ifdef TARGET_PC
+        // Archipelago: a transformation not yet received is not taken (nothing happens).
+        if (NebulaArchipelago::isTransformationLocked(mMorphType)) {
+            return false;
+        }
+#endif
 
         if (mMorphType > 0) {
             bool isInvalid = false;

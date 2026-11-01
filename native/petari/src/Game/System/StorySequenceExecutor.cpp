@@ -1,3 +1,6 @@
+#ifdef TARGET_PC
+#include "Game/System/NebulaArchipelago.hpp"
+#endif
 #include "Game/System/StorySequenceExecutor.hpp"
 #include "Game/Demo/PrologueDirector.hpp"
 #include "Game/LiveActor/Nerve.hpp"
@@ -851,7 +854,15 @@ void StorySequenceExecutor::decideNextEventForClearGalaxy(GalaxyMoveArgument* pM
 
             calcAproposScenarioNoOnAstroDome();
 
-            if (!GameSequenceFunction::hasPowerStarYetAtResultSequence()) {
+#ifdef TARGET_PC
+            // Archipelago: a boss's Grand Star is treated as an ordinary star. The "Grand Star returns to the Observatory"
+            // cutscenes are skipped (they started on an object that does not exist in this flow and crashed the game); the
+            // player comes back to the dome like after any star.
+            const bool apGrandStar = NebulaArchipelago::isActive() && GameDataConst::isGrandStar(mStageName, mScenarioNo);
+#else
+            const bool apGrandStar = false;
+#endif
+            if (!GameSequenceFunction::hasPowerStarYetAtResultSequence() && !apGrandStar) {
                 if (isEqualStageScenarioBefore("HeavensDoorGalaxy", 1)) {
                     setNextStageToAstroGalaxy(pMoveArgument);
                     prepareDemoSequence(::cDemoGrandStar1ResultFirst);
@@ -937,7 +948,7 @@ void StorySequenceExecutor::decideNextEventForClearGalaxy(GalaxyMoveArgument* pM
 
             getOptionalDemoForClearGalaxy(&arr, pMoveArgument);
 
-            if (GameDataConst::isGrandStar(mStageName, mScenarioNo)) {
+            if (GameDataConst::isGrandStar(mStageName, mScenarioNo) && !apGrandStar) {
                 prepareDemoSequence(::cDemoGrandStarResult);
                 setNextStageToAstroGalaxy(pMoveArgument);
             } else {
@@ -965,6 +976,21 @@ void StorySequenceExecutor::decideNextEventForClearGalaxy(GalaxyMoveArgument* pM
 #pragma pop
 
 void StorySequenceExecutor::decideNextEventForMoveGalaxy(GalaxyMoveArgument* pMoveArgument) {
+#ifdef TARGET_PC
+    if (pMoveArgument->isEqualStage("AstroDome") && NebulaArchipelago::isActive()) {
+        // Archipelago: no talk of the Butler (the dome lecture, the galaxy lecture, the Star Bits lecture, the discovery of
+        // a fortress): the story events they end are marked as passed instead.
+        NebulaArchipelago::skipButlerTalks();
+
+        for (u32 i = 0; i < ARRAY_SIZE(::cDemoFortressDiscoverCheckListTable); i++) {
+            const DemoFortressDiscoverCheckList& rCheckList = ::cDemoFortressDiscoverCheckListTable[i];
+
+            if (!GameDataFunction::isPassedStoryEvent(rCheckList.mStoryEventName)) {
+                GameDataFunction::followStoryEventByName(rCheckList.mStoryEventName);
+            }
+        }
+    } else
+#endif
     if (pMoveArgument->isEqualStage("AstroDome")) {
         if (!GameDataFunction::isPassedStoryEvent("\203\157\203\147\203\211\201\133\217\356\225\361\202\140" /* バトラー情報Ａ */)) {
             prepareDemoSequence(::cDemoAstroDomeLecture);
@@ -1025,6 +1051,13 @@ void StorySequenceExecutor::decideNextStageForGalaxyOut(GalaxyMoveArgument* pMov
 }
 
 void StorySequenceExecutor::overwriteGalaxyNameAfterLoading(GalaxyMoveArgument* pMoveArgument) {
+#ifdef TARGET_PC
+    // Archipelago: a save starts in the Observatory (the Gateway Galaxy's Grand Star is given).
+    if (NebulaArchipelago::isStartAtObservatory()) {
+        setNextStageToAstroGalaxy(pMoveArgument);
+        return;
+    }
+#endif
     if (GameDataFunction::hasGrandStar(1)) {
         setNextStageToAstroGalaxy(pMoveArgument);
     } else if (GameDataFunction::isPassedStoryEvent("\203\163\201\133\203\140\217\351\225\202\217\343\214\343" /* ピーチ城浮上後 */) || !GameDataFunction::isDataMario()) {
@@ -1078,7 +1111,16 @@ void StorySequenceExecutor::getOptionalDemoForClearGalaxy(
         pParam1->push_back(pDemoInfo);
     }
 
-    if (GameDataFunction::canOnJustGameEventFlag("KoopaBattleVs3Galaxy") || GameDataFunction::isOnJustGameEventFlag("PowerStarComplete")) {
+    bool talkFinalBattle = GameDataFunction::canOnJustGameEventFlag("KoopaBattleVs3Galaxy");
+#ifdef TARGET_PC
+    // Archipelago: the stars come as items at any time, so "just reached" can pass unseen (the item came in the
+    // Observatory). Rosetta talks after any galaxy until the player has heard her and the Reactor is open.
+    if (NebulaArchipelago::isActive() && GameDataFunction::canOnGameEventFlag("KoopaBattleVs3Galaxy") &&
+        !GameDataFunction::isOnGameEventFlag("KoopaBattleVs3Galaxy")) {
+        talkFinalBattle = true;
+    }
+#endif
+    if (talkFinalBattle || GameDataFunction::isOnJustGameEventFlag("PowerStarComplete")) {
         pParam1->push_back(::cDemoRosettaTalkKoopaBattleVs3GalaxyAppear);
     }
 }
@@ -1137,6 +1179,12 @@ bool StorySequenceExecutor::tryStartDemo(const char* pParam1) {
 
 bool StorySequenceExecutor::tryStartSave() {
     if (MR::tryStartDemoWithoutCinemaFrameValidHandPointerFinger(mSaveObj, "\203\132\201\133\203\165" /* セーブ */)) {
+#ifdef TARGET_PC
+        if (NebulaArchipelago::isActive()) {
+            // Archipelago: the save after a star is automatic and silent.
+            GameSequenceFunction::startGameDataAutoSaveSequence();
+        } else
+#endif
         GameSequenceFunction::startGameDataSaveSequence(false, false);
 
         _B0 = true;
@@ -1274,5 +1322,10 @@ s32 StorySequenceExecutor::calcAproposScenarioNoOnAstroGalaxy() const {
 }
 
 s32 StorySequenceExecutor::calcAproposScenarioNoOnAstroDome() const {
-    return GameDataConst::getIncludedGrandGalaxyId(mStageName);
+    s32 domeId = GameDataConst::getIncludedGrandGalaxyId(mStageName);
+#ifdef TARGET_PC
+    // Archipelago's galaxy shuffle: back to the room where the galaxy was chosen, not to the one it has in the game.
+    domeId = NebulaArchipelago::getReturnDome(mStageName, domeId);
+#endif
+    return domeId;
 }

@@ -8,20 +8,24 @@ namespace Nebula
     /// <summary>A published release that is newer than the running version.</summary>
     internal sealed class ReleaseInfo
     {
-        public string Version, Tag, Notes, SetupUrl, SignatureUrl;
+        public string Version, Tag, Notes, SetupUrl, HashUrl;
         public long SetupSize;
         public bool Prerelease;
     }
 
     /// <summary>
-    /// Update discovery through the GitHub releases of the Nebula repository.
-    /// A downloaded setup runs only when its RSA-SHA256 signature verifies
-    /// against the release public key built into this setup.
+    /// Update discovery through the GitHub releases of the Nebula Archipelago repository (BuildInfo.Repository).
+    /// A release holds the installer (NebulaArchipelago-Setup.exe) and its SHA-256 (NebulaArchipelago-Setup.exe.sha256);
+    /// the launcher downloads both, checks the installer against the hash and starts it. The installer replaces the
+    /// installed version in place (it is an ordinary Inno Setup installer; nothing copies or deletes itself).
     /// </summary>
     internal static class Updater
     {
         /// <summary>The releases list (tests point it at a local server).</summary>
         internal static string ReleasesUrl = "https://api.github.com/repos/" + BuildInfo.Repository + "/releases?per_page=30";
+
+        public const string SetupAsset = "NebulaArchipelago-Setup.exe";
+        public const string BetaSetupAsset = "NebulaArchipelago-Beta-Setup.exe";
 
         public static ReleaseInfo FindNewer(int timeoutMilliseconds = 30000)
         {
@@ -29,12 +33,11 @@ namespace Nebula
             return SelectNewer(json, BuildInfo.Version);
         }
 
-        // A beta updates to betas only, a release to releases only. A beta's setup has its own asset name, so an
-        // updater without this filter, which looks for Nebula-Setup.exe alone, never offers it.
+        // A beta updates to betas only, a release to releases only.
         internal static ReleaseInfo SelectNewer(string json, string installedVersion)
         {
             bool beta = IsBetaVersion(installedVersion);
-            string setupName = beta ? "Nebula-Beta-Setup.exe" : "Nebula-Setup.exe";
+            string setupName = beta ? BetaSetupAsset : SetupAsset;
             ReleaseInfo best = null;
             foreach (var item in (System.Collections.IList)Json.ParseAny(json))
             {
@@ -44,7 +47,7 @@ namespace Nebula
                 string version = tag.StartsWith("v") ? tag.Substring(1) : tag;
                 if (IsBetaVersion(version) != beta) continue;
                 if (CompareVersions(version, best != null ? best.Version : installedVersion) <= 0) continue;
-                string setup = null, signature = null;
+                string setup = null, hash = null;
                 long setupSize = 0;
                 foreach (var assetItem in Json.List(release, "assets") ?? new object[0])
                 {
@@ -55,13 +58,13 @@ namespace Nebula
                         setup = Json.Str(asset, "browser_download_url");
                         setupSize = Json.Long(asset, "size");
                     }
-                    if (name == setupName + ".sig") signature = Json.Str(asset, "browser_download_url");
+                    if (name == setupName + ".sha256") hash = Json.Str(asset, "browser_download_url");
                 }
-                if (setup == null || signature == null) continue;
+                if (setup == null || hash == null) continue;
                 best = new ReleaseInfo
                 {
                     Version = version, Tag = tag, Notes = Json.Str(release, "body") ?? "",
-                    SetupUrl = setup, SignatureUrl = signature, SetupSize = setupSize,
+                    SetupUrl = setup, HashUrl = hash, SetupSize = setupSize,
                     Prerelease = Json.Bool(release, "prerelease")
                 };
             }
@@ -73,40 +76,46 @@ namespace Nebula
             return version != null && version.IndexOf("-beta.", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
-        /// <summary>Download and authenticate a release setup; returns its path.</summary>
+        /// <summary>Download a release's installer and check it against the release's SHA-256; returns its path.</summary>
         public static string Download(ReleaseInfo release, string directory, Action<long> onBytes, System.Threading.CancellationToken cancel)
         {
             string folder = Path.Combine(directory, "update-" + release.Version);
-            string exe = Path.Combine(folder, "Nebula-Setup.exe");
-            string sig = exe + ".sig";
-            // The signature is fetched afresh each time (a release published again under its version has a new one);
-            // the setup resumes a partial download, so a check that fails downloads it once more from the start.
+            string exe = Path.Combine(folder, IsBetaVersion(release.Version) ? BetaSetupAsset : SetupAsset);
+            string hash = exe + ".sha256";
+            // The hash is fetched afresh each time; a download that fails the check is made once more from the start.
             for (int attempt = 0; ; attempt++)
             {
                 if (File.Exists(exe)) File.Delete(exe);
-                if (File.Exists(sig)) File.Delete(sig);
+                if (File.Exists(hash)) File.Delete(hash);
                 if (attempt > 0 && File.Exists(exe + ".partial")) File.Delete(exe + ".partial");
-                Downloader.Fetch(release.SignatureUrl, sig, null, cancel);
+                Downloader.Fetch(release.HashUrl, hash, null, cancel);
                 Downloader.Fetch(release.SetupUrl, exe, onBytes, cancel);
-                if (VerifySignature(exe, sig)) return exe;
+                if (VerifyHash(exe, hash)) return exe;
                 File.Delete(exe);
                 if (attempt == 1)
-                    throw new InvalidDataException("The downloaded Nebula " + release.Version + " setup is not signed by the Nebula release key. It was deleted and not run.");
+                    throw new InvalidDataException("The downloaded Nebula Archipelago " + release.Version + " installer does not match its SHA-256. It was deleted and not run.");
             }
         }
 
-        public static bool VerifySignature(string file, string signatureFile)
+        /// <summary>The file's SHA-256 equals the first word of the hash file ("hex  name" or just "hex").</summary>
+        public static bool VerifyHash(string file, string hashFile)
         {
-            byte[] signature;
-            try { signature = Convert.FromBase64String(File.ReadAllText(signatureFile).Trim()); }
-            catch (FormatException) { return false; }
-            using (var rsa = new RSACryptoServiceProvider())
+            string expected;
+            try
             {
-                rsa.PersistKeyInCsp = false;
-                rsa.FromXmlString(BuildInfo.ReleasePublicKeyXml);
-                using (var stream = File.OpenRead(file))
-                using (var sha = SHA256.Create())
-                    return rsa.VerifyHash(sha.ComputeHash(stream), CryptoConfig.MapNameToOID("SHA256"), signature);
+                string text = File.ReadAllText(hashFile).Trim();
+                int space = text.IndexOfAny(new[] { ' ', '\t', '\r', '\n', '*' });
+                expected = (space < 0 ? text : text.Substring(0, space)).ToLowerInvariant();
+            }
+            catch (IOException) { return false; }
+            if (expected.Length != 64) return false;
+            using (var stream = File.OpenRead(file))
+            using (var sha = SHA256.Create())
+            {
+                var bytes = sha.ComputeHash(stream);
+                var actual = new System.Text.StringBuilder(64);
+                foreach (byte b in bytes) actual.Append(b.ToString("x2"));
+                return actual.ToString() == expected;
             }
         }
 

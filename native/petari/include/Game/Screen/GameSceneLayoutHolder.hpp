@@ -58,6 +58,7 @@ public:
 #ifdef TARGET_PC
     // Nebula's achievement pop-up: GameScene runs and draws it (only in play, above everything else in 2D).
     NebulaAchievementToast* mAchievementToast;
+    NebulaAchievementToast* mSaveIndicator;
     // Nebula's achievement board, in the Observatory (its Luma opens it); null elsewhere.
     NebulaAchievementBoard* mAchievementBoard;
 #endif

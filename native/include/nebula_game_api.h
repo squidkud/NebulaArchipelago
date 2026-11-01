@@ -23,7 +23,7 @@ extern "C" {
 #define NEBULA_GAME_API __attribute__((visibility("default")))
 #endif
 
-#define NEBULA_GAME_API_VERSION 68u
+#define NEBULA_GAME_API_VERSION 69u
 
 /* Audio (the host's mixer): the game's 64 voices mix at the output device's rate, one subframe (1/400 s: 80 samples
    of the game's 32 kHz sound clock) per audio_mix call. A voice plays one source (ADPCM, PCM or an oscillator) through
@@ -897,6 +897,109 @@ typedef struct NebulaMii {
     uint16_t creator[10];
     uint8_t create_id[8];
 } NebulaMii;
+/* The host's Archipelago client (galaxy/archipelago.h; archipelago(), what = NEBULA_AP_*). Locations are numbered by
+   the star's place in the APWorld's StarData.STARS, from 1. Items are numbered NEBULA_AP_ITEM_*; the host's answer to
+   NEBULA_AP_NEXT_ITEM is one of the items the game hands over one by one (the stars are counted instead,
+   NEBULA_AP_ITEM_COUNT), NEBULA_AP_ITEM_UNKNOWN for an id this version does not know (apply nothing, but acknowledge
+   it), or 0 when there is none to apply. */
+enum {
+    NEBULA_AP_ACTIVE = 1,   /* -> 1 when the client runs (archipelago.ini names a server and a slot), else 0 */
+    NEBULA_AP_LOCATION,     /* value: a location number the save has reached; -> 0 */
+    NEBULA_AP_GOAL,         /* value: 0 Mario, 1 Luigi: the goal the slot asks for is reached with that character; -> 0 */
+    NEBULA_AP_GOAL_OPTION,  /* -> the slot's goal: NEBULA_AP_GOAL_ENDING or NEBULA_AP_GOAL_POWER_STARS */
+    NEBULA_AP_NEXT_ITEM,    /* value: the save file (1 to 3) -> the next item that file has not applied */
+    NEBULA_AP_ITEM_APPLIED, /* value: the save file: it applied the item NEBULA_AP_NEXT_ITEM gave; -> 0 */
+    NEBULA_AP_STATE,        /* -> 0 off, 1 connecting, 2 connected, 3 refused by the server */
+    NEBULA_AP_ITEM_COUNT,   /* value: NEBULA_AP_ITEM_*: how many of it the server has sent in all */
+    NEBULA_AP_OPTION,       /* value: NEBULA_AP_OPT_*: the slot's option (0 when the server did not say) */
+    NEBULA_AP_OPTION_SET,   /* value: NEBULA_AP_OPT_*: 1 when the server gave that option, else 0 */
+    NEBULA_AP_GALAXY_CAP,   /* value: the galaxy's place in StarData.GALAXIES: the most Power Stars it asks; 0xFFFFFFFF none */
+    NEBULA_AP_DOME_ORDER,   /* value: a dome (room) number - 1: its place in the order the domes open, minus 1 (the room opens with that Grand Star); 0xFFFFFFFF none */
+    NEBULA_AP_SEED,         /* -> a number that tells one multiworld (and slot) from another; 0 before the server spoke */
+    NEBULA_AP_LUMA_COUNT,   /* value: a Hungry Luma (Sweet Sweet, Sling Pod, Drip Drop, Bigmouth, Sand Spiral, Snow Cap, Boo's Boneyard): its Star Bits; 0xFFFFFFFF none */
+    NEBULA_AP_GALAXY_SHUFFLE, /* value: a galaxy slot's place in StarData.GALAXIES: the place of the galaxy that stands in it; 0xFFFFFFFF none (no shuffle) */
+    NEBULA_AP_DEATH_REPORT, /* the game lost a life: sent to the others when DeathLink is on; -> 0 */
+    NEBULA_AP_DEATH_TAKE,   /* -> 1 once when another player died (DeathLink on), else 0 */
+    NEBULA_AP_STAR_CLASS,   /* value: a location number: the class of its item, NEBULA_AP_CLASS_*; 0xFFFFFFFF unknown (not scouted yet, or the option is off) */
+    NEBULA_AP_SHOP_PRICE,   /* value: a shop item (0-based): its price in Star Bits; 0xFFFFFFFF when the slot has no such item */
+    NEBULA_AP_SHOP_BOUGHT,  /* value: a shop item: 1 when it was bought, else 0 */
+    NEBULA_AP_SHOP_BUY,     /* value: a shop item: it was bought (the game took the Star Bits); -> 0 */
+    NEBULA_AP_SHOP_ICON,    /* value: a shop item: this game's own item on the shelf (1 1-Up ... 19 Flying), or 0 for another player's item / no picture */
+    NEBULA_AP_SHOP_HINT,    /* the shop is open: its unbought shelves are declared as hints to the players concerned; -> 0 */
+    NEBULA_AP_SPHERE_GUARD, /* value 0: -> 1 when the green spheres in the domes are allowed; 1: a dome holds one (a file marks it until 2 or a normal exit); 2: the dome is left; -> 0 */
+};
+enum {
+    NEBULA_AP_CLASS_FILLER = 0,
+    NEBULA_AP_CLASS_PROGRESSION = 1,
+    NEBULA_AP_CLASS_USEFUL = 2,
+    NEBULA_AP_CLASS_TRAP = 3,
+};
+enum {
+    NEBULA_AP_GOAL_ENDING = 0,      /* the ending seen (Bowser's Galaxy Reactor) */
+    NEBULA_AP_GOAL_POWER_STARS = 1, /* the number of Power Stars the slot asks for */
+    NEBULA_AP_GOAL_ENDING_AND_STARS = 2, /* the ending seen, and every star that exists before it held */
+    NEBULA_AP_GOAL_ALL_STARS = 3,        /* the ending seen, and every star there is held (Purple Coin stars too) */
+};
+enum {
+    NEBULA_AP_ITEM_ONE_UP = 1,      /* one extra life */
+    NEBULA_AP_ITEM_STAR_BITS_50,    /* 50 Star Bits */
+    NEBULA_AP_ITEM_POWER_STAR,      /* counted: the Power Stars the game counts */
+    NEBULA_AP_ITEM_GREEN_STAR,      /* counted */
+    NEBULA_AP_ITEM_GRAND_STAR,      /* counted: opens the domes */
+    NEBULA_AP_ITEM_FIRE_TRAP = 6,   /* Mario catches fire */
+    NEBULA_AP_ITEM_SHOCK_TRAP,      /* an electric shock */
+    NEBULA_AP_ITEM_FREEZE_TRAP,     /* Mario is frozen */
+    NEBULA_AP_ITEM_SPIKE_TRAP,      /* a hit that hurts */
+    NEBULA_AP_ITEM_STAR_BIT_THIEF = 10, /* up to 50 Star Bits are taken */
+    NEBULA_AP_ITEM_QUAKE_TRAP,          /* the camera shakes for a while */
+    NEBULA_AP_ITEM_CONFUSION_TRAP,      /* the control stick is inverted for a while */
+    NEBULA_AP_ITEM_RAINBOW_STAR = 13,   /* Mario turns rainbow (invincible) for a while */
+    NEBULA_AP_ITEM_BEE_MUSHROOM = 14,   /* counted: Bee Mario may be used (NEBULA_AP_OPT_TRANSFORMATION_ITEMS) */
+    NEBULA_AP_ITEM_BOO_MUSHROOM,        /* counted: Boo Mario */
+    NEBULA_AP_ITEM_SPRING_MUSHROOM,     /* counted: Spring Mario */
+    NEBULA_AP_ITEM_FIRE_FLOWER,         /* counted: Fire Mario */
+    NEBULA_AP_ITEM_ICE_FLOWER,          /* counted: Ice Mario */
+    NEBULA_AP_ITEM_FLYING_STAR,         /* counted: Flying Mario (the Red Star) */
+    NEBULA_AP_ITEM_STAR_BITS_200 = 20,  /* 200 Star Bits */
+    NEBULA_AP_ITEM_ONE_UP_BURST,        /* three 1-Up Mushrooms */
+    NEBULA_AP_ITEM_FULL_HEAL,           /* health filled up (waits while it is full) */
+    NEBULA_AP_ITEM_SPIN = 23,           /* counted: Mario's moves, usable only once received (NEBULA_AP_OPT_MOVEMENT_ITEMS) */
+    NEBULA_AP_ITEM_WALL_JUMP,
+    NEBULA_AP_ITEM_LONG_JUMP,
+    NEBULA_AP_ITEM_BACKFLIP,
+    NEBULA_AP_ITEM_SIDE_FLIP,
+    NEBULA_AP_ITEM_TRIPLE_JUMP,
+    NEBULA_AP_ITEM_UNKNOWN = 0xFFFF,
+};
+/* The slot's options (slot_data "options"); the colours are 16 to 39. */
+enum {
+    NEBULA_AP_OPT_GOAL = 1,
+    NEBULA_AP_OPT_STAR_ITEMS = 2,         /* 1: the stars the game counts are the items received */
+    NEBULA_AP_OPT_START_OBSERVATORY = 3,  /* 1: a new save starts in the Observatory */
+    NEBULA_AP_OPT_CHARACTER = 4,          /* 0 Mario, 1 Luigi, 2 both: who plays; a single one is the only one a save file can be */
+    NEBULA_AP_OPT_UNLOCK_LUIGI = 5,       /* 1: Luigi can be chosen on any save file */
+    NEBULA_AP_OPT_DOME_SHUFFLE = 6,       /* 1: the domes' galaxies are shuffled */
+    NEBULA_AP_OPT_STARS_TO_FINISH = 7,
+    NEBULA_AP_OPT_EXACT_REQUIREMENTS = 8, /* 1: each galaxy asks exactly the stars NEBULA_AP_GALAXY_CAP says */
+    NEBULA_AP_OPT_LUMA_COUNTS = 9,        /* 1: the Hungry Lumas ask the Star Bits NEBULA_AP_LUMA_COUNT says */
+    NEBULA_AP_OPT_MUSIC_SHUFFLE = 12,     /* 1: the music is shuffled */
+    NEBULA_AP_OPT_SKYBOX_SHUFFLE = 15,    /* 1: the skies of the stages are swapped for other skies */
+    NEBULA_AP_OPT_ENEMY_SHUFFLE = 14,     /* 1: plain enemies of the stages are swapped for other kinds */
+    NEBULA_AP_OPT_TRANSFORMATION_ITEMS = 13, /* 1: a transformation does nothing until its item is received */
+    NEBULA_AP_OPT_DEATH_LINK = 11,        /* 1: DeathLink */
+    NEBULA_AP_OPT_STAR_COLORS = 10,       /* 1: a star's colour tells the class of its item (NEBULA_AP_STAR_CLASS) */
+    NEBULA_AP_OPT_COLOR_FIRST = 16,
+    NEBULA_AP_OPT_COLOR_LAST = 39,
+    NEBULA_AP_OPT_INCLUDE_COMETS = 41,    /* 0 (given): the Prankster Comet stars are not locations, so the star select hides them */
+    NEBULA_AP_OPT_INCLUDE_PURPLE = 42,    /* 0 (given): the Purple Coin stars are not locations, so the star select hides them */
+    NEBULA_AP_OPT_MOVEMENT_ITEMS = 40,    /* 1: a move does nothing special until its item is received */
+};
+/* archipelago_text(), what = NEBULA_AP_TEXT_*. */
+enum {
+    NEBULA_AP_TEXT_NOTICE = 1, /* the oldest notice for the player, in `buffer` (ASCII, terminated); -> its length, 0 when none */
+    NEBULA_AP_TEXT_LOG,        /* `buffer` (read): a line for archipelago.log; -> 0 */
+    NEBULA_AP_TEXT_SHOP_LABEL, /* `buffer` (read: the shop item's number as decimal text, 0-based; written: what the shelf holds, UTF-8); -> its length, 0 when unknown */
+};
 
 /* The channels a target pass's picture carries for the textures that sample it (target_end). */
 typedef enum NebulaTargetChannels {
@@ -1173,6 +1276,11 @@ typedef struct NebulaHostServices {
        returns, so frames follow the game's own pace and every run of a build is the same. The game's clock then
        advances one retrace per call and its alarms fire when that clock passes them. */
     void (*test_frame_step)(void* user);
+    /* The Archipelago client (NEBULA_AP_*): the game reports the locations its save has reached and the goal, and takes
+       the items the server sent one at a time. `value` as `what` says. Called on the simulation thread. */
+    uint32_t (*archipelago)(void* user, uint32_t what, uint32_t value);
+    /* The Archipelago client's text (NEBULA_AP_TEXT_*): `buffer` of `size` bytes. */
+    uint32_t (*archipelago_text)(void* user, uint32_t what, char* buffer, uint32_t size);
 } NebulaHostServices;
 
 
