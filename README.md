@@ -49,8 +49,8 @@ send you.
   item it is.
 
 **Shuffles**
-- Galaxies on the Observatory's miniatures, the domes themselves, music, skies and enemies (the last two are
-  experimental).
+- Galaxies on the Observatory's miniatures, the domes themselves, music and enemies (enemies are experimental). The sky
+  shuffle is switched off for now: it drew a blue screen with the current Nebula.
 
 **Tools**
 - A client for the Archipelago launcher (`/tracker`, `/stars`, `/places`), Universal Tracker support, and a

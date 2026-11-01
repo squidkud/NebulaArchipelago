@@ -613,7 +613,7 @@ class SMGWorld(World):
                 "trap_percentage": int(self.options.trap_percentage.value),
                 "music_shuffle": int(bool(self.options.music_shuffle)),
                 "enemy_shuffle": int(bool(self.options.enemy_shuffle)),
-                "skybox_shuffle": int(bool(self.options.skybox_shuffle)),
+                "skybox_shuffle": 0,  # disabled for now (the swapped sky draws as a blue screen); the option is ignored
             },
         }
         # Mario's and Luigi's colours (color_0 .. color_9): 0x01000000 | 0xRRGGBB, or 0 for the game's own.
