@@ -144,9 +144,7 @@ namespace {
         sStatus.mLumaCounts = optionIs(NEBULA_AP_OPT_LUMA_COUNTS);
         sStatus.mStarColors = optionIs(NEBULA_AP_OPT_STAR_COLORS);
         sStatus.mMusicShuffle = optionIs(NEBULA_AP_OPT_MUSIC_SHUFFLE);
-        // The skybox_shuffle is switched off for now: on the current Nebula base a swapped sky draws as a plain blue screen and
-        // models of the stage stop being drawn. The code stays for when the cause is found (set it back to the option).
-        sStatus.mSkyShuffle = false;
+        sStatus.mSkyShuffle = optionIs(NEBULA_AP_OPT_SKYBOX_SHUFFLE);
         sStatus.mTransformItems = optionIs(NEBULA_AP_OPT_TRANSFORMATION_ITEMS);
 
         {

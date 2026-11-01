@@ -292,8 +292,8 @@ class SkyboxShuffle(Toggle):
     """Swap the skies of the stages for other skies (the same multiworld swaps them the same way): the plain skies among
     themselves (including the summer, retro and dark-space skies, Bowser Jr.'s fight and the children's room), the skies
     drawn with a projection map among themselves (including the Observatory's, Bowser's fight and the title screen's),
-    and the three skies inside the domes among themselves. DISABLED in this version: on the current Nebula the swapped sky
-    draws as a blue screen and models disappear, so the game ignores this option for now."""
+    and the three skies inside the domes among themselves. Experimental: on the current Nebula a swapped sky can draw as a
+    blue screen and hide models (being fixed)."""
     display_name = "Skybox Shuffle"
 
 
