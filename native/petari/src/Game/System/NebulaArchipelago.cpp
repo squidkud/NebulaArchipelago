@@ -71,6 +71,7 @@ namespace {
         bool mStarColors;
         bool mMusicShuffle;
         bool mSkyShuffle;
+        u32 mSkyMode;  // 1: skies swapped; 2 (test): their archives are loaded but the original skies stay
         bool mTransformItems;  // a transformation is usable only once its item is received
         u32 mForms[7];         // by the power-up's type (MorphItemObjNeo): how many of its item came
         s32 mForcedCharacter;  // -1: both (the file select's button chooses), 0: Mario only, 1: Luigi only
@@ -145,6 +146,7 @@ namespace {
         sStatus.mStarColors = optionIs(NEBULA_AP_OPT_STAR_COLORS);
         sStatus.mMusicShuffle = optionIs(NEBULA_AP_OPT_MUSIC_SHUFFLE);
         sStatus.mSkyShuffle = optionIs(NEBULA_AP_OPT_SKYBOX_SHUFFLE);
+        sStatus.mSkyMode = sStatus.mSkyShuffle ? __NebulaArchipelago(NEBULA_AP_OPTION, NEBULA_AP_OPT_SKYBOX_SHUFFLE) : 0;
         sStatus.mTransformItems = optionIs(NEBULA_AP_OPT_TRANSFORMATION_ITEMS);
 
         {
@@ -671,9 +673,13 @@ namespace NebulaArchipelago {
     // The skies: each kind (a plain sky, a sky with a projection map, the three skies inside the domes) is shuffled among its own,
     // as a single cycle (every sky is replaced by another), by the multiworld's seed. The summer sky is in too: its inner space
     // (Sky::init) follows the sky object, not the model. `isDome`: the sky inside a dome (AstroDomeSky), which has its own three.
-    const char* getShuffledSkyOf(const char* pName, bool isDome) {
+    const char* getShuffledSkyOf(const char* pName, bool isDome, bool forArchive) {
         if (pName == nullptr || !isHostActive() || !status().mSkyShuffle) {
             return pName;
+        }
+
+        if (status().mSkyMode == 2 && !forArchive) {
+            return pName;  // test mode: the swapped sky's files are loaded, the original sky is shown
         }
 
         const u32 seed = __NebulaArchipelago(NEBULA_AP_SEED, 0);
@@ -758,11 +764,19 @@ namespace NebulaArchipelago {
     }
 
     const char* getShuffledSky(const char* pName) {
-        return getShuffledSkyOf(pName, false);
+        return getShuffledSkyOf(pName, false, false);
     }
 
     const char* getShuffledDomeSky(const char* pName) {
-        return getShuffledSkyOf(pName, true);
+        return getShuffledSkyOf(pName, true, false);
+    }
+
+    const char* getShuffledSkyArchive(const char* pName) {
+        return getShuffledSkyOf(pName, false, true);
+    }
+
+    const char* getShuffledDomeSkyArchive(const char* pName) {
+        return getShuffledSkyOf(pName, true, true);
     }
 
     u32 getShuffledMusic(u32 soundID) {

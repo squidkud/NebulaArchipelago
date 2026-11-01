@@ -138,6 +138,9 @@ namespace NebulaArchipelago {
 
     // The same for the sky inside a dome (AstroDomeSkyA, B or C).
     const char* getShuffledDomeSky(const char* pName);
+    // The same, for the files to load (they differ from the shown sky only in the test mode 2 of skybox_shuffle).
+    const char* getShuffledSkyArchive(const char* pName);
+    const char* getShuffledDomeSkyArchive(const char* pName);
 
     // The automatic save's small "Saving..." (NebulaAchievementToast, bottom-left): the save starts the three seconds; the
     // indicator shows while they run and ticks them (false once they ran out); they go on across a scene change.
