@@ -62,5 +62,11 @@ private:
     ResourceHolderManagerName2Resource* find(const char*);
 
 private:
+#ifdef TARGET_PC
+    // The console's 512 holders are not checked when a 513th is added (it writes past the array): Nebula's extra files (the
+    // skies and enemies of the shuffles, Rainbow Mario's models) and a long run through the stages come near that.
+    /* 0x0 */ MR::Vector< MR::FixedArray< ResourceHolderManagerName2Resource, 4096 > > mResourceArray;
+#else
     /* 0x0 */ MR::Vector< MR::FixedArray< ResourceHolderManagerName2Resource, 512 > > mResourceArray;
+#endif
 };
