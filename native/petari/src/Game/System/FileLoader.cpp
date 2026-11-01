@@ -4,6 +4,10 @@
 #include <JSystem/JKernel/JKRExpHeap.hpp>
 #ifdef TARGET_PC
 #include "Game/System/NebulaArchipelago.hpp"
+#include "Game/System/HeapMemoryWatcher.hpp"
+#include "Game/Util/SingletonHolder.hpp"
+#include <JSystem/JKernel/JKRHeap.hpp>
+#include <JSystem/JKernel/JKRSolidHeap.hpp>
 #include <stdio.h>
 #endif
 
@@ -111,6 +115,19 @@ void FileLoader::getMountedArchiveAndHeap(const char* pName, JKRArchive** pArchi
 }
 
 void FileLoader::clearRequestFileInfo(bool) {
+#ifdef TARGET_PC
+    {
+        // One line per scene to the archipelago.log: what the last scene asked of the loader and what is left of the heaps.
+        HeapMemoryWatcher* pWatcher = SingletonHolder< HeapMemoryWatcher >::get();
+        const int cacheKB = pWatcher->mFileCacheHeap != nullptr ? static_cast< int >(pWatcher->mFileCacheHeap->getTotalFreeSize() / 1024) : -1;
+        const int sceneKB = pWatcher->mSceneHeapGDDR != nullptr ? static_cast< int >(pWatcher->mSceneHeapGDDR->getTotalFreeSize() / 1024) : -1;
+        const int sceneNapaKB = pWatcher->mSceneHeapNapa != nullptr ? static_cast< int >(pWatcher->mSceneHeapNapa->getTotalFreeSize() / 1024) : -1;
+        char note[96];
+        snprintf(note, sizeof(note), "%d requests; free KB: file cache %d, scene %d, scene (napa) %d", static_cast< int >(mRequestedFileCount), cacheKB,
+                 sceneKB, sceneNapaKB);
+        NebulaArchipelago::logNote("Scene loaded", note, "");
+    }
+#endif
     mRequestedFileCount = nullptr;
 }
 
