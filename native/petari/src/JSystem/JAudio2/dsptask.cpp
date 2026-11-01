@@ -1,5 +1,4 @@
 #include "JSystem/JAudio2/dsptask.hpp"
-#include <JSystem/JUtility/JUTNativeLog.hpp>
 #include "JSystem/JAudio2/osdsp.hpp"
 
 void DspInitWork();
@@ -11,14 +10,14 @@ extern void Dsp_Running_Start();
 
 #ifndef TARGET_PC
 void DspHandShake(void*) {
-    JUTNativeLog("DSP InitCallback \n");
+    OSReport("DSP InitCallback \n");
     while (DSPCheckMailFromDSP() == 0) {
     }
 
-    JUTNativeLog("\201\364JDSP/Boot:: \202\143\202\162\202\157\202\251\202\347\202\314\203\164\203\100\201\133\203\130\203\147\203\201\201\133\203\213(%x)\202\252\223\315\202\253\202\334\202\265\202\275\n" /* ♪JDSP/Boot:: ＤＳＰからのファーストメール(%x)が届きました\n */, DSPReadMailFromDSP());
-    JUTNativeLog("\201\364JDSP/Boot:: \202\143\202\162\202\157\202\251\202\347\202\314\203\132\203\112\203\223\203\150\203\201\201\133\203\213(%x)\202\252\223\315\202\253\202\334\202\265\202\275\n" /* ♪JDSP/Boot:: ＤＳＰからのセカンドメール(%x)が届きました\n */, DSPCheckMailFromDSP());
+    OSReport("\201\364JDSP/Boot:: \202\143\202\162\202\157\202\251\202\347\202\314\203\164\203\100\201\133\203\130\203\147\203\201\201\133\203\213(%x)\202\252\223\315\202\253\202\334\202\265\202\275\n" /* ♪JDSP/Boot:: ＤＳＰからのファーストメール(%x)が届きました\n */, DSPReadMailFromDSP());
+    OSReport("\201\364JDSP/Boot:: \202\143\202\162\202\157\202\251\202\347\202\314\203\132\203\112\203\223\203\150\203\201\201\133\203\213(%x)\202\252\223\315\202\253\202\334\202\265\202\275\n" /* ♪JDSP/Boot:: ＤＳＰからのセカンドメール(%x)が届きました\n */, DSPCheckMailFromDSP());
 
-    JUTNativeLog("\201\364JDSP/Boot:: \202\143\202\162\202\157\202\306\202\314\220\332\221\261\202\311\220\254\214\367\202\265\202\334\202\265\202\275\n" /* ♪JDSP/Boot:: ＤＳＰとの接続に成功しました\n */);
+    OSReport("\201\364JDSP/Boot:: \202\143\202\162\202\157\202\306\202\314\220\332\221\261\202\311\220\254\214\367\202\265\202\334\202\265\202\275\n" /* ♪JDSP/Boot:: ＤＳＰとの接続に成功しました\n */);
     Dsp_Running_Start();
 }
 #endif
@@ -56,7 +55,7 @@ int DSPSendCommands2(u32* pMessages, u32 param_2, void (*pCallback)(u16)) {
 #else
 void DspBoot(void (*pCallback)(void*)) {
     DspInitWork();
-    JUTNativeLog("Dsp \202\360\203\165\201\133\203\147\202\265\202\334\202\267\n" /* Dsp をブートします\n */);
+    OSReport("Dsp \202\360\203\165\201\133\203\147\202\265\202\334\202\267\n" /* Dsp をブートします\n */);
     audiotask.priority = 0xf0;
     audiotask.iram_mmem_addr = (u16*)((u8*)jdsp + 0x80000000);
     audiotask.iram_length = sizeof(jdsp);
@@ -72,7 +71,7 @@ void DspBoot(void (*pCallback)(void*)) {
     audiotask.req_cb = pCallback;
     DSPInit();
     DSPAddPriorTask(&audiotask);
-    JUTNativeLog("Dsp\203\165\201\133\203\147\202\265\202\334\202\265\202\275\n" /* Dspブートしました\n */);
+    OSReport("Dsp\203\165\201\133\203\147\202\265\202\334\202\265\202\275\n" /* Dspブートしました\n */);
 }
 
 int DSPSendCommands2(u32* pMessages, u32 param_2, void (*pCallback)(u16)) {
@@ -83,7 +82,7 @@ int DSPSendCommands2(u32* pMessages, u32 param_2, void (*pCallback)(u16)) {
     BOOL firstWarning = TRUE;
     while (Dsp_Running_Check() == 0) {
         if (firstWarning) {
-            JUTNativeLog("Warning:\202\334\202\276\203\165\201\133\203\147\202\265\202\304\202\334\202\271\202\361\n" /* Warning:まだブートしてません\n */);
+            OSReport("Warning:\202\334\202\276\203\165\201\133\203\147\202\265\202\304\202\334\202\271\202\361\n" /* Warning:まだブートしてません\n */);
         }
 
         firstWarning = FALSE;
@@ -91,7 +90,7 @@ int DSPSendCommands2(u32* pMessages, u32 param_2, void (*pCallback)(u16)) {
 
     interruptFlag = OSDisableInterrupts();
     if (DSPCheckMailToDSP()) {
-        JUTNativeLog("\203\107\203\211\201\133::DSP\202\252\203\201\203\142\203\132\201\133\203\127\202\360\216\363\202\257\216\346\202\301\202\304\202\242\202\334\202\271\202\361\n" /* エラー::DSPがメッセージを受け取っていません\n */);
+        OSReport("\203\107\203\211\201\133::DSP\202\252\203\201\203\142\203\132\201\133\203\127\202\360\216\363\202\257\216\346\202\301\202\304\202\242\202\334\202\271\202\361\n" /* エラー::DSPがメッセージを受け取っていません\n */);
         OSRestoreInterrupts(interruptFlag);
         return -1;
     }
@@ -142,7 +141,7 @@ int DspStartWork(u32 param_0, void (*pCallback)(u16)) {
     u32 taskWritePrev = taskwritep;
     u32 writeVal = ((taskWritePrev + 1) & 0xf);
     if (writeVal == taskreadp) {
-        JUTNativeLog("DSP-Task Buffer is full ( %d, %d)\n", taskwritep, taskreadp);
+        OSReport("DSP-Task Buffer is full ( %d, %d)\n", taskwritep, taskreadp);
         return 0;
     }
 
@@ -154,7 +153,7 @@ int DspStartWork(u32 param_0, void (*pCallback)(u16)) {
 
 void DspFinishWork(u16 param_0) {
     if (param_0 != taskwork[taskreadp].field_0x0) {
-        JUTNativeLog("Error:: Not finish task\n");
+        OSReport("Error:: Not finish task\n");
     } else {
         if (taskwork[taskreadp].field_0x4) {
             taskwork[taskreadp].field_0x4(taskreadp);

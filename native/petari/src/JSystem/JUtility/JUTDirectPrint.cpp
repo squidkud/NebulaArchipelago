@@ -158,6 +158,8 @@ void JUTDirectPrint::printSub(u16 position_x, u16 position_y, char const* format
             }
         }
     }
+
+    DCStoreRange(mFrameBuffer, mFrameBufferSize);
 }
 
 void JUTDirectPrint::drawString(u16 position_x, u16 position_y, char* text) {

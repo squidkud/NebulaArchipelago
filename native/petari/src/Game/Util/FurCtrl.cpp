@@ -1,5 +1,4 @@
 #include "Game/Util/FurCtrl.hpp"
-#include <JSystem/J3DGraphBase/J3DNativeState.hpp>
 #include "Game/LiveActor/LiveActor.hpp"
 #include "Game/Scene/SceneFunction.hpp"
 #include "Game/Scene/SceneObjHolder.hpp"
@@ -46,7 +45,7 @@ void FurDrawManager::draw() const {
         }
     }
 
-    J3DNativeState::setClipMode(GX_CLIP_ENABLE);
+    GXSetClipMode(GX_CLIP_ENABLE);
 }
 
 FurCtrl::FurCtrl(LiveActor* pActor, FurParam* pParam, bool addToManager, u8 drawOrder) : mParam(pParam), mVisible(), mFurUVScale(1.0f) {
@@ -135,8 +134,9 @@ void FurCtrl::drawFur() {
     }
 
     J3DShape* pShape = pModelData->getShapeNodePointer(mShapeIndex);
-    pShape->mCurrentMtx.setCurrentTexMtx(GX_TEXMTX0, GX_TEXMTX1, GX_TEXMTX2, GX_IDENTITY, GX_IDENTITY, GX_IDENTITY,
-                                         GX_IDENTITY, GX_IDENTITY);
+    pShape->mCurrentMtx.mMtxIdxRegA = 0x3C921780;
+    pShape->mCurrentMtx.mMtxIdxRegB = 0x00F3CF3C;
+    J3DShape::sOldVcdVatCmd = nullptr;
     J3DShapePacket* pPacket;
 
     for (s32 i = 0; i < mDrawer->mNumLayers; i++) {
@@ -149,8 +149,9 @@ void FurCtrl::drawFur() {
 
     mModel->mShapePacket[mShapeIndex].setModel(mModel);
     GXColor fogColor = {0, 0, 0, 0};
-    J3DNativeState::setFog(GX_FOG_NONE, 0.0f, 0.0f, 0.0f, 0.0f, fogColor);
-    J3DNativeState::setClipMode(GX_CLIP_ENABLE);
+    GXSetFog(GX_FOG_NONE, 0.0f, 0.0f, 0.0f, 0.0f, fogColor);
+    J3DShape::sOldVcdVatCmd = nullptr;
+    GXSetClipMode(GX_CLIP_ENABLE);
 }
 
 void FurCtrl::createFurMap() {

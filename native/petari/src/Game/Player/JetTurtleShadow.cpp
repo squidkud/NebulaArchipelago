@@ -1,5 +1,4 @@
 #include "Game/Player/JetTurtleShadow.hpp"
-#include <JSystem/J3DGraphBase/J3DNativeView.hpp>
 #include "Game/Player/J3DModelX.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/ModelUtil.hpp"
@@ -26,7 +25,7 @@ void JetTurtleShadow::drawType0() const {
     pModel->mFlags.clear();
     pModel->mFlags._14 = true;
 
-    J3DNativeView::setZScaleOffset(1.0f, 0.0f);
+    GXSetZScaleOffset(1.0f, 0.0f);
 
     pModel->directDraw(nullptr);
 }

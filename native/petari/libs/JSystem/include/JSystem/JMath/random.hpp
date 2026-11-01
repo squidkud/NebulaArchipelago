@@ -26,8 +26,7 @@ namespace JMath {
         }
 
         inline u32 getRand(u32 range) {
-            const u32 value = rand() >> 9;
-        return range != 0 ? value % range : value;
+            return (rand() >> 9) % range;
         }
 
         u32 mSeed;

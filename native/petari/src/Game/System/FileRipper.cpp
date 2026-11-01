@@ -69,6 +69,7 @@ void* FileRipper::loadToMainRAM(const char* fpath, u8* dest, bool decompress, JK
             }
             VIWaitForRetrace();
         }
+        DCInvalidateRange(copySrc, 0x20);
         compression = checkCompressed(copySrc);
         decompressedSize = (copySrc[4] << 24) | (copySrc[5] << 16) | (copySrc[6] << 8) | copySrc[7];
     }
@@ -245,6 +246,7 @@ u8* FileRipper::readSrcDataFirst() {
         }
         VIWaitForRetrace();
     }
+    DCInvalidateRange(readBuf, readSize);
     ::sReadDvdOffset += readSize;
     ::sReadDvdLeftSize -= readSize;
     return readBuf;
@@ -273,6 +275,7 @@ u8* FileRipper::readSrcDataNext(u8* buf) {
         }
         VIWaitForRetrace();
     }
+    DCInvalidateRange(readBuf, readSize);
     ::sReadDvdOffset += readSize;
     ::sReadDvdLeftSize -= readSize;
     if (!::sReadDvdLeftSize) {

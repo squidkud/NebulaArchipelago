@@ -83,8 +83,12 @@ void FlipPanel::exeFrontLand() {
             MapObjActorUtil::appearBloomModel(this);
             ModelObj* bloomModel = mBloomModel;
             u32 frameMax = MR::getBrkFrameMax(bloomModel);
-            // The frame count is 0 until the bloom animation starts: the step itself is then the frame.
-            u32 val = frameMax != 0 ? ::sBloomSyncStep / frameMax : 0;
+#ifdef TARGET_PC
+            // The frame count is 0 until the bloom animation starts: the console's divwu gives 0 there (no trap).
+            u32 val = __nebula_divwu(::sBloomSyncStep, frameMax);
+#else
+            u32 val = ::sBloomSyncStep / frameMax;
+#endif
             frameMax = ::sBloomSyncStep - (val)*frameMax;
             MR::setBrkFrame(bloomModel, frameMax);
         } else {
@@ -115,8 +119,12 @@ void FlipPanel::exeBackLand() {
             MapObjActorUtil::appearBloomModel(this);
             ModelObj* bloomModel = mBloomModel;
             u32 frameMax = MR::getBrkFrameMax(bloomModel);
-            // The frame count is 0 until the bloom animation starts: the step itself is then the frame.
-            u32 val = frameMax != 0 ? ::sBloomSyncStep / frameMax : 0;
+#ifdef TARGET_PC
+            // The frame count is 0 until the bloom animation starts: the console's divwu gives 0 there (no trap).
+            u32 val = __nebula_divwu(::sBloomSyncStep, frameMax);
+#else
+            u32 val = ::sBloomSyncStep / frameMax;
+#endif
             frameMax = ::sBloomSyncStep - (val)*frameMax;
             MR::setBrkFrame(bloomModel, frameMax);
         }
@@ -191,8 +199,12 @@ void FlipPanel::endClipped() {
     if (MR::getBrkCtrl(mBloomModel)) {
         ModelObj* bloomModel = mBloomModel;
         u32 frameMax = MR::getBrkFrameMax(bloomModel);
-        // The frame count is 0 until the bloom animation starts: the step itself is then the frame.
-        u32 val = frameMax != 0 ? ::sBloomSyncStep / frameMax : 0;
+#ifdef TARGET_PC
+        // The frame count is 0 until the bloom animation starts: the console's divwu gives 0 there (no trap).
+        u32 val = __nebula_divwu(::sBloomSyncStep, frameMax);
+#else
+        u32 val = ::sBloomSyncStep / frameMax;
+#endif
         frameMax = ::sBloomSyncStep - (val)*frameMax;
         MR::setBrkFrame(bloomModel, frameMax);
     }

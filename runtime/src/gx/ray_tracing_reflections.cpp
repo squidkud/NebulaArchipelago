@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // RtReflections (rt_reflections.h): the reflection and water passes' pipelines, buffers and dispatches.
 #include "galaxy/gx/rt_reflections.h"
-#include "galaxy/gx/pso_jobs.h"
 #include "galaxy/gx/render_config.h"
 
 #include "rt_reflect_composite_ps.h"
@@ -48,7 +47,7 @@ struct RtReflectConstants {
     float reproject[3][4];
     float world_to_eye[3][4];
     float eye_to_world[3][4];
-    float classes[10][4];
+    float classes[9][4];
     float range;
     float lobe;
     std::uint32_t history_frames;
@@ -110,7 +109,7 @@ struct RtReflectCompositeConstants {
     float near_plane;
     std::uint32_t tile_width;
     float split;
-    std::uint32_t classes[10][2];  // strength, F0, GGX alpha, cover (halves); 10 classes, two per row
+    std::uint32_t classes[10][2];  // strength, F0, GGX alpha, cover (halves); 9 classes, two per row
     float water[4];
     float sun[4];
     float water2[4];   // wave slope, cover, foam, shallow caustics
@@ -175,7 +174,6 @@ enum CompositeParameter : UINT {
     kCompositeUnder,
     kCompositeScene,
     kCompositeOpaque,
-    kCompositeLayer,
     kCompositeCount,
 };
 
@@ -237,14 +235,7 @@ D3D12_RESOURCE_BARRIER uav_barrier() {
 
 }  // namespace
 
-bool RtReflections::prepare_pipelines(ID3D12Device5* device, DXGI_FORMAT color_format, unsigned quality) {
-    RtReflections other;
-    other.device_ = device;
-    return device != nullptr && other.create_pipelines(color_format, quality);
-}
-
-bool RtReflections::initialize(ID3D12Device5* device, std::uint64_t timestamp_frequency, DXGI_FORMAT color_format,
-                               unsigned quality) {
+bool RtReflections::initialize(ID3D12Device5* device, std::uint64_t timestamp_frequency, DXGI_FORMAT color_format) {
     shutdown();
     if (device == nullptr || env_float("GALAXY_RT_REFLECT", 1.0f) == 0.0f) {
         return false;
@@ -311,10 +302,6 @@ bool RtReflections::initialize(ID3D12Device5* device, std::uint64_t timestamp_fr
     // dark mirrors of their surroundings. Its rays that leave the scene keep its painted look (ReflectTraceCS,
     // WaterTraceCS), so a strong mirror never shows a dark one of empty space.
     materials_[7] = material("GALAXY_RT_REFLECT_CRYSTAL", {0.05f, 0.35f, 1.0f, 0.0f, 1.0f});
-    // Falling water (kFallingWater): water's Fresnel (F0 0.02) on a turbulent sheet, cover 1. Roughness 0.4 (GGX alpha
-    // 0.16): a rough sea's slopes spread about as far (Cox and Munk 1954 at 10 m/s, sigma 0.23: alpha about 0.3), less
-    // what the flow's streaks carry (rt_reflections.hlsl wave_slope), which move its reflection and glints down it.
-    materials_[9] = material("GALAXY_RT_REFLECT_FALLING_WATER", {0.4f, 0.02f, 1.0f, 0.0f, 1.0f});
     view_ = static_cast<std::uint32_t>(std::clamp(env_float("GALAXY_RT_REFLECT_VIEW", 0.0f), 0.0f, 9.0f));
     history_frames_ =
         static_cast<std::uint32_t>(std::clamp(env_float("GALAXY_RT_REFLECT_HISTORY", 24.0f), 1.0f, 64.0f));
@@ -367,7 +354,7 @@ bool RtReflections::initialize(ID3D12Device5* device, std::uint64_t timestamp_fr
     // remember instead of falling back to its average.
     const bool new_memory = memory_.resource == nullptr;
     const bool new_sky = sky_.resource == nullptr;
-    if (!create_pipelines(color_format, quality) ||
+    if (!create_pipelines(color_format) ||
         (new_memory &&
          !create_buffer(kMemoryTexels * 16u, D3D12_HEAP_TYPE_DEFAULT, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
                         D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, memory_.resource, L"rt reflect memory")) ||
@@ -508,15 +495,18 @@ void RtReflections::to_state(ID3D12GraphicsCommandList* list, Buffer& buffer, D3
     buffer.state = wanted;
 }
 
-bool RtReflections::create_pipelines(DXGI_FORMAT color_format, unsigned quality) {
+bool RtReflections::create_pipelines(DXGI_FORMAT color_format) {
     const auto serialize = [&](const D3D12_ROOT_SIGNATURE_DESC& desc, ComPtr<ID3D12RootSignature>& out) {
-        return rt_prepare::root_signature(device_.Get(), desc, out);
+        ComPtr<ID3DBlob> blob, error;
+        return SUCCEEDED(D3D12SerializeRootSignature(&desc, D3D_ROOT_SIGNATURE_VERSION_1, &blob, &error)) &&
+               SUCCEEDED(device_->CreateRootSignature(0, blob->GetBufferPointer(), blob->GetBufferSize(),
+                                                      IID_PPV_ARGS(&out)));
     };
-    // Compiled in parallel (pso_jobs.h), joined where their results decide.
-    PsoJobs jobs;
     const auto compute = [&](const void* code, std::size_t bytes, ComPtr<ID3D12PipelineState>& out) {
-        jobs.compute(device_.Get(), root_.Get(), code, bytes, out);
-        return true;
+        D3D12_COMPUTE_PIPELINE_STATE_DESC desc{};
+        desc.pRootSignature = root_.Get();
+        desc.CS = {code, bytes};
+        return SUCCEEDED(device_->CreateComputePipelineState(&desc, IID_PPV_ARGS(&out)));
     };
 
     D3D12_DESCRIPTOR_RANGE sources{};
@@ -580,7 +570,7 @@ bool RtReflections::create_pipelines(DXGI_FORMAT color_format, unsigned quality)
     {
         D3D12_FEATURE_DATA_SHADER_MODEL model{D3D_SHADER_MODEL_6_6};
         D3D12_FEATURE_DATA_D3D12_OPTIONS options{};
-        textured_ = quality == 1u &&
+        textured_ = get_render_config().rt_quality == 1u &&
                     SUCCEEDED(device_->CheckFeatureSupport(D3D12_FEATURE_SHADER_MODEL, &model, sizeof(model))) &&
                     model.HighestShaderModel >= D3D_SHADER_MODEL_6_6 &&
                     SUCCEEDED(device_->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS, &options, sizeof(options))) &&
@@ -597,16 +587,11 @@ bool RtReflections::create_pipelines(DXGI_FORMAT color_format, unsigned quality)
         textured_ = false;
         rsd.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
     }
-    if (textured_) {
-        compute(g_rt_reflect_trace_tex_cs, sizeof(g_rt_reflect_trace_tex_cs), trace_pso_);
-        compute(g_rt_water_trace_tex_cs, sizeof(g_rt_water_trace_tex_cs), water_trace_pso_);
-        if (jobs.wait() != 0u) {
-            textured_ = false;
-            rsd.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
-            root_.Reset();
-            trace_pso_.Reset();
-            water_trace_pso_.Reset();
-        }
+    if (textured_ && (!compute(g_rt_reflect_trace_tex_cs, sizeof(g_rt_reflect_trace_tex_cs), trace_pso_) ||
+                      !compute(g_rt_water_trace_tex_cs, sizeof(g_rt_water_trace_tex_cs), water_trace_pso_))) {
+        textured_ = false;
+        rsd.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
+        root_.Reset();
     }
     std::cerr << "[rt-reflect] textured hits " << (textured_ ? "on" : "off") << '\n';
     if ((!textured_ && !serialize(rsd, root_)) ||
@@ -618,7 +603,7 @@ bool RtReflections::create_pipelines(DXGI_FORMAT color_format, unsigned quality)
         !compute(g_rt_reflect_memory_cs, sizeof(g_rt_reflect_memory_cs), memory_pso_) ||
         !compute(g_rt_reflect_sky_cs, sizeof(g_rt_reflect_sky_cs), sky_pso_) ||
         !compute(g_rt_reflect_draw_clear_cs, sizeof(g_rt_reflect_draw_clear_cs), draw_clear_pso_) ||
-        !compute(g_rt_reflect_draw_cs, sizeof(g_rt_reflect_draw_cs), draw_light_pso_) || jobs.wait() != 0u) {
+        !compute(g_rt_reflect_draw_cs, sizeof(g_rt_reflect_draw_cs), draw_light_pso_)) {
         return false;
     }
 
@@ -651,13 +636,6 @@ bool RtReflections::create_pipelines(DXGI_FORMAT color_format, unsigned quality)
     composite_params[kCompositeOpaque].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
     composite_params[kCompositeOpaque].DescriptorTable.NumDescriptorRanges = 1u;
     composite_params[kCompositeOpaque].DescriptorTable.pDescriptorRanges = &opaque_range;
-    // The effects layer's colour and transmittance (t7, t8).
-    D3D12_DESCRIPTOR_RANGE layer_range = scene_range;
-    layer_range.NumDescriptors = 2u;
-    layer_range.BaseShaderRegister = 7u;
-    composite_params[kCompositeLayer].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
-    composite_params[kCompositeLayer].DescriptorTable.NumDescriptorRanges = 1u;
-    composite_params[kCompositeLayer].DescriptorTable.pDescriptorRanges = &layer_range;
     for (auto& param : composite_params) {
         param.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
     }
@@ -691,15 +669,15 @@ bool RtReflections::create_pipelines(DXGI_FORMAT color_format, unsigned quality)
     graphics.NumRenderTargets = 1u;
     graphics.RTVFormats[0] = color_format;
     graphics.SampleDesc.Count = 1u;
-    if (!rt_prepare::graphics(device_.Get(), graphics, composite_pso_)) {
+    if (FAILED(device_->CreateGraphicsPipelineState(&graphics, IID_PPV_ARGS(&composite_pso_)))) {
         return false;
     }
     graphics.PS = {g_rt_water_composite_ps, sizeof(g_rt_water_composite_ps)};
-    if (!rt_prepare::graphics(device_.Get(), graphics, water_composite_pso_)) {
+    if (FAILED(device_->CreateGraphicsPipelineState(&graphics, IID_PPV_ARGS(&water_composite_pso_)))) {
         return false;
     }
     graphics.PS = {g_rt_underwater_ps, sizeof(g_rt_underwater_ps)};
-    return rt_prepare::graphics(device_.Get(), graphics, underwater_pso_);
+    return SUCCEEDED(device_->CreateGraphicsPipelineState(&graphics, IID_PPV_ARGS(&underwater_pso_)));
 }
 
 bool RtReflections::allocate_pass(Pass& pass, std::uint64_t samples, std::uint32_t tiles, const wchar_t* name) {
@@ -1164,7 +1142,7 @@ void RtReflections::draw_composite(ID3D12GraphicsCommandList* list, Pass& pass, 
                                : view_ == 9u ? ((info.serial & 3u) != 0u ? 4u : 0u)
                                : view_ >= 7u ? 4u
                                              : view_ & 3u;
-    c.flags = (reproject != 0u ? 1u : 0u) | (view << 1u) | (effects_layer_.ptr != 0u ? 16u : 0u);
+    c.flags = (reproject != 0u ? 1u : 0u) | (view << 1u);
     c.slot = slot;
     c.tile_width = info.tile_width;
     c.split = split;
@@ -1203,7 +1181,6 @@ void RtReflections::draw_composite(ID3D12GraphicsCommandList* list, Pass& pass, 
     // The water composite reads the frame with the game's water (water_scene_); the others never do.
     list->SetGraphicsRootDescriptorTable(kCompositeScene, water_scene_.ptr != 0u ? water_scene_ : depth_srv);
     list->SetGraphicsRootDescriptorTable(kCompositeOpaque, water_opaque_.ptr != 0u ? water_opaque_ : depth_srv);
-    list->SetGraphicsRootDescriptorTable(kCompositeLayer, effects_layer_.ptr != 0u ? effects_layer_ : depth_srv);
     list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     list->DrawInstanced(3u, 1u, 0u, 0u);
 }
@@ -1257,8 +1234,7 @@ void RtReflections::composite(ID3D12GraphicsCommandList* list, D3D12_CPU_DESCRIP
 void RtReflections::composite_water(ID3D12GraphicsCommandList* list, D3D12_CPU_DESCRIPTOR_HANDLE target,
                                     D3D12_GPU_DESCRIPTOR_HANDLE depth_srv, std::uint32_t width, std::uint32_t height,
                                     unsigned slot, D3D12_GPU_VIRTUAL_ADDRESS reproject, float split,
-                                    D3D12_GPU_DESCRIPTOR_HANDLE scene_srv, D3D12_GPU_DESCRIPTOR_HANDLE opaque_srv,
-                                    D3D12_GPU_DESCRIPTOR_HANDLE layer_srv) {
+                                    D3D12_GPU_DESCRIPTOR_HANDLE scene_srv, D3D12_GPU_DESCRIPTOR_HANDLE opaque_srv) {
     if (!ready_ || list == nullptr || slot >= kSlots || depth_srv.ptr == 0u) {
         return;
     }
@@ -1280,12 +1256,10 @@ void RtReflections::composite_water(ID3D12GraphicsCommandList* list, D3D12_CPU_D
     }
     water_scene_ = scene_srv;
     water_opaque_ = scene_srv.ptr != 0u ? opaque_srv : D3D12_GPU_DESCRIPTOR_HANDLE{};
-    effects_layer_ = layer_srv;
     draw_composite(list, water_, water_composite_pso_.Get(), target, depth_srv, width, height, slot, info, reproject,
                    split);
     water_scene_ = {};
     water_opaque_ = {};
-    effects_layer_ = {};
     // Under the water (its state from the water pass): caustics and shafts over the whole picture.
     if (caustics_ > 0.0f || shafts_ > 0.0f) {
         list->SetPipelineState(underwater_pso_.Get());

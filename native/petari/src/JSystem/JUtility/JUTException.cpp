@@ -1,5 +1,4 @@
 #include "JSystem/JUtility/JUTException.hpp"
-#include <JSystem/JUtility/JUTNativeLog.hpp>
 #include "JSystem/JKernel/JKRHeap.hpp"
 #include "JSystem/JUtility/JUTConsole.hpp"
 #include "JSystem/JUtility/JUTDirectPrint.hpp"
@@ -133,9 +132,14 @@ void JUTException::errorHandler(OSError error, OSContext* pContext, u32 dsisr, u
     msr = PPCMfmsr();
     fpscr = pContext->fpscr;
 
+    OSFillFPUContext(pContext);
     OSSetErrorHandler(error, nullptr);
 
     if (error == OS_ERROR_PROTECTION) {
+        OSProtectRange(/* OS_PROTECT_CHAN0 */ 0, nullptr, 0, /* OS_PROTECT0_BIT | OS_PROTECT1_BIT*/ 3);
+        OSProtectRange(/* OS_PROTECT_CHAN1 */ 1, nullptr, 0, /* OS_PROTECT0_BIT | OS_PROTECT1_BIT*/ 3);
+        OSProtectRange(/* OS_PROTECT_CHAN2 */ 2, nullptr, 0, /* OS_PROTECT0_BIT | OS_PROTECT1_BIT*/ 3);
+        OSProtectRange(/* OS_PROTECT_CHAN3 */ 3, nullptr, 0, /* OS_PROTECT0_BIT | OS_PROTECT1_BIT*/ 3);
     }
 
     exCallbackObject.callback = sPreUserCallback;
@@ -174,7 +178,7 @@ void JUTException::panic_f_va(const char* file, int line, const char* format, va
     exCallbackObject.dar = 0;
 
     if (sConsole == nullptr || (sConsole != nullptr && (sConsole->getOutput() & 2) == 0)) {
-        JUTNativeLog("%s in \"%s\" on line %d\n", buffer, file, line);
+        OSReport("%s in \"%s\" on line %d\n", buffer, file, line);
     }
 
     if (sConsole != nullptr) {
@@ -676,6 +680,7 @@ void JUTException::createFB() {
     new (object) JUTExternalFB(renderMode, GX_GM_1_7, begin, size);
 
     mDirectPrint->changeFrameBuffer(begin, renderMode->fbWidth, renderMode->efbHeight);
+    VIConfigure(renderMode);
     VISetNextFrameBuffer(begin);
     VISetBlack(FALSE);
     VIFlush();

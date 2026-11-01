@@ -1,5 +1,4 @@
 #include "Game/Scene/ScenarioSelectScene.hpp"
-#include <JSystem/J3DGraphBase/J3DNativeView.hpp>
 #include "Game/Camera/CameraContext.hpp"
 #include "Game/Effect/EffectSystem.hpp"
 #include "Game/Effect/EffectSystemUtil.hpp"
@@ -213,7 +212,7 @@ bool ScenarioSelectScene::isResetEnd() const {
 
 void ScenarioSelectScene::setupCameraMtx() const {
     PSMTXCopy(mCameraContext->getViewMtx(), j3dSys.mViewMtx);
-    J3DNativeView::setProjection(mCameraContext->mProjection, GX_PERSPECTIVE);
+    GXSetProjection(mCameraContext->mProjection, GX_PERSPECTIVE);
 }
 
 bool ScenarioSelectScene::trySetCurrentScenarioNo() const {

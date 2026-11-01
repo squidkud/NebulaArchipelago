@@ -1,5 +1,4 @@
 #include "Game/LiveActor/ShadowVolumeOvalPole.hpp"
-#include <JSystem/J3DGraphBase/J3DNativeShape.hpp>
 #include "Game/LiveActor/LiveActor.hpp"
 #include "Game/Util/CameraUtil.hpp"
 #include "Game/Util/MathUtil.hpp"
@@ -81,7 +80,7 @@ void ShadowVolumeOvalPole::loadModelDrawMtx() const {
     mtx.setYDir(up);
     mtx.setZDir(front);
     PSMTXConcat(MR::getCameraViewMtx(), mtx, mtx);
-    J3DNativeShape::sendPosition(mtx, 0);
+    GXLoadPosMtxImm(mtx, 0);
 }
 
 void ShadowVolumeOvalPole::setSize(const TVec3f& rSize) {

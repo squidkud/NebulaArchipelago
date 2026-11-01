@@ -1,5 +1,4 @@
 #include "Game/Player/MarioSearchLight.hpp"
-#include <JSystem/J3DGraphBase/J3DNativeState.hpp>
 #include "Game/LiveActor/HitSensor.hpp"
 #include "Game/Player/DrawAdaptor.hpp"
 #include "Game/Player/J3DModelX.hpp"
@@ -254,11 +253,11 @@ void MarioActor::drawSearchLight() const {
 
     TDDraw::setup(0, 0, 2);
 
-    J3DNativeState::setCullMode(GX_CULL_NONE);
-    J3DNativeState::setAlphaUpdate(GX_TRUE);
-    J3DNativeState::setColorUpdate(GX_FALSE);
-    J3DNativeState::setBlendMode(GX_BM_BLEND, GX_BL_DSTALPHA, GX_BL_ONE, GX_LO_NOOP);
-    J3DNativeState::setDstAlpha(GX_TRUE, 0);
+    GXSetCullMode(GX_CULL_NONE);
+    GXSetAlphaUpdate(GX_TRUE);
+    GXSetColorUpdate(GX_FALSE);
+    GXSetBlendMode(GX_BM_BLEND, GX_BL_DSTALPHA, GX_BL_ONE, GX_LO_NOOP);
+    GXSetDstAlpha(GX_TRUE, 0);
 
     TDDraw::drawFillBox(screenPos1, screenPos2, 0);
     TDDraw::setup(0, 1, 1);
@@ -266,10 +265,10 @@ void MarioActor::drawSearchLight() const {
     J3DModelX* model = static_cast< J3DModelX* >(MR::getJ3DModel(mSearchLight));
     J3DMaterial* const material = model->getModelData()->getMaterialNodePointer(0);
     if (model->simpleDrawSetup(material)) {
-        J3DNativeState::setZMode(GX_TRUE, GX_LEQUAL, GX_FALSE);
-        J3DNativeState::setAlphaUpdate(GX_TRUE);
-        J3DNativeState::setColorUpdate(GX_FALSE);
-        J3DNativeState::setDstAlpha(GX_FALSE, 0);
+        GXSetZMode(GX_TRUE, GX_LEQUAL, GX_FALSE);
+        GXSetAlphaUpdate(GX_TRUE);
+        GXSetColorUpdate(GX_FALSE);
+        GXSetDstAlpha(GX_FALSE, 0);
 
         // Gradually fade in the search light.
         f32 lightBrightness = 1.0f;
@@ -279,52 +278,52 @@ void MarioActor::drawSearchLight() const {
             lightBrightness = (mSearchLightTimer - 30) / 150.0f;
         }
 
-        J3DNativeState::setTevOrder(GX_TEVSTAGE0, GX_TEXCOORD_NULL, GX_TEXMAP_NULL, GX_COLOR0A0);
-        J3DNativeState::setTevOp(GX_TEVSTAGE0, GX_PASSCLR);
-        J3DNativeState::setTevAlphaIn(GX_TEVSTAGE0, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO, GX_CA_A0);
-        J3DNativeState::setTevAlphaOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
+        GXSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD_NULL, GX_TEXMAP_NULL, GX_COLOR0A0);
+        GXSetTevOp(GX_TEVSTAGE0, GX_PASSCLR);
+        GXSetTevAlphaIn(GX_TEVSTAGE0, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO, GX_CA_A0);
+        GXSetTevAlphaOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
 
         GXColorS10 color = {255, 255, 255, (u8)(s32)((lightBrightness * mConst->getTable()->mSearchLightColor[3]))};
 
-        J3DNativeState::setTevColorS10(GX_TEVREG0, color);
+        GXSetTevColorS10(GX_TEVREG0, color);
 
         // Render intersection of light cone with the scene by subtracting
         // visible back faces from front faces.
-        J3DNativeState::setBlendMode(GX_BM_BLEND, GX_BL_ONE, GX_BL_ONE, GX_LO_NOOP);
-        J3DNativeState::setCullMode(GX_CULL_BACK);
+        GXSetBlendMode(GX_BM_BLEND, GX_BL_ONE, GX_BL_ONE, GX_LO_NOOP);
+        GXSetCullMode(GX_CULL_BACK);
         model->setDrawView(0);
         model->simpleDrawShape(material);
 
-        J3DNativeState::setCullMode(GX_CULL_FRONT);
-        J3DNativeState::setBlendMode(GX_BM_SUBTRACT, GX_BL_ONE, GX_BL_ONE, GX_LO_NOOP);
+        GXSetCullMode(GX_CULL_FRONT);
+        GXSetBlendMode(GX_BM_SUBTRACT, GX_BL_ONE, GX_BL_ONE, GX_LO_NOOP);
         model->simpleDrawShape(material);
 
         TDDraw::setup(0, 1, 2);
-        J3DNativeState::setCullMode(GX_CULL_NONE);
-        J3DNativeState::setAlphaUpdate(GX_TRUE);
-        J3DNativeState::setColorUpdate(GX_TRUE);
-        J3DNativeState::setBlendMode(GX_BM_BLEND, GX_BL_DSTALPHA, GX_BL_ONE, GX_LO_NOOP);
-        J3DNativeState::setDstAlpha(GX_TRUE, 0);
+        GXSetCullMode(GX_CULL_NONE);
+        GXSetAlphaUpdate(GX_TRUE);
+        GXSetColorUpdate(GX_TRUE);
+        GXSetBlendMode(GX_BM_BLEND, GX_BL_DSTALPHA, GX_BL_ONE, GX_LO_NOOP);
+        GXSetDstAlpha(GX_TRUE, 0);
 
         u8* col = mConst->getTable()->mSearchLightColor;
         TDDraw::drawFillBox(screenPos1, screenPos2, col[0] << 24 | col[1] << 16 | col[2] << 8);
 
-        J3DNativeState::setDstAlpha(GX_FALSE, 0);
-        J3DNativeState::setAlphaUpdate(GX_FALSE);
+        GXSetDstAlpha(GX_FALSE, 0);
+        GXSetAlphaUpdate(GX_FALSE);
 
         TDDraw::setup(0, 1, 1);
-        J3DNativeState::setZMode(GX_TRUE, GX_LEQUAL, GX_FALSE);
-        J3DNativeState::setAlphaCompare(GX_GREATER, 4, GX_AOP_AND, GX_ALWAYS, 0);
+        GXSetZMode(GX_TRUE, GX_LEQUAL, GX_FALSE);
+        GXSetAlphaCompare(GX_GREATER, 4, GX_AOP_AND, GX_ALWAYS, 0);
         bool res = model->simpleDrawSetup(material);
 
-        J3DNativeState::setBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_ONE, GX_LO_NOOP);
-        J3DNativeState::setTevOp(GX_TEVSTAGE0, GX_PASSCLR);
+        GXSetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_ONE, GX_LO_NOOP);
+        GXSetTevOp(GX_TEVSTAGE0, GX_PASSCLR);
 
         // Colour of the light cone.
         GXColorS10 searchLightCol = {255, 255, 255, (u8)(s32)((lightBrightness * mConst->getTable()->mSearchLightAlphaLevel))};
-        J3DNativeState::setTevColorS10(GX_TEVREG0, searchLightCol);
-        J3DNativeState::setTevAlphaIn(GX_TEVSTAGE0, GX_CA_KONST, GX_CA_ZERO, GX_CA_A0, GX_CA_RASA);
-        J3DNativeState::setTevAlphaOp(GX_TEVSTAGE0, GX_TEV_SUB, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
+        GXSetTevColorS10(GX_TEVREG0, searchLightCol);
+        GXSetTevAlphaIn(GX_TEVSTAGE0, GX_CA_KONST, GX_CA_ZERO, GX_CA_A0, GX_CA_RASA);
+        GXSetTevAlphaOp(GX_TEVSTAGE0, GX_TEV_SUB, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
 
         if (res) {
             // Draw central light cone.
@@ -333,8 +332,8 @@ void MarioActor::drawSearchLight() const {
             return;
         }
 
-        J3DNativeState::setTevAlphaIn(GX_TEVSTAGE0, GX_CA_A1, GX_CA_A0, GX_CA_RASA, GX_CA_ZERO);
-        J3DNativeState::setTevAlphaOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_DIVIDE_2, GX_TRUE, GX_TEVPREV);
+        GXSetTevAlphaIn(GX_TEVSTAGE0, GX_CA_A1, GX_CA_A0, GX_CA_RASA, GX_CA_ZERO);
+        GXSetTevAlphaOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_DIVIDE_2, GX_TRUE, GX_TEVPREV);
 
         // Draw soft falloff outside light cone.
         for (u32 i = 0; i < ARRAY_SIZE(mConst->getTable()->mSearchLightBlurAlpha); i++) {
@@ -342,11 +341,11 @@ void MarioActor::drawSearchLight() const {
 
             // Cone falloff colour.
             GXColorS10 color3 = {255, 255, 255, (u8)(s32)((lightBrightness * mConst->getTable()->mSearchLightBlurAlpha[i]))};
-            J3DNativeState::setTevColorS10(GX_TEVREG0, color3);
+            GXSetTevColorS10(GX_TEVREG0, color3);
 
             // End cap falloff colour.
             GXColorS10 endCapCol = {255, 255, 255, 4};
-            J3DNativeState::setTevColorS10(GX_TEVREG1, endCapCol);
+            GXSetTevColorS10(GX_TEVREG1, endCapCol);
 
             model->simpleDrawShape(material);
         }

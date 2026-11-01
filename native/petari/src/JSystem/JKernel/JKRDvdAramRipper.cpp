@@ -107,6 +107,7 @@ JKRADCommand* JKRDvdAramRipper::callCommand_Async(JKRADCommand* command) {
 
                 VIWaitForRetrace();
             }
+            DCInvalidateRange(bufPtr, 0x20);
 
             JKRCompression detectedCompression = JKRDecomp::checkCompressed(bufPtr);
             if (detectedCompression == COMPRESSION_ASR) {

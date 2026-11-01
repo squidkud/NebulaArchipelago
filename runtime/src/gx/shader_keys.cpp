@@ -232,10 +232,6 @@ PixelShaderKey build_pixel_shader_key(
 }
 
 VertexShaderKey build_vertex_shader_key(const GxState& state) {
-    return build_vertex_shader_key(state, state.cp(cp::kVcdLo));
-}
-
-VertexShaderKey build_vertex_shader_key(const GxState& state, std::uint32_t matrix_bits) {
     VertexShaderKey key{};
     std::memset(&key, 0, sizeof(key));
 
@@ -246,7 +242,7 @@ VertexShaderKey build_vertex_shader_key(const GxState& state, std::uint32_t matr
     // flags: bit0 per-vertex position matrix index (CP VCD_LO bit 0),
     //        bit1 lighting enabled on any channel, bit2 dual-tex enable,
     //        bit5 kVsKeyFiniteLightAttn (set below).
-    const std::uint32_t vcd_lo = matrix_bits;
+    const std::uint32_t vcd_lo = state.cp(cp::kVcdLo);
     const bool per_vertex_posmtx = (vcd_lo & 1u) != 0u;
 
     bool lighting_active = false;

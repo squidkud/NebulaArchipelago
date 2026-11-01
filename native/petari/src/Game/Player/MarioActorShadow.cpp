@@ -1,5 +1,4 @@
 #include "Game/LiveActor/HitSensor.hpp"
-#include <JSystem/J3DGraphBase/J3DNativeState.hpp>
 #include "Game/Map/HitInfo.hpp"
 #include "Game/Player/J3DModelX.hpp"
 #include "Game/Player/JetTurtleShadow.hpp"
@@ -589,7 +588,7 @@ void MarioActor::drawSilhouette() const {
     pModel->mFlags._1C = true;
     pModel->directDraw(nullptr);
     pModel->mFlags._1C = false;
-    J3DNativeState::setAlphaUpdate(GX_TRUE);
-    J3DNativeState::setColorUpdate(GX_TRUE);
-    J3DNativeState::setDstAlpha(GX_TRUE, 0);
+    GXSetAlphaUpdate(GX_TRUE);
+    GXSetColorUpdate(GX_TRUE);
+    GXSetDstAlpha(GX_TRUE, 0);
 }

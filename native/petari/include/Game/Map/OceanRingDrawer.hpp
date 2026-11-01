@@ -1,6 +1,5 @@
 #pragma once
 
-#include "Game/Util/NativeMesh.hpp"
 #include <JSystem/JGeometry.hpp>
 #include <JSystem/JUtility/JUTTexture.hpp>
 #include <revolution.h>
@@ -13,7 +12,7 @@ public:
 
     void initDisplayList(f32*, f32*, f32*);
     void draw() const;
-    void drawGD(f32*, f32*, f32*);
+    void drawGD(f32*, f32*, f32*) const;
     void drawDynamic() const;
     void drawDynamicBloom() const;
 
@@ -28,8 +27,8 @@ public:
     /* 0x1C */ f32 _1C;
     /* 0x20 */ f32 _20;
     /* 0x24 */ f32 _24;
-    // The ring's surface as the renderer draws it from far away.
-    NativeMesh mMesh;
+    /* 0x28 */ u32 mDispListLength;
+    /* 0x2C */ u8* mDispList;
 };
 
 class OceanRingDrawer {
@@ -41,7 +40,7 @@ public:
     void drawBloom() const;
     void initParts();
     void initDisplayList();
-    void drawGD();
+    void drawGD() const;
     void loadMaterial() const;
     void loadMaterialBloom() const;
 
@@ -64,6 +63,6 @@ public:
     /* 0x20 */ f32 _20;
     /* 0x24 */ JUTTexture* mWaterTex;
     /* 0x28 */ JUTTexture* mWaterIndTex;
-    // The ring's surface as the renderer draws it from far away.
-    NativeMesh mMesh;
+    /* 0x2C */ u32 mDispListLength;
+    /* 0x30 */ u8* mDispList;
 };

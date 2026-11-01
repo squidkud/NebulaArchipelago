@@ -1,5 +1,4 @@
 #include "Game/Screen/NebulaAchievementToast.hpp"
-#include <JSystem/JUtility/JUTNativeLog.hpp>
 #include "Game/System/NebulaItemIcons.hpp"
 
 #ifdef TARGET_PC
@@ -227,7 +226,7 @@ void NebulaAchievementToast::loadTextures() {
             mTextures[i] = MR::createLytTexMap(pIcon->mArchive, pIcon->mTexture);
         }
         if (mTextures[i] == nullptr) {
-            JUTNativeLog("NebulaAchievementToast: no %s in %s\n", pIcon->mTexture, pIcon->mArchive);
+            OSReport("NebulaAchievementToast: no %s in %s\n", pIcon->mTexture, pIcon->mArchive);
         }
     }
     // The Archipelago logo and the icons of the items received (NebulaItemIcons).

@@ -52,11 +52,13 @@ void JASDriver::initAI(void (*param_0)(void)) {
     for (int i = 0; i < 3; i++) {
         sDmaDacBuffer[i] = new (JASDram, 0x20) s16[dacSize];
         JASCalc::bzero(sDmaDacBuffer[i], size);
+        DCStoreRange(sDmaDacBuffer[i], size);
     }
     sDspDacBuffer = new (JASDram, 0) s16*[sDspDacBufferSize];
     for (int i = 0; i < sDspDacBufferSize; i++) {
         sDspDacBuffer[i] = new (JASDram, 0x20) s16[getDacSize()];
         JASCalc::bzero(sDspDacBuffer[i], size);
+        DCStoreRange(sDspDacBuffer[i], size);
     }
     sDspDacWriteBuffer = sDspDacBufferSize - 1;
     sDspDacReadBuffer = 0;
@@ -123,6 +125,7 @@ void JASDriver::updateDac() {
     }
     {
         JASCriticalSection cs;
+        DCStoreRange(sDmaDacBuffer[dacp], getDacSize() * 2);
     }
     lastRspMadep = sDmaDacBuffer[dacp];
     dacp++;
@@ -178,6 +181,7 @@ void JASDriver::readDspBuffer(s16* param_0, u32 param_1) {
         }
     } else {
         sDspDacReadBuffer = nbuf;
+        DCInvalidateRange(sDspDacBuffer[sDspDacReadBuffer], param_1 * 2 * 2);
     }
     s16* dacBuffer = sDspDacBuffer[sDspDacReadBuffer];
     s16* endDacBuffer = dacBuffer + param_1;

@@ -1,7 +1,6 @@
 #define J3D_TEV_STAGE_MUTABLE_DEFAULTS
 
 #include "JSystem/J3DGraphBase/J3DMaterial.hpp"
-#include "JSystem/J3DGraphBase/J3DNativeMaterial.hpp"
 #include "JSystem/J3DGraphBase/J3DSys.hpp"
 
 J3DColorBlock* J3DMaterial::createColorBlock(u32 flags) {
@@ -179,16 +178,35 @@ void J3DMaterial::initialize() {
     mSharedDLObj = NULL;
 }
 
+u32 J3DMaterial::countDLSize() {
+    return (mColorBlock->countDLSize() + mTexGenBlock->countDLSize() + mTevBlock->countDLSize() + mIndBlock->countDLSize() + mPEBlock->countDLSize() +
+            31) &
+           ~0x1f;
+}
+
+void J3DMaterial::makeDisplayList_private(J3DDisplayListObj* pDLObj) {
+    pDLObj->beginDL();
+    mTevBlock->load();
+    mIndBlock->load();
+    mPEBlock->load();
+    J3DGDSetGenMode(mTexGenBlock->getTexGenNum(), mColorBlock->getColorChanNum(), mTevBlock->getTevStageNum(), mIndBlock->getIndTexStageNum(),
+                    (GXCullMode)(u8)mColorBlock->getCullMode());
+    mTexGenBlock->load();
+    mColorBlock->load();
+    J3DGDSetNumChans(mColorBlock->getColorChanNum());
+    J3DGDSetNumTexGens(mTexGenBlock->getTexGenNum());
+    pDLObj->endDL();
+}
 
 void J3DMaterial::makeDisplayList() {
     if (!j3dSys.getMatPacket()->isLocked()) {
         j3dSys.getMatPacket()->mDiffFlag = mDiffFlag;
-        J3DNativeMaterial::capture(this, j3dSys.getMatPacket()->mpTexture, j3dSys.getMatPacket()->getDisplayListObj());
+        makeDisplayList_private(j3dSys.getMatPacket()->getDisplayListObj());
     }
 }
 
 void J3DMaterial::makeSharedDisplayList() {
-    J3DNativeMaterial::capture(this, j3dSys.getTexture(), mSharedDLObj);
+    makeDisplayList_private(mSharedDLObj);
 }
 
 void J3DMaterial::load() {
@@ -201,21 +219,35 @@ void J3DMaterial::load() {
 void J3DMaterial::loadSharedDL() {
     j3dSys.setMaterialMode(mMaterialMode);
     if (!j3dSys.checkFlag(2)) {
-        J3DNativeMaterial::send(this, j3dSys.getTexture(), mSharedDLObj);
+        mSharedDLObj->callDL();
         loadNBTScale(*mTexGenBlock->getNBTScale());
     }
 }
 
 void J3DMaterial::patch() {
     j3dSys.getMatPacket()->mDiffFlag = mDiffFlag;
-    J3DNativeMaterial::capture(this, j3dSys.getMatPacket()->mpTexture, j3dSys.getMatPacket()->getDisplayListObj());
+    j3dSys.getMatPacket()->beginPatch();
+    mTevBlock->patch();
+    mColorBlock->patch();
+    mTexGenBlock->patch();
+    j3dSys.getMatPacket()->endPatch();
 }
 
 void J3DMaterial::diff(u32 diffFlags) {
-    // An instance's animated values, into its shape packet's differed snapshot (the parts `diffFlags` names).
     if (j3dSys.getMatPacket()->isEnabled_Diff()) {
-        J3DNativeMaterial::capture(this, j3dSys.getMatPacket()->mpTexture,
-                                   j3dSys.getMatPacket()->mpInitShapePacket->getDisplayListObj(), diffFlags);
+        j3dSys.getMatPacket()->beginDiff();
+
+        mTevBlock->diff(diffFlags);
+        mIndBlock->diff(diffFlags);
+        mPEBlock->diff(diffFlags);
+        if (diffFlags & J3DDiffFlag_KonstColor) {
+            J3DGDSetGenMode_3Param(mTexGenBlock->getTexGenNum(), mTevBlock->getTevStageNum(), mIndBlock->getIndTexStageNum());
+            J3DGDSetNumTexGens(mTexGenBlock->getTexGenNum());
+        }
+        mTexGenBlock->diff(diffFlags);
+        mColorBlock->diff(diffFlags);
+
+        j3dSys.getMatPacket()->endDiff();
     }
 }
 
@@ -279,14 +311,14 @@ void J3DMaterial::change() {
     }
 }
 
-s32 J3DMaterial::newSharedDisplayList() {
+s32 J3DMaterial::newSharedDisplayList(u32 dlSize) {
     if (mSharedDLObj == NULL) {
         mSharedDLObj = new J3DDisplayListObj();
         if (mSharedDLObj == NULL) {
             return kJ3DError_Alloc;
         }
 
-        s32 ret = mSharedDLObj->newDisplayList();
+        s32 ret = mSharedDLObj->newDisplayList(dlSize);
         if (ret != kJ3DError_Success) {
             return ret;
         }
@@ -295,6 +327,21 @@ s32 J3DMaterial::newSharedDisplayList() {
     return kJ3DError_Success;
 }
 
+s32 J3DMaterial::newSingleSharedDisplayList(u32 dlSize) {
+    if (mSharedDLObj == NULL) {
+        mSharedDLObj = new J3DDisplayListObj();
+        if (mSharedDLObj == NULL) {
+            return kJ3DError_Alloc;
+        }
+
+        s32 ret = mSharedDLObj->newSingleDisplayList(dlSize);
+        if (ret != kJ3DError_Success) {
+            return ret;
+        }
+    }
+
+    return kJ3DError_Success;
+}
 
 void J3DPatchedMaterial::initialize() {
     J3DMaterial::initialize();
@@ -315,9 +362,8 @@ void J3DPatchedMaterial::load() {
 
 void J3DPatchedMaterial::loadSharedDL() {
     j3dSys.setMaterialMode(mMaterialMode);
-    if (!j3dSys.checkFlag(0x02)) {
-        J3DNativeMaterial::send(this, j3dSys.getTexture(), mSharedDLObj);
-    }
+    if (!j3dSys.checkFlag(0x02))
+        mSharedDLObj->callDL();
 }
 
 void J3DPatchedMaterial::reset() {
@@ -345,9 +391,8 @@ void J3DLockedMaterial::load() {
 
 void J3DLockedMaterial::loadSharedDL() {
     j3dSys.setMaterialMode(mMaterialMode);
-    if (!j3dSys.checkFlag(0x02)) {
-        J3DNativeMaterial::send(this, j3dSys.getTexture(), mSharedDLObj);
-    }
+    if (!j3dSys.checkFlag(0x02))
+        mSharedDLObj->callDL();
 }
 
 void J3DLockedMaterial::patch() {

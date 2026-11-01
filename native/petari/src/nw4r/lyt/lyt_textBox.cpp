@@ -1,5 +1,4 @@
 #include "nw4r/lyt/drawInfo.h"
-#include <JSystem/J3DGraphBase/J3DNativeState.hpp>
 #include "nw4r/lyt/layout.h"
 #include "nw4r/lyt/resourceAccessor.h"
 #include "nw4r/lyt/textBox.h"
@@ -184,7 +183,7 @@ namespace nw4r {
             writer.SetColorMapping(minCol, maxCol);
             writer.SetupGX();
 
-            J3DNativeState::setAlphaCompare(GX_ALWAYS, 0, GX_AOP_AND, GX_ALWAYS, 0);
+            GXSetAlphaCompare(GX_ALWAYS, 0, GX_AOP_AND, GX_ALWAYS, 0);
             writer.SetCursor(textRect.left, textRect.top);
             writer.Print(mTextBuf, mTextLen);
         }

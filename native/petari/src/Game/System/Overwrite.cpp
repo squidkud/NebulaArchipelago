@@ -1,7 +1,4 @@
 #include "Game/System/ShapePacketUserData.hpp"
-#include <JSystem/J3DGraphBase/J3DNativeState.hpp>
-#include <JSystem/J3DGraphBase/J3DNativeShape.hpp>
-#include <JSystem/J3DGraphBase/J3DNativeDraw.hpp>
 #include "Game/System/WPad.hpp"
 #include "Game/Util/MathUtil.hpp"
 #ifdef TARGET_PC
@@ -22,6 +19,7 @@
 #include <JSystem/JSupport/JSUInputStream.hpp>
 #include <JSystem/JSupport/JSUOutputStream.hpp>
 
+#include <JSystem/J3DGraphBase/J3DFifo.hpp>
 #include <JSystem/J3DGraphBase/J3DPacket.hpp>
 #include <JSystem/J3DGraphBase/J3DShapeMtx.hpp>
 #include <JSystem/J3DGraphBase/J3DSys.hpp>
@@ -196,13 +194,14 @@ extern "C" void JUTWarningConsole(const char* pMessage) {
 
 void JUTTexture::captureDolTexture(void* pBuffer, int width, int height, int x, int y, bool mipmap, GXTexFmt format) {
     if (mipmap) {
-        J3DNativeState::setTexCopySrc(x, y, width * 2, height * 2);
+        GXSetTexCopySrc(x, y, width * 2, height * 2);
     } else {
-        J3DNativeState::setTexCopySrc(x, y, width, height);
+        GXSetTexCopySrc(x, y, width, height);
     }
 
-    J3DNativeState::setTexCopyDst(width, height, format, mipmap);
-    J3DNativeState::copyTex(pBuffer, GX_FALSE);
+    GXSetTexCopyDst(width, height, format, mipmap);
+    GXCopyTex(pBuffer, GX_FALSE);
+    GXPixModeSync();
 }
 
 JSUOutputStream::~JSUOutputStream() {
@@ -242,8 +241,8 @@ bool JUTException::queryMapAddress_single(char* pMap, u32 address, s32 section, 
 }
 
 void J3DShapeMtx::loadMtxIndx_PNGP(int slot, u16 index) const {
-    j3dSys.loadPosMtxIndx(slot, index);
-    j3dSys.loadNrmMtxIndx(slot, index);
+    J3DFifoLoadIndx(0x20, index, 0xB000 | static_cast< u16 >(slot * 12));
+    J3DFifoLoadNrmMtxIndx3x3(index, slot * 3);
     ShapePacketUserData* pData = MR::getJ3DShapePacketUserData(j3dSys.getShapePacket());
     if (pData != nullptr) {
         pData->loadTexMtx(j3dSys.getShapePacket()->getShape()->getMaterial(), slot, index);
@@ -257,7 +256,7 @@ namespace {
     void loadPrj(JPAEmitterWorkData const* pWork, const Mtx pSrt) {
         Mtx mtx;
         PSMTXConcat(pWork->mPrjMtx, pSrt, mtx);
-        J3DNativeShape::sendTexture(mtx, GX_TEXMTX0, GX_MTX3x4);
+        GXLoadTexMtxImm(mtx, GX_TEXMTX0, GX_MTX3x4);
     }
 
 // only way I can get these to match
@@ -291,10 +290,24 @@ namespace {
         matrix[2][3] = 0.0f;
         PSMTXConcat(matrix, pWork->mPrjMtx, matrix);
         PSMTXConcat(matrix, pSrt, matrix);
-        J3DNativeShape::sendTexture(matrix, 0x1e, GX_MTX3x4);
+        GXLoadTexMtxImm(matrix, 0x1e, GX_MTX3x4);
     }
 #pragma pop
 
+    static u8 jpa_dl[32] ATTRIBUTE_ALIGN(32) = {
+        0x80, 0x00, 0x04, 0x00, 0x00, 0x01, 0x01, 0x02, 0x02, 0x03, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    };
+
+    static u8 jpa_dl_x[32] ATTRIBUTE_ALIGN(32) = {
+        0x80, 0x00, 0x08, 0x00, 0x00, 0x01, 0x01, 0x02, 0x02, 0x03, 0x03, 0x48, 0x00, 0x49, 0x01, 0x4A,
+        0x02, 0x4B, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    };
+
+    static u8* p_dl[2] = {
+        jpa_dl,
+        jpa_dl_x,
+    };
 
     typedef void (*projectionFunc)(JPAEmitterWorkData const*, const Mtx);
 
@@ -548,9 +561,9 @@ void JPADrawDirection(JPAEmitterWorkData* pWork, JPABaseParticle* pParticle) {
     matrix[2][3] = pParticle->mPosition.z;
     p_plane[pWork->mPlaneType](matrix, scaleX, scaleY);
     PSMTXConcat(pWork->mPosCamMtx, matrix, matrix);
-    J3DNativeShape::sendPosition(matrix, GX_PNMTX0);
+    GXLoadPosMtxImm(matrix, GX_PNMTX0);
     p_prj[pWork->mPrjType](pWork, matrix);
-    JPADrawQuad(pWork->mDLType);
+    GXCallDisplayList(p_dl[pWork->mDLType], 32);
 }
 
 void JPADrawRotDirection(JPAEmitterWorkData* pWork, JPABaseParticle* pParticle) {
@@ -596,9 +609,9 @@ void JPADrawRotDirection(JPAEmitterWorkData* pWork, JPABaseParticle* pParticle) 
     matrix[2][3] = pParticle->mPosition.z;
     PSMTXConcat(matrix, rotation, rotation);
     PSMTXConcat(pWork->mPosCamMtx, rotation, matrix);
-    J3DNativeShape::sendPosition(matrix, GX_PNMTX0);
+    GXLoadPosMtxImm(matrix, GX_PNMTX0);
     p_prj[pWork->mPrjType](pWork, matrix);
-    JPADrawQuad(pWork->mDLType);
+    GXCallDisplayList(p_dl[pWork->mDLType], 32);
 }
 
 void JPADrawDBillboard(JPAEmitterWorkData* pWork, JPABaseParticle* pParticle) {
@@ -630,9 +643,9 @@ void JPADrawDBillboard(JPAEmitterWorkData* pWork, JPABaseParticle* pParticle) {
     matrix[2][2] = 1.0f;
     matrix[2][3] = position.z;
     matrix[0][2] = matrix[1][2] = matrix[2][0] = matrix[2][1] = 0.0f;
-    J3DNativeShape::sendPosition(matrix, GX_PNMTX0);
+    GXLoadPosMtxImm(matrix, GX_PNMTX0);
     p_prj[pWork->mPrjType](pWork, matrix);
-    JPADrawQuad(0);
+    GXCallDisplayList(jpa_dl, 32);
 }
 
 void JPADrawLine(JPAEmitterWorkData* pWork, JPABaseParticle* pParticle) {
@@ -649,11 +662,16 @@ void JPADrawLine(JPAEmitterWorkData* pWork, JPABaseParticle* pParticle) {
 
     end.setLength(pWork->mGlobalPtclScl.y * (25.0f * pParticle->mParticleScaleY));
     end.sub(position, end);
-    J3DNativeDraw::begin(GX_LINES, 2, NEBULA_SHAPE_TEXCOORD0);
-    J3DNativeDraw::position(position.x, position.y, position.z);
-    J3DNativeDraw::texCoord(0.0f, 0.0f);
-    J3DNativeDraw::position(end.x, end.y, end.z);
-    J3DNativeDraw::texCoord(0.0f, 1.0f);
+    GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
+    GXSetVtxDesc(GX_VA_TEX0, GX_DIRECT);
+    GXBegin(GX_LINES, GX_VTXFMT1, 2);
+    GXPosition3f32(position.x, position.y, position.z);
+    GXTexCoord2f32(0.0f, 0.0f);
+    GXPosition3f32(end.x, end.y, end.z);
+    GXTexCoord2f32(0.0f, 1.0f);
+    GXEnd();
+    GXSetVtxDesc(GX_VA_POS, GX_INDEX8);
+    GXSetVtxDesc(GX_VA_TEX0, GX_INDEX8);
 }
 
 // only way I can get these to match
@@ -686,14 +704,16 @@ void JPADrawStripe(JPAEmitterWorkData* pWork) {
         pNext = ::getNext;
     }
 
-    J3DNativeShape::sendPosition(pWork->mPosCamMtx, GX_PNMTX0);
+    GXLoadPosMtxImm(pWork->mPosCamMtx, GX_PNMTX0);
     p_prj[pWork->mPrjType](pWork, pWork->mPosCamMtx);
+    GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
+    GXSetVtxDesc(GX_VA_TEX0, GX_DIRECT);
     TVec3f position;
     TVec3f direction;
     TVec3f side;
     TVec3f vertices[2];
     Mtx matrix;
-    J3DNativeDraw::begin(GX_TRIANGLESTRIP, count * 2, NEBULA_SHAPE_TEXCOORD0);
+    GXBegin(GX_TRIANGLESTRIP, GX_VTXFMT1, count * 2);
     for (JPANode< JPABaseParticle >* pNode = pFirst; pNode != pWork->mpAlivePtcl->getEnd();) {
         JPABaseParticle* pParticle = pNode->getObject();
         pWork->mpCurNode = pNode;
@@ -736,14 +756,17 @@ void JPADrawStripe(JPAEmitterWorkData* pWork) {
         matrix[2][2] = pParticle->mBaseAxis.z;
         matrix[2][3] = 0.0f;
         PSMTXMultVecArraySR(matrix, vertices, vertices, 2);
-        J3DNativeDraw::position(vertices[0].x + position.x, vertices[0].y + position.y, vertices[0].z + position.z);
-        J3DNativeDraw::texCoord(0.0f, texCoord);
-        J3DNativeDraw::position(vertices[1].x + position.x, vertices[1].y + position.y, vertices[1].z + position.z);
-        J3DNativeDraw::texCoord(1.0f, texCoord);
+        GXPosition3f32(vertices[0].x + position.x, vertices[0].y + position.y, vertices[0].z + position.z);
+        GXTexCoord2f32(0.0f, texCoord);
+        GXPosition3f32(vertices[1].x + position.x, vertices[1].y + position.y, vertices[1].z + position.z);
+        GXTexCoord2f32(1.0f, texCoord);
         pNode = pNext(pNode);
         texCoord += texStep;
     }
 
+    GXEnd();
+    GXSetVtxDesc(GX_VA_POS, GX_INDEX8);
+    GXSetVtxDesc(GX_VA_TEX0, GX_INDEX8);
 }
 #pragma pop
 
@@ -779,14 +802,16 @@ void JPADrawStripeX(JPAEmitterWorkData* pWork) {
         pNext = ::getNext;
     }
 
-    J3DNativeShape::sendPosition(pWork->mPosCamMtx, GX_PNMTX0);
+    GXLoadPosMtxImm(pWork->mPosCamMtx, GX_PNMTX0);
     p_prj[pWork->mPrjType](pWork, pWork->mPosCamMtx);
+    GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
+    GXSetVtxDesc(GX_VA_TEX0, GX_DIRECT);
     TVec3f position;
     TVec3f direction;
     TVec3f side;
     TVec3f vertices[2];
     Mtx matrix;
-    J3DNativeDraw::begin(GX_TRIANGLESTRIP, count * 2, NEBULA_SHAPE_TEXCOORD0);
+    GXBegin(GX_TRIANGLESTRIP, GX_VTXFMT1, count * 2);
     for (JPANode< JPABaseParticle >* pNode = pFirst; pNode != pWork->mpAlivePtcl->getEnd();) {
         JPABaseParticle* pParticle = pNode->getObject();
         pWork->mpCurNode = pNode;
@@ -833,16 +858,17 @@ void JPADrawStripeX(JPAEmitterWorkData* pWork) {
         matrix[2][2] = pParticle->mBaseAxis.z;
         matrix[2][3] = 0.0f;
         PSMTXMultVecArraySR(matrix, vertices, vertices, 2);
-        J3DNativeDraw::position(vertices[0].x + position.x, vertices[0].y + position.y, vertices[0].z + position.z);
-        J3DNativeDraw::texCoord(0.0f, texCoord);
-        J3DNativeDraw::position(vertices[1].x + position.x, vertices[1].y + position.y, vertices[1].z + position.z);
-        J3DNativeDraw::texCoord(1.0f, texCoord);
+        GXPosition3f32(vertices[0].x + position.x, vertices[0].y + position.y, vertices[0].z + position.z);
+        GXTexCoord2f32(0.0f, texCoord);
+        GXPosition3f32(vertices[1].x + position.x, vertices[1].y + position.y, vertices[1].z + position.z);
+        GXTexCoord2f32(1.0f, texCoord);
         pNode = pNext(pNode);
         texCoord += texStep;
     }
 
+    GXEnd();
     texCoord = startTexCoord;
-    J3DNativeDraw::begin(GX_TRIANGLESTRIP, count * 2, NEBULA_SHAPE_TEXCOORD0);
+    GXBegin(GX_TRIANGLESTRIP, GX_VTXFMT1, count * 2);
     for (JPANode< JPABaseParticle >* pNode = pFirst; pNode != pWork->mpAlivePtcl->getEnd();) {
         JPABaseParticle* pParticle = pNode->getObject();
         pWork->mpCurNode = pNode;
@@ -889,14 +915,17 @@ void JPADrawStripeX(JPAEmitterWorkData* pWork) {
         matrix[2][2] = pParticle->mBaseAxis.z;
         matrix[2][3] = 0.0f;
         PSMTXMultVecArraySR(matrix, vertices, vertices, 2);
-        J3DNativeDraw::position(vertices[0].x + position.x, vertices[0].y + position.y, vertices[0].z + position.z);
-        J3DNativeDraw::texCoord(0.0f, texCoord);
-        J3DNativeDraw::position(vertices[1].x + position.x, vertices[1].y + position.y, vertices[1].z + position.z);
-        J3DNativeDraw::texCoord(1.0f, texCoord);
+        GXPosition3f32(vertices[0].x + position.x, vertices[0].y + position.y, vertices[0].z + position.z);
+        GXTexCoord2f32(0.0f, texCoord);
+        GXPosition3f32(vertices[1].x + position.x, vertices[1].y + position.y, vertices[1].z + position.z);
+        GXTexCoord2f32(1.0f, texCoord);
         pNode = pNext(pNode);
         texCoord += texStep;
     }
 
+    GXEnd();
+    GXSetVtxDesc(GX_VA_POS, GX_INDEX8);
+    GXSetVtxDesc(GX_VA_TEX0, GX_INDEX8);
 }
 #pragma pop
 
@@ -1004,9 +1033,9 @@ void JPADrawYBillboard(JPAEmitterWorkData* pWork, JPABaseParticle* pParticle) {
     matrix[2][2] = pWork->mYBBCamMtx[2][2];
     matrix[2][3] = position.z;
     matrix[0][1] = matrix[0][2] = matrix[1][0] = matrix[2][0] = 0.0f;
-    J3DNativeShape::sendPosition(matrix, GX_PNMTX0);
+    GXLoadPosMtxImm(matrix, GX_PNMTX0);
     p_prj[pWork->mPrjType](pWork, matrix);
-    JPADrawQuad(0);
+    GXCallDisplayList(jpa_dl, 32);
 }
 
 void JPADrawRotYBillboard(JPAEmitterWorkData* pWork, JPABaseParticle* pParticle) {
@@ -1042,9 +1071,9 @@ void JPADrawRotYBillboard(JPAEmitterWorkData* pWork, JPABaseParticle* pParticle)
     matrix[2][1] = cosY * z;
     matrix[2][2] = y;
     matrix[2][3] = position.z;
-    J3DNativeShape::sendPosition(matrix, GX_PNMTX0);
+    GXLoadPosMtxImm(matrix, GX_PNMTX0);
     p_prj[pWork->mPrjType](pWork, matrix);
-    JPADrawQuad(0);
+    GXCallDisplayList(jpa_dl, 32);
 }
 
 void JKRAramPiece::startDMA(JKRAMCommand* pCommand) {
@@ -1138,6 +1167,7 @@ JASAudioThread::JASAudioThread(int priority, int, u32)
 
 JKRAram::JKRAram(u32 audioSize, u32 graphSize, s32 priority) : JKRThread(::sAramThreadStackSize, ::sAramThreadMsgSize, priority) {
     u32 reserved = ARInit(mStackArray, 3);
+    ARQInit();
     u32 total = ARGetSize();
     mAudioMemorySize = audioSize;
     if (graphSize == 0xFFFFFFFF) {

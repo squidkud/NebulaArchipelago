@@ -117,6 +117,8 @@ void PlantLeafDrawInit::initDraw() const {
     j3dSys.mVtxPos = pModelData->mVertexData.mVtxPosArray;
     j3dSys.mVtxNrm = pModelData->mVertexData.mVtxNrmArray;
     j3dSys.mVtxCol = pModelData->mVertexData.mVtxColorArray[0];
+    mShape->sOldVcdVatCmd = 0;
     mMaterial->loadSharedDL();
     mShape->loadPreDrawSetting();
+    mShape->loadVtxArray();
 }

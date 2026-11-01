@@ -1,5 +1,4 @@
 #include "JSystem/JParticle/JPAChildShape.hpp"
-#include <JSystem/J3DGraphBase/J3DNativeState.hpp>
 #include "JSystem/JParticle/JPAEmitter.hpp"
 #include "JSystem/JParticle/JPAParticle.hpp"
 #include <revolution/os.h>
@@ -17,8 +16,8 @@ void JPARegistChildPrmEnv(JPAEmitterWorkData* work) {
     env.r = COLOR_MULTI(env.r, emtr->mGlobalEnvClr.r);
     env.g = COLOR_MULTI(env.g, emtr->mGlobalEnvClr.g);
     env.b = COLOR_MULTI(env.b, emtr->mGlobalEnvClr.b);
-    J3DNativeState::setTevColor(GX_TEVREG0, prm);
-    J3DNativeState::setTevColor(GX_TEVREG1, env);
+    GXSetTevColor(GX_TEVREG0, prm);
+    GXSetTevColor(GX_TEVREG1, env);
 }
 
 void JPACalcChildAlphaOut(JPAEmitterWorkData* work, JPABaseParticle* ptcl) {

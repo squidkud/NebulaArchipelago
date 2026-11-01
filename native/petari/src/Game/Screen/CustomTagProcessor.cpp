@@ -737,7 +737,7 @@ CustomTagProcessor::Operation CustomTagProcessor::exeSystemGroupRuby(nw4r::ut::R
 
         rubyWriter.MoveCursorY(mRubyBaseLineOffset + -writer->GetFontAscent());
         CustomTagAlphaCtrl alpha = mAlphaCtrl;
-        s32 index = baseLength != 0 ? rubyLength * alpha.mCharIndex / baseLength : 0;
+        s32 index = rubyLength * alpha.mCharIndex / baseLength;
         f32 interval = (baseLength * alpha.mCharInterval) / rubyLength;
         mAlphaCtrl.mCharInterval = interval;
         mAlphaCtrl.mCharIndex = index;

@@ -1,7 +1,4 @@
 #include "Game/MapObj/SnowFloorTile.hpp"
-#include <JSystem/J3DGraphBase/J3DNativeTexture.hpp>
-#include <JSystem/J3DGraphBase/J3DNativeState.hpp>
-#include <JSystem/J3DGraphBase/J3DNativeDraw.hpp>
 #include "Game/LiveActor/HitSensor.hpp"
 #include "Game/Util.hpp"
 #include "Game/Util/Color.hpp"
@@ -9,9 +6,9 @@
 #include <JSystem/JUtility/JUTTexture.hpp>
 
 namespace {
-    const u16 sTextureSize = 32;
+    u16 sTextureSize = 32;
     u16 sStripCount = 16;
-    const s16 sLayerCount = 12;
+    s16 sLayerCount = 12;
     s16 sColorR = 220;
     s16 sColorStepR = -3;
     s16 sColorG = 220;
@@ -28,7 +25,7 @@ namespace {
     f32 cSwingDigRadius = 100.0f;
     f32 cHipdropDigAmount = 1000.0f;
     f32 cHipdropDigRadius = 50.0f;
-    const u16 sCellSize = 128 / sTextureSize;
+    u16 sCellSize = 128 / sTextureSize;
 };  // namespace
 
 SnowFloorTile::~SnowFloorTile() {
@@ -384,7 +381,7 @@ void SnowFloorTile::createTexture() {
         }
 
         TDDraw::tileConversion8(mImage, mTextureSize, mTextureSize);
-        J3DNativeTexture::registerImage(mImage, GX_TF_I8, mTextureSize, mTextureSize, 1);
+        DCStoreRange(mImage, mTextureSize * mTextureSize);
     }
 }
 
@@ -407,18 +404,18 @@ void SnowFloorTile::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
 
 void SnowFloorTile::draw() const {
     MR::reinitGX();
-    J3DNativeState::invalidateTexAll();
+    GXInvalidateTexAll();
     TDDraw::setup(1, 1, false);
-    J3DNativeState::setCullMode(GX_CULL_BACK);
-    J3DNativeState::setZMode(GX_TRUE, GX_LEQUAL, GX_TRUE);
-    J3DNativeState::setAlphaCompare(GX_GREATER, 1, GX_AOP_AND, GX_ALWAYS, 0);
-    J3DNativeState::setTevColorIn(GX_TEVSTAGE0, GX_CC_ZERO, GX_CC_C1, GX_CC_ONE, GX_CC_ZERO);
+    GXSetCullMode(GX_CULL_BACK);
+    GXSetZMode(GX_TRUE, GX_LEQUAL, GX_TRUE);
+    GXSetAlphaCompare(GX_GREATER, 1, GX_AOP_AND, GX_ALWAYS, 0);
+    GXSetTevColorIn(GX_TEVSTAGE0, GX_CC_ZERO, GX_CC_C1, GX_CC_ONE, GX_CC_ZERO);
 
     for (u32 i = 0; i < static_cast< u32 >(::sLayerCount); i++) {
         u8 threshold = i * (240 / ::sLayerCount) + 1;
         Color8 alpha(threshold, threshold, threshold, threshold);
-        J3DNativeState::setTevColor(GX_TEVREG0, alpha);
-        J3DNativeState::setAlphaCompare(GX_GREATER, threshold, GX_AOP_AND, GX_ALWAYS, 0);
+        GXSetTevColor(GX_TEVREG0, alpha);
+        GXSetAlphaCompare(GX_GREATER, threshold, GX_AOP_AND, GX_ALWAYS, 0);
         s32 r = ::sColorR + i * ::sColorStepR;
         s32 g = ::sColorG + i * ::sColorStepG;
         s32 b = ::sColorB + i * ::sColorStepB;
@@ -428,7 +425,7 @@ void SnowFloorTile::draw() const {
         MR::clamp(static_cast< s32 >(b), 0L, 255L);
         MR::clamp(static_cast< s32 >(a), 0L, 255L);
         Color8 color(r, g, b, a);
-        J3DNativeState::setTevColor(GX_TEVREG1, color);
+        GXSetTevColor(GX_TEVREG1, color);
         drawLayer(i);
     }
 }
@@ -443,14 +440,15 @@ void SnowFloorTile::drawLayer(s32 layer) const {
 
     for (u32 i = 0; i < ::sStripCount; i++) {
         TVec3f center(mPosition + mUp * (5.0f + ::sLayerHeight * layer));
-        J3DNativeDraw::begin(GX_QUADS, 4, NEBULA_SHAPE_TEXCOORD0);
+        GXBegin(GX_QUADS, GX_VTXFMT0, 4);
         TDDraw::sendPoint(center + p0);
-        J3DNativeDraw::texCoord(0.0f, 0.0f);
+        GXTexCoord2f32(0.0f, 0.0f);
         TDDraw::sendPoint(center + p1);
-        J3DNativeDraw::texCoord(1.0f, 0.0f);
+        GXTexCoord2f32(1.0f, 0.0f);
         TDDraw::sendPoint(center + p2);
-        J3DNativeDraw::texCoord(1.0f, 1.0f);
+        GXTexCoord2f32(1.0f, 1.0f);
         TDDraw::sendPoint(center + p3);
-        J3DNativeDraw::texCoord(0.0f, 1.0f);
+        GXTexCoord2f32(0.0f, 1.0f);
+        GXEnd();
     }
 }

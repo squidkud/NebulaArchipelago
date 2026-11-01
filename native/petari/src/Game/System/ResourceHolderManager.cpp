@@ -8,11 +8,22 @@
 #include "Game/Util/SingletonHolder.hpp"
 #include "Game/Util/StringUtil.hpp"
 #include "Game/Util/SystemUtil.hpp"
-#ifdef TARGET_PC
-#include "Game/System/NebulaArchipelago.hpp"
-#include <stdio.h>
-#endif
+#include <revolution/gd/GDBase.h>
 
+namespace {
+    class GDCurrentRestorer {
+    public:
+        GDCurrentRestorer() : mObj(__GDCurrentDL) {
+        }
+
+        ~GDCurrentRestorer() {
+            __GDCurrentDL = mObj;
+        }
+
+    private:
+        /* 0x0 */ GDLObj* mObj;
+    };
+};  // namespace
 
 ResourceHolderManager::ResourceHolderManager() {
     mResourceArray.clear();
@@ -118,6 +129,7 @@ ResourceHolderManagerName2Resource* ResourceHolderManager::createAndAddInnerStat
 }
 
 void ResourceHolderManager::createResourceHolder(const char* pParam1, CreateResourceHolderArgs* pArgs) {
+    ::GDCurrentRestorer gdRestorer = ::GDCurrentRestorer();
     JKRArchive* pArchive;
 
     MR::getMountedArchiveAndHeap(pParam1, &pArchive, &pArgs->mHeap);
@@ -127,6 +139,7 @@ void ResourceHolderManager::createResourceHolder(const char* pParam1, CreateReso
 }
 
 void ResourceHolderManager::createLayoutHolder(const char* pParam1, CreateResourceHolderArgs* pArgs) {
+    ::GDCurrentRestorer gdRestorer = ::GDCurrentRestorer();
     JKRArchive* pArchive;
 
     MR::getMountedArchiveAndHeap(pParam1, &pArchive, &pArgs->mHeap);
@@ -143,19 +156,6 @@ ResourceHolderManagerName2Resource* ResourceHolderManager::add(const char* pPara
     name2Resource.mHeap = rArgs.mHeap;
 
     mResourceArray.push_back(name2Resource);
-
-#ifdef TARGET_PC
-    {
-        // How full the table is, to the archipelago.log: a few counts only.
-        const int count = mResourceArray.size();
-
-        if ((count % 50) == 0 || count >= 480) {
-            char note[48];
-            snprintf(note, sizeof(note), "%d files held (the console's table held 512)", count);
-            NebulaArchipelago::logNote("Resource holders", note, "");
-        }
-    }
-#endif
 
     return &mResourceArray[mResourceArray.size() - 1];
 }

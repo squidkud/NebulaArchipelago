@@ -1,5 +1,4 @@
 #include "Game/Util/LayoutUtil.hpp"
-#include <JSystem/J3DGraphBase/J3DNativeState.hpp>
 #include "Game/Effect/MultiEmitter.hpp"
 #include "Game/Scene/SceneFunction.hpp"
 #include "Game/Screen/CustomTagProcessor.hpp"
@@ -641,8 +640,8 @@ void MR::calcAnimLayoutWithDrawInfo(const LayoutActor* pActor, const nw4r::lyt::
 
 void MR::drawLayoutWithDrawInfoWithoutProjectionSetup(const LayoutActor* pActor, const nw4r::lyt::DrawInfo& rDrawInfo) {
     if (isExecuteDrawLayout(pActor)) {
-        J3DNativeState::setCullMode(GX_CULL_NONE);
-        J3DNativeState::setZMode(GX_FALSE, GX_NEVER, GX_FALSE);
+        GXSetCullMode(GX_CULL_NONE);
+        GXSetZMode(GX_FALSE, GX_NEVER, GX_FALSE);
         pActor->getLayoutManager()->mLayout->Draw(rDrawInfo);
     }
 }
@@ -672,7 +671,7 @@ bool MR::isGreaterEqualStep(const LayoutActor* pActor, s32 step) {
 }
 
 bool MR::isIntervalStep(const LayoutActor* pActor, s32 step) {
-    return (step != 0 ? pActor->getNerveStep() % step : pActor->getNerveStep()) == 0;
+    return pActor->getNerveStep() % step == 0;
 }
 
 bool MR::isNewNerve(const LayoutActor* pActor) {

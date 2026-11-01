@@ -1,6 +1,4 @@
 #include "Game/Effect/ParticleDrawExecutor.hpp"
-#include <JSystem/J3DGraphBase/J3DNativeState.hpp>
-#include <JSystem/J3DGraphBase/J3DNativeView.hpp>
 #include "Game/Effect/EffectSystem.hpp"
 #include "Game/NameObj/NameObjAdaptor.hpp"
 #include "Game/Scene/SceneFunction.hpp"
@@ -29,7 +27,7 @@ ParticleDrawExecutor::ParticleDrawExecutor(const EffectSystem* pSystem, bool cre
 }
 
 void ParticleDrawExecutor::initDraw() {
-    J3DNativeState::setFog(GX_FOG_NONE, 0.0f, 0.0f, 0.0f, 0.0f, Color8(0, 0, 0, 0));
+    GXSetFog(GX_FOG_NONE, 0.0f, 0.0f, 0.0f, 0.0f, Color8(0, 0, 0, 0));
 }
 
 void ParticleDrawExecutor::draw3D() const {
@@ -50,14 +48,14 @@ void ParticleDrawExecutor::draw2D() const {
 
         Mtx44 projection;
         C_MTXOrtho(projection, height, -height, -width, width, -1000.0f, 1000.0f);
-        J3DNativeView::setProjection(projection, GX_ORTHOGRAPHIC);
-        J3DNativeState::setCullMode(GX_CULL_NONE);
-        J3DNativeState::setZMode(GX_FALSE, GX_NEVER, GX_FALSE);
+        GXSetProjection(projection, GX_ORTHOGRAPHIC);
+        GXSetCullMode(GX_CULL_NONE);
+        GXSetZMode(GX_FALSE, GX_NEVER, GX_FALSE);
         C_MTXLightOrtho(drawInfo.mPrjMtx, height, -height, -width, width, 0.5f, 0.5f, 0.5f, 0.5f);
         mHost->mEmitterManager->draw(&drawInfo, 6);
-        J3DNativeState::setClipMode(GX_CLIP_ENABLE);
+        GXSetClipMode(GX_CLIP_ENABLE);
         mHost->mEmitterManager->draw(&drawInfo, 7);
-        J3DNativeState::setClipMode(GX_CLIP_ENABLE);
+        GXSetClipMode(GX_CLIP_ENABLE);
     }
 }
 
@@ -65,7 +63,7 @@ void ParticleDrawExecutor::drawIndirect() const {
     if (_20) {
         JPADrawInfo drawInfo(j3dSys.getViewMtx(), MR::getRenderFovy(), MR::getAspect());
         mHost->mEmitterManager->draw(&drawInfo, 2);
-        J3DNativeState::setClipMode(GX_CLIP_ENABLE);
+        GXSetClipMode(GX_CLIP_ENABLE);
     }
 }
 
@@ -77,7 +75,7 @@ void ParticleDrawExecutor::drawFor2DModel() const {
     if (_20) {
         JPADrawInfo drawInfo(j3dSys.getViewMtx());
         mHost->mEmitterManager->draw(&drawInfo, 8);
-        J3DNativeState::setClipMode(GX_CLIP_ENABLE);
+        GXSetClipMode(GX_CLIP_ENABLE);
     }
 }
 
@@ -93,9 +91,9 @@ void ParticleDrawExecutor::drawWithViewMtx3D(const TPos3f& rViewMtx) const {
     if (_20) {
         JPADrawInfo drawInfo(rViewMtx);
         mHost->mEmitterManager->draw(&drawInfo, 0);
-        J3DNativeState::setClipMode(GX_CLIP_ENABLE);
+        GXSetClipMode(GX_CLIP_ENABLE);
         mHost->mEmitterManager->draw(&drawInfo, 1);
-        J3DNativeState::setClipMode(GX_CLIP_ENABLE);
+        GXSetClipMode(GX_CLIP_ENABLE);
     }
 }
 
@@ -103,7 +101,7 @@ void ParticleDrawExecutor::drawWithViewMtxAfterIndirect(const TPos3f& rViewMtx) 
     if (_20) {
         JPADrawInfo drawInfo(rViewMtx);
         mHost->mEmitterManager->draw(&drawInfo, 3);
-        J3DNativeState::setClipMode(GX_CLIP_ENABLE);
+        GXSetClipMode(GX_CLIP_ENABLE);
     }
 }
 
@@ -111,7 +109,7 @@ void ParticleDrawExecutor::drawWithViewMtxForBloomEffect(const TPos3f& rViewMtx)
     if (_20) {
         JPADrawInfo drawInfo(rViewMtx);
         mHost->mEmitterManager->draw(&drawInfo, 4);
-        J3DNativeState::setClipMode(GX_CLIP_ENABLE);
+        GXSetClipMode(GX_CLIP_ENABLE);
     }
 }
 
@@ -119,7 +117,7 @@ void ParticleDrawExecutor::drawWithViewMtxAfterImageEffect(const TPos3f& rViewMt
     if (_20) {
         JPADrawInfo drawInfo(rViewMtx);
         mHost->mEmitterManager->draw(&drawInfo, 5);
-        J3DNativeState::setClipMode(GX_CLIP_ENABLE);
+        GXSetClipMode(GX_CLIP_ENABLE);
     }
 }
 

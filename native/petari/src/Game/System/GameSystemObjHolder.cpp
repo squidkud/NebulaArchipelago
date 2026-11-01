@@ -177,4 +177,6 @@ void GameSystemObjHolder::initDisplay() {
     mCaptureScreenDirector = new CaptureScreenDirector();
     mScreenPreserver = new ScreenPreserver();
 
+    VISetTrapFilter(VI_TRUE);
+    VISetTrapFilter(VI_FALSE);
 }

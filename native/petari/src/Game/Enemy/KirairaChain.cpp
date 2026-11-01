@@ -1,5 +1,4 @@
 #include "Game/Enemy/KirairaChain.hpp"
-#include <JSystem/J3DGraphBase/J3DNativeShape.hpp>
 #include "Game/LiveActor/ModelObj.hpp"
 #include "Game/LiveActor/SimpleJ3DModelDrawer.hpp"
 #include "Game/Ride/SwingRopePoint.hpp"
@@ -99,9 +98,9 @@ void KirairaChain::draw() const {
         mtx.setTrans(point->mPosition);
 
         PSMTXConcat(MR::getCameraViewMtx(), mtx, mtx);
-        J3DNativeShape::loadPosition(mtx, GX_PNMTX0);
-        J3DNativeShape::loadNormal(mtx, GX_PNMTX0);
-        mModelDrawer->mShapeDraw->draw();
+        GXLoadPosMtxImm(mtx, GX_PNMTX0);
+        GXLoadNrmMtxImm(mtx, GX_PNMTX0);
+        GXCallDisplayList(mModelDrawer->mShapeDraw->getDisplayList(), mModelDrawer->mShapeDraw->getDisplayListSize());
     }
 }
 

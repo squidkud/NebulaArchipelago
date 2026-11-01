@@ -232,6 +232,7 @@ bool JASAramStream::headerLoad(u32 param_0, int param_1) {
         return false;
     }
 
+    DCInvalidateRange(sReadBuffer, sizeof(Header));
     Header* header = (Header*)sReadBuffer;
     _158 = header->format;
     mChannelNum = header->channels;
@@ -304,6 +305,7 @@ bool JASAramStream::load() {
         return false;
     }
 
+    DCInvalidateRange(sReadBuffer, size);
     BlockHeader* bhead = (BlockHeader*)sReadBuffer;
     if (_114 != 0) {
         return false;

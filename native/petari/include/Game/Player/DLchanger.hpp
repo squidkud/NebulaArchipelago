@@ -1,23 +1,24 @@
 #pragma once
 
-#include <JSystem/J3DGraphBase/J3DStateList.hpp>
+#include <JSystem/JKernel/JKRHeap.hpp>
 #include <revolution/types.h>
 
 class J3DModelX;
 
 struct DLholder {
-    J3DStateList mList;
+    /* 0x00 */ u8* mDL;
+    /* 0x04 */ u16 mSize;
+    /* 0x06 */ u16 _6;
 };
 
 class DLchanger {
 public:
-    // `capacity`: the changes each buffer holds.
-    DLchanger(u8 count, u16 capacity) {
+    DLchanger(u8 count, u32 size) {
         mBuffers = new DLholder[count];
         mBufferCount = count;
         mCurrentBuffer = 0;
         for (u32 i = 0; i < mBufferCount; i++) {
-            mBuffers[i].mList.reserve(capacity);
+            mBuffers[i].mDL = new (32) u8[size];
         }
     }
 

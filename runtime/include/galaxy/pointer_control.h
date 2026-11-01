@@ -1,19 +1,17 @@
 #pragma once
 
 // One Wii Remote pointer for every host source: the mouse (absolute), pointer
-// keys and the right stick (velocity), the gyro (rotation) and a touchpad (a
-// finger's travel). Whichever source moved last owns the pointer; another source
-// takes it over only after the owner has been still for kPointerHandoffUs, so a
-// resting stick or a controller lying on the desk never fights a moving mouse and
-// the reverse. A finger moving on a touchpad takes it at once: the hand holding the
-// controller turns it a little all the time.
+// keys and the right stick (velocity), and the gyro (rotation). Whichever source
+// moved last owns the pointer; another source takes it over only after the owner
+// has been still for kPointerHandoffUs, so a resting stick or a controller lying
+// on the desk never fights a moving mouse and the reverse.
 
 #include <array>
 #include <cstdint>
 
 namespace galaxy::input {
 
-enum class PointerSource : std::uint8_t { None, Mouse, Keys, Stick, Gyro, Touch };
+enum class PointerSource : std::uint8_t { None, Mouse, Keys, Stick, Gyro };
 
 inline constexpr std::uint64_t kPointerHandoffUs = 250'000;
 
@@ -22,7 +20,6 @@ struct PointerActivity {
     bool keys = false;
     bool stick = false;
     bool gyro = false;
-    bool touch = false;
 };
 
 struct PointerOwner {

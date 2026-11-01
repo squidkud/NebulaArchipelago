@@ -1,5 +1,4 @@
 #include "JSystem/JKernel/JKRExpHeap.hpp"
-#include <JSystem/JUtility/JUTNativeLog.hpp>
 #include "JSystem/JUtility/JUTConsole.hpp"
 #include "JSystem/JUtility/JUTException.hpp"
 #include <new>
@@ -796,15 +795,15 @@ void JKRExpHeap::reportBlocks() {
         freeCount++;
         freeBytes += block->mSize;
     }
-    JUTNativeLog("heap %p (%s, %u bytes): %u used blocks, %u bytes; %u free blocks, %u bytes; header %u bytes; largest:\n", this, "EXPH",
+    OSReport("heap %p (%s, %u bytes): %u used blocks, %u bytes; %u free blocks, %u bytes; header %u bytes; largest:\n", this, "EXPH",
              mSize, usedCount, usedBytes, freeCount, freeBytes, (u32)sizeof(CMemBlock));
     for (int i = 0; i < kTop && top[i] != nullptr; i++) {
-        JUTNativeLog("  %p  %u bytes  group %u\n", top[i]->getContent(), top[i]->mSize, top[i]->mGroupId);
+        OSReport("  %p  %u bytes  group %u\n", top[i]->getContent(), top[i]->mSize, top[i]->mGroupId);
     }
     for (JSUTree< JKRHeap >* child = mChildTree.getFirstChild(); child != nullptr; child = child->getNextChild()) {
         JKRHeap* heap = child->getObject();
         const u32 type = heap->getHeapType();
-        JUTNativeLog("  child heap %p '%c%c%c%c' %u bytes, %d free\n", heap, (char)(type >> 24), (char)(type >> 16), (char)(type >> 8),
+        OSReport("  child heap %p '%c%c%c%c' %u bytes, %d free\n", heap, (char)(type >> 24), (char)(type >> 16), (char)(type >> 8),
                  (char)type, (u32)((u8*)heap->getEndAddr() - (u8*)heap->getStartAddr()), heap->getFreeSize());
     }
     // Memory in neither list: the largest stretches between blocks, by address.
@@ -830,13 +829,13 @@ void JKRExpHeap::reportBlocks() {
             const uintptr_t next = i < n ? spans[2 * i] : reinterpret_cast< uintptr_t >(mEnd);
             if (next > at + 64) {
                 lost += next - at;
-                JUTNativeLog("  gap %p..%p (%u bytes)\n", reinterpret_cast< void* >(at), reinterpret_cast< void* >(next), (u32)(next - at));
+                OSReport("  gap %p..%p (%u bytes)\n", reinterpret_cast< void* >(at), reinterpret_cast< void* >(next), (u32)(next - at));
             }
             if (i < n && next < at) {
                 const uintptr_t end = spans[2 * i + 1] < at ? spans[2 * i + 1] : at;
                 doubled += end - next;
                 if (overlaps++ < 12) {
-                    JUTNativeLog("  overlap: block %p..%p inside the block before it (which ends %p)\n", reinterpret_cast< void* >(next),
+                    OSReport("  overlap: block %p..%p inside the block before it (which ends %p)\n", reinterpret_cast< void* >(next),
                              reinterpret_cast< void* >(spans[2 * i + 1]), reinterpret_cast< void* >(at));
                 }
             }
@@ -844,7 +843,7 @@ void JKRExpHeap::reportBlocks() {
                 at = spans[2 * i + 1];
             }
         }
-        JUTNativeLog("  %llu bytes in gaps; %d overlaps, %llu bytes counted twice\n", (unsigned long long)lost, overlaps,
+        OSReport("  %llu bytes in gaps; %d overlaps, %llu bytes counted twice\n", (unsigned long long)lost, overlaps,
                  (unsigned long long)doubled);
         ::free(spans);
     }

@@ -1,5 +1,4 @@
 #include "Game/System/NebulaText.hpp"
-#include <JSystem/JUtility/JUTNativeLog.hpp>
 #include "Game/System/NebulaArchipelago.hpp"
 
 #ifdef TARGET_PC
@@ -145,7 +144,7 @@ namespace {
                 if (column >= 0) {
                     sColumn = column;
                 } else {
-                    JUTNativeLog("NebulaText: unknown language in NebulaText.txt\n");
+                    OSReport("NebulaText: unknown language in NebulaText.txt\n");
                 }
                 continue;
             }
@@ -168,7 +167,7 @@ namespace {
         const char* pPrefix = MR::getCurrentLanguagePrefix();
         const s32 column = findColumn(pPrefix, strlen(pPrefix));
         sColumn = column >= 0 ? column : 0;
-        JUTNativeLog("NebulaText: %s\n", pPrefix);
+        OSReport("NebulaText: %s\n", pPrefix);
 
         char path[96];
         snprintf(path, sizeof(path), "/%s/MessageData/NebulaText.txt", pPrefix);
@@ -183,7 +182,7 @@ namespace {
         const s32 read = (length + 31) & ~31;
         if (length > 0 && read <= cFileMax && DVDReadPrio(&file, sFile, read, 0, 2) >= 0) {
             parse(sFile, length);
-            JUTNativeLog("NebulaText: %s (%d texts)\n", path, sOverrideNum);
+            OSReport("NebulaText: %s (%d texts)\n", path, sOverrideNum);
         }
         DVDClose(&file);
     }

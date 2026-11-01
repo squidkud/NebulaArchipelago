@@ -2,7 +2,6 @@
 #include "Game/Player/NebulaPlayerColors.hpp"
 #include "Game/System/NebulaArchipelago.hpp"
 #include <JSystem/J3DGraphAnimator/J3DModelData.hpp>
-#include <JSystem/J3DGraphBase/J3DNativeTexture.hpp>
 #include <JSystem/J3DGraphBase/J3DTexture.hpp>
 #include <JSystem/JUtility/JUTNameTab.hpp>
 #include <JSystem/JUtility/JUTTexture.hpp>
@@ -313,8 +312,6 @@ namespace {
                 writeBE16(pPalette + i * 2, pImage->mPaletteFormat == Pal_RGB565 ? recolor565(pClasses, classNum, c) : recolor5A3(pClasses, classNum, c));
             }
 
-            // The renderer keeps the copy of the palette it was handed at load: hand it the new colours.
-            J3DNativeTexture::registerPalette(pPalette, static_cast< u16 >(num));
             return;
         }
 
@@ -359,11 +356,6 @@ namespace {
             w = w > 1 ? w >> 1 : 1;
             h = h > 1 ? h >> 1 : 1;
         }
-
-        // The renderer keeps the copy of the image it was handed at load (texture_image): without handing it the recoloured
-        // bytes, it keeps drawing the original colours.
-        J3DNativeTexture::registerImage(reinterpret_cast< u8* >(pImage) + static_cast< s32 >(pImage->mImageDataOffset), format,
-                                        static_cast< u16 >(width), static_cast< u16 >(height), pImage->mMipmap ? pImage->mImageNum : 1);
     }
 
     // The parts, as the YAML names them (NebulaArchipelago::getPlayerColor: Mario 0 to 4, Luigi 5 to 9).

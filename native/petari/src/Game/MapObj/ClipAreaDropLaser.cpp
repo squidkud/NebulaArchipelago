@@ -1,5 +1,4 @@
 #include "Game/MapObj/ClipAreaDropLaser.hpp"
-#include <JSystem/J3DGraphBase/J3DNativeState.hpp>
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/MapObj/ClipAreaDropHolder.hpp"
 #include "Game/Scene/SceneFunction.hpp"
@@ -51,8 +50,8 @@ void ClipAreaDropLaser::control() {
 void ClipAreaDropLaser::draw() const {
     TDDraw::cameraInit3D();
     TDDraw::setup(0, 2, 0);
-    J3DNativeState::setLineWidth(0x14, GX_TO_ZERO);
-    J3DNativeState::setZMode(GX_TRUE, GX_LEQUAL, GX_FALSE);
+    GXSetLineWidth(0x14, GX_TO_ZERO);
+    GXSetZMode(GX_TRUE, GX_LEQUAL, GX_FALSE);
 
     for (int r29 = 1; r29 < mNumPointsToDraw; r29++) {
         int u1 = mDrawCount - (r29 - 1);

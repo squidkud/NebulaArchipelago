@@ -1,5 +1,4 @@
 #include "Game/LiveActor/ShadowSurfaceBox.hpp"
-#include <JSystem/J3DGraphBase/J3DNativeDraw.hpp>
 #include "Game/LiveActor/LiveActor.hpp"
 #include "Game/LiveActor/ShadowController.hpp"
 #include "Game/LiveActor/ShadowSurfaceDrawer.hpp"
@@ -65,33 +64,36 @@ void ShadowSurfaceBox::draw() const {
     upDot = upDot >= 0.0f ? 1.0f : -1.0f;
     frontDot = frontDot >= 0.0f ? 1.0f : -1.0f;
 
-    J3DNativeDraw::begin(GX_QUADS, 4, NEBULA_SHAPE_COLOR0);
-    J3DNativeDraw::position(sideDot, -sideDot, -1.0f);
-    J3DNativeDraw::color(0x80);
-    J3DNativeDraw::position(sideDot, -sideDot, 1.0f);
-    J3DNativeDraw::color(0x80);
-    J3DNativeDraw::position(sideDot, sideDot, 1.0f);
-    J3DNativeDraw::color(0x80);
-    J3DNativeDraw::position(sideDot, sideDot, -1.0f);
-    J3DNativeDraw::color(0x80);
+    GXBegin(GX_QUADS, GX_VTXFMT0, 4);
+    GXPosition3f32(sideDot, -sideDot, -1.0f);
+    GXColor1u32(0x80);
+    GXPosition3f32(sideDot, -sideDot, 1.0f);
+    GXColor1u32(0x80);
+    GXPosition3f32(sideDot, sideDot, 1.0f);
+    GXColor1u32(0x80);
+    GXPosition3f32(sideDot, sideDot, -1.0f);
+    GXColor1u32(0x80);
+    GXEnd();
 
-    J3DNativeDraw::begin(GX_QUADS, 4, NEBULA_SHAPE_COLOR0);
-    J3DNativeDraw::position(-1.0f, upDot, -upDot);
-    J3DNativeDraw::color(0x80);
-    J3DNativeDraw::position(1.0f, upDot, -upDot);
-    J3DNativeDraw::color(0x80);
-    J3DNativeDraw::position(1.0f, upDot, upDot);
-    J3DNativeDraw::color(0x80);
-    J3DNativeDraw::position(-1.0f, upDot, upDot);
-    J3DNativeDraw::color(0x80);
+    GXBegin(GX_QUADS, GX_VTXFMT0, 4);
+    GXPosition3f32(-1.0f, upDot, -upDot);
+    GXColor1u32(0x80);
+    GXPosition3f32(1.0f, upDot, -upDot);
+    GXColor1u32(0x80);
+    GXPosition3f32(1.0f, upDot, upDot);
+    GXColor1u32(0x80);
+    GXPosition3f32(-1.0f, upDot, upDot);
+    GXColor1u32(0x80);
+    GXEnd();
 
-    J3DNativeDraw::begin(GX_QUADS, 4, NEBULA_SHAPE_COLOR0);
-    J3DNativeDraw::position(-frontDot, -1.0f, frontDot);
-    J3DNativeDraw::color(0x80);
-    J3DNativeDraw::position(-frontDot, 1.0f, frontDot);
-    J3DNativeDraw::color(0x80);
-    J3DNativeDraw::position(frontDot, 1.0f, frontDot);
-    J3DNativeDraw::color(0x80);
-    J3DNativeDraw::position(frontDot, -1.0f, frontDot);
-    J3DNativeDraw::color(0x80);
+    GXBegin(GX_QUADS, GX_VTXFMT0, 4);
+    GXPosition3f32(-frontDot, -1.0f, frontDot);
+    GXColor1u32(0x80);
+    GXPosition3f32(-frontDot, 1.0f, frontDot);
+    GXColor1u32(0x80);
+    GXPosition3f32(frontDot, 1.0f, frontDot);
+    GXColor1u32(0x80);
+    GXPosition3f32(frontDot, -1.0f, frontDot);
+    GXColor1u32(0x80);
+    GXEnd();
 }

@@ -1,5 +1,4 @@
 #include "JSystem/JAudio2/osdsp.hpp"
-#include <JSystem/JUtility/JUTNativeLog.hpp>
 #include "JSystem/JAudio2/osdsp_task.hpp"
 #include <revolution/dsp.h>
 #include <revolution/os.h>
@@ -9,7 +8,7 @@ extern "C" void __DSP_boot_task(DSPTaskInfo*);
 #ifndef TARGET_PC
 void DSPAddPriorTask(DSPTaskStruct* pTask) {
     if (DSP_prior_task != nullptr) {
-        JUTNativeLog("Already inited prior DSP task\n");
+        OSReport("Already inited prior DSP task\n");
         return;
     }
 

@@ -1,5 +1,4 @@
 #include "Game/System/FunctionAsyncExecutor.hpp"
-#include <JSystem/JUtility/JUTNativeLog.hpp>
 #include "Game/Util/Functor.hpp"
 #include "Game/Util/MemoryUtil.hpp"
 #include "Game/Util/MutexHolder.hpp"
@@ -29,6 +28,7 @@ FunctionAsyncExecutorThread::FunctionAsyncExecutorThread(JKRHeap* pHeap)
 }
 
 void* FunctionAsyncExecutorThread::run() {
+    OSInitFastCast();
 
     while (true) {
         mIsSuspended = false;
@@ -164,7 +164,7 @@ bool FunctionAsyncExecutor::isEnd(const char* pName) const {
     // The console read past the list's end here; natively a missing name is reported.
     if (cur == lst) {
         for (FunctionAsyncExecInfo* const* p = mHolders.begin(); p != lst; p++) {
-            JUTNativeLog("  async function %p \"%s\" end %d\n", (*p)->mName, (*p)->mName, (*p)->mIsEnd);
+            OSReport("  async function %p \"%s\" end %d\n", (*p)->mName, (*p)->mName, (*p)->mIsEnd);
         }
         OSPanic(__FILE__, __LINE__, "isEnd: no async function %p \"%s\" among %d", pName, pName, (int)mHolders.size());
     }

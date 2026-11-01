@@ -1,9 +1,5 @@
 #include "Game/System/FileHolder.hpp"
 #include "Game/Util.hpp"
-#ifdef TARGET_PC
-#include "Game/System/NebulaArchipelago.hpp"
-#include <stdio.h>
-#endif
 
 #define FILE_HOLDER_STATE_NONE 0
 #define FILE_HOLDER_STATE_READING 1
@@ -42,23 +38,12 @@ void FileHolderFileEntry::setContext(void* pContext, JKRHeap* pHeap) {
 }
 
 FileHolder::FileHolder() {
-#ifdef TARGET_PC
-    mEntries.init(0x300);  // the console's 384, unchecked
-#else
     mEntries.init(0x180);
-#endif
 }
 
 FileHolderFileEntry* FileHolder::add(const char* pFilePath, JKRHeap* pHeap, void* pContext) {
     FileHolderFileEntry* pEntry = new (pHeap, 0) FileHolderFileEntry(pFilePath, pHeap, pContext);
     mEntries.push_back(pEntry);
-#ifdef TARGET_PC
-    if ((mEntries.size() % 50) == 0 || mEntries.size() >= 340) {
-        char note[48];
-        snprintf(note, sizeof(note), "%d files (the console's table held 384)", static_cast< int >(mEntries.size()));
-        NebulaArchipelago::logNote("File holder", note, "");
-    }
-#endif
     return pEntry;
 }
 

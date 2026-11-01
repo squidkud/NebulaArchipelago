@@ -1,5 +1,4 @@
 #include "nw4r/db/assert.h"
-#include <JSystem/JUtility/JUTNativeLog.hpp>
 #include "nw4r/db/console.h"
 #include "nw4r/db/directPrint.h"
 #include "nw4r/db/mapFile.h"
@@ -14,7 +13,7 @@ namespace nw4r {
             va_start(vlist, fmt);
             if (sAssertionConsole) {
             } else {
-                JUTNativeLogV(fmt, vlist);
+                OSVReport(fmt, vlist);
             }
             va_end(vlist);
         }
@@ -101,9 +100,9 @@ namespace nw4r {
                 (void)Console_SetVisible(sAssertionConsole, true);
                 Console_DrawDirect(sAssertionConsole);
             } else {
-                JUTNativeLog("%s:%d Panic:", file, line);
-                JUTNativeLogV(fmt, vlist);
-                JUTNativeLog("\n");
+                OSReport("%s:%d Panic:", file, line);
+                OSVReport(fmt, vlist);
+                OSReport("\n");
             }
 
             if (halt) {

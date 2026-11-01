@@ -32,8 +32,7 @@ void RockCreator::init(const JMapInfoIter& rIter) {
         mNumRocks = 1;
         MR::declareStarPiece(this, Rock::getAppearStarPieceNum(rockType));
     } else {
-        const s32 frames = static_cast< s32 >(MR::getRailTotalLength(this) / mRockSpeed) + Rock::getAppearFrame();
-    mNumRocks = (mSpawnDelay != 0 ? frames / mSpawnDelay : frames < 0 ? -1 : 0) + 2;
+        mNumRocks = (static_cast< s32 >(MR::getRailTotalLength(this) / mRockSpeed) + Rock::getAppearFrame()) / mSpawnDelay + 2;
         MR::declareStarPiece(this, Rock::getAppearStarPieceNum(rockType) * 3);
     }
 

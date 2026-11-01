@@ -2,14 +2,6 @@
 #include "Game/Util/MemoryUtil.hpp"
 #include "Game/Util/StringUtil.hpp"
 #include <JSystem/JKernel/JKRExpHeap.hpp>
-#ifdef TARGET_PC
-#include "Game/System/NebulaArchipelago.hpp"
-#include "Game/System/HeapMemoryWatcher.hpp"
-#include "Game/Util/SingletonHolder.hpp"
-#include <JSystem/JKernel/JKRHeap.hpp>
-#include <JSystem/JKernel/JKRSolidHeap.hpp>
-#include <stdio.h>
-#endif
 
 FileLoader::FileLoader() {
     mLoaderThread = nullptr;
@@ -17,20 +9,10 @@ FileLoader::FileLoader() {
     mRequestedFileCount = 0;
     mFileHolder = nullptr;
     mArchiveHolder = nullptr;
-#ifdef TARGET_PC
-    // The console's 320 requests: none of these tables checks its end, and Nebula's extra files (shuffled skies and
-    // enemies, Rainbow Mario's models) come on top of the game's own.
-    mLoaderThread = new FileLoaderThread(13, 0x240, MR::getStationedHeapNapa());
-#else
     mLoaderThread = new FileLoaderThread(13, 320, MR::getStationedHeapNapa());
-#endif
     OSResumeThread(mLoaderThread->mThread);
     OSInitMutex(&mMutex);
-#ifdef TARGET_PC
-    mRequestFileInfos = new RequestFileInfo[0x240];
-#else
     mRequestFileInfos = new RequestFileInfo[0x140];
-#endif
     mFileHolder = new FileHolder();
     mArchiveHolder = new ArchiveHolder();
     mRequestedFileCount = 0;
@@ -115,19 +97,6 @@ void FileLoader::getMountedArchiveAndHeap(const char* pName, JKRArchive** pArchi
 }
 
 void FileLoader::clearRequestFileInfo(bool) {
-#ifdef TARGET_PC
-    {
-        // One line per scene to the archipelago.log: what the last scene asked of the loader and what is left of the heaps.
-        HeapMemoryWatcher* pWatcher = SingletonHolder< HeapMemoryWatcher >::get();
-        const int cacheKB = pWatcher->mFileCacheHeap != nullptr ? static_cast< int >(pWatcher->mFileCacheHeap->getTotalFreeSize() / 1024) : -1;
-        const int sceneKB = pWatcher->mSceneHeapGDDR != nullptr ? static_cast< int >(pWatcher->mSceneHeapGDDR->getTotalFreeSize() / 1024) : -1;
-        const int sceneNapaKB = pWatcher->mSceneHeapNapa != nullptr ? static_cast< int >(pWatcher->mSceneHeapNapa->getTotalFreeSize() / 1024) : -1;
-        char note[96];
-        snprintf(note, sizeof(note), "%d requests; free KB: file cache %d, scene %d, scene (napa) %d", static_cast< int >(mRequestedFileCount), cacheKB,
-                 sceneKB, sceneNapaKB);
-        NebulaArchipelago::logNote("Scene loaded", note, "");
-    }
-#endif
     mRequestedFileCount = nullptr;
 }
 
@@ -167,13 +136,6 @@ RequestFileInfo* FileLoader::addRequest(const char* pName) {
 
     RequestFileInfo* info = &mRequestFileInfos[mRequestedFileCount];
     mRequestedFileCount++;
-#ifdef TARGET_PC
-    if ((mRequestedFileCount % 50) == 0 || mRequestedFileCount >= 300) {
-        char note[48];
-        snprintf(note, sizeof(note), "%d requests (the console's table held 320)", static_cast< int >(mRequestedFileCount));
-        NebulaArchipelago::logNote("File requests", note, "");
-    }
-#endif
     info->mFileEntry = nullptr;
     info->_88 = 0;
     snprintf(info->mFileName, sizeof(info->mFileName), "%s", pName);

@@ -4,6 +4,7 @@
 #include "Game/Screen/HomeButtonLayout.hpp"
 #include "Game/Screen/SystemWipeHolder.hpp"
 #include "Game/System/AudSystemWrapper.hpp"
+#include "Game/System/DrawSyncManager.hpp"
 #include "Game/System/FileRipper.hpp"
 #include "Game/System/GameSequenceDirector.hpp"
 #include "Game/System/GameSequenceFunction.hpp"
@@ -33,11 +34,9 @@
 #include <revolution.h>
 #ifdef TARGET_PC
 #include "Game/Screen/NebulaMenuFocus.hpp"
-#include "Game/Screen/NebulaRtPrepare.hpp"
 #include "Game/Screen/NebulaSettingsMenu.hpp"
 #include "Game/Screen/NebulaIcons.hpp"
 #include "Game/System/NebulaCutsceneSkip.hpp"
-#include <revolution/gx/GXRegs.h>
 #endif
 
 #define GX_FIFO_SIZE 0x80000
@@ -58,6 +57,7 @@ extern "C" void nebula_game_main(void) {
 #else
 void main(void) {
 #endif
+    OSInitFastCast();
     DVDInit();
     VIInit();
     HeapMemoryWatcher::createRootHeap();
@@ -95,6 +95,7 @@ void GameSystem::init() {
     initNerve(GET_NERVE(GameSystem, GameSystemInitializeAudio));
     mSequenceDirector = new GameSequenceDirector();
     initGX();
+    DrawSyncManager::start(0x300, 15);
     mSceneController = new GameSystemSceneController();
     mObjHolder->init();
     mErrorWatcher = new GameSystemErrorWatcher();
@@ -172,8 +173,6 @@ void GameSystem::initGX() {
     }
 
     GXInit(mFifoBase, GX_FIFO_SIZE);
-    // The defaults GXInit leaves to its first draw, sent now: the game's records follow them.
-    __GXSetDirtyState();
 }
 
 void GameSystem::initAfterStationedResourceLoaded() {
@@ -186,7 +185,6 @@ void GameSystem::initAfterStationedResourceLoaded() {
     NebulaIcons::init();
     NebulaCutsceneSkip::init();
     NebulaSettingsMenu::init();
-    NebulaRtPrepare::init();
 #endif
     mSceneController->initAfterStationedResourceLoaded();
     mSequenceDirector->initAfterResourceLoaded();
@@ -248,7 +246,6 @@ void GameSystem::draw() {
     mErrorWatcher->draw();
 #ifdef TARGET_PC
     mSceneController->drawSceneOverlay();
-    NebulaRtPrepare::draw();
     if (isSettingsShown) {
         NebulaSettingsMenu::draw();
         mObjHolder->drawStarPointer();
@@ -264,7 +261,6 @@ void GameSystem::update() {
     mObjHolder->update();
 #ifdef TARGET_PC
     NebulaMenuFocus::update();
-    NebulaRtPrepare::update();
     NebulaSettingsMenu::update();
     NebulaIcons::update();
     // The skip's question waits under the settings menu.

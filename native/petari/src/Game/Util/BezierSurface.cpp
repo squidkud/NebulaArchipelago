@@ -1,5 +1,4 @@
 #include "Game/Util/BezierSurface.hpp"
-#include <JSystem/J3DGraphBase/J3DNativeDraw.hpp>
 #include "Game/Util/MathUtil.hpp"
 #include <revolution/gx/GXVert.h>
 #include <revolution/mtx.h>
@@ -727,12 +726,14 @@ void BezierSurface::drawTrianglePatchPos() const {
         vertices = vertexBuffer;
     }
 
-    J3DNativeDraw::begin(GX_TRIANGLESTRIP, numPoints, 0);
+    GXBegin(GX_TRIANGLESTRIP, GX_VTXFMT0, numPoints);
 
     for (s32 idx = 0; idx < numPoints; idx++) {
         u16 vertexIndex = vertexOrder[idx];
-        J3DNativeDraw::position(vertices[vertexIndex].x, vertices[vertexIndex].y, vertices[vertexIndex].z);
+        GXPosition3f32(vertices[vertexIndex].x, vertices[vertexIndex].y, vertices[vertexIndex].z);
     }
+
+    GXEnd();
 }
 
 void BezierSurface::drawTrianglePatchPosNorm() const {
@@ -756,13 +757,15 @@ void BezierSurface::drawTrianglePatchPosNorm() const {
         normal = normalBuffer;
     }
 
-    J3DNativeDraw::begin(GX_TRIANGLESTRIP, numPoints, NEBULA_SHAPE_NORMAL);
+    GXBegin(GX_TRIANGLESTRIP, GX_VTXFMT0, numPoints);
 
     for (s32 idx = 0; idx < numPoints; idx++) {
         u16 vertexIndex = vertexOrder[idx];
-        J3DNativeDraw::position(vertices[vertexIndex].x, vertices[vertexIndex].y, vertices[vertexIndex].z);
-        J3DNativeDraw::normal(normal[vertexIndex].x, normal[vertexIndex].y, normal[vertexIndex].z);
+        GXPosition3f32(vertices[vertexIndex].x, vertices[vertexIndex].y, vertices[vertexIndex].z);
+        GXNormal3f32(normal[vertexIndex].x, normal[vertexIndex].y, normal[vertexIndex].z);
     }
+
+    GXEnd();
 }
 
 void BezierSurface::drawTrianglePatchPosST() const {
@@ -780,15 +783,17 @@ void BezierSurface::drawTrianglePatchPosST() const {
     }
 
     const Vec* vec;
-    J3DNativeDraw::begin(GX_TRIANGLESTRIP, numPoints, NEBULA_SHAPE_TEXCOORD0);
+    GXBegin(GX_TRIANGLESTRIP, GX_VTXFMT0, numPoints);
 
     for (s32 idx = 0; idx < numPoints; idx++) {
         u16 vertexIndex = vertexOrder[idx];
-        J3DNativeDraw::position(vertices[vertexIndex].x, vertices[vertexIndex].y, vertices[vertexIndex].z);
+        GXPosition3f32(vertices[vertexIndex].x, vertices[vertexIndex].y, vertices[vertexIndex].z);
         vec = &triangleST[vertexIndex];
         TVec2f texCoord(mSTPoints[0] * vec->x + mSTPoints[1] * vec->y + mSTPoints[2] * vec->z);
-        J3DNativeDraw::texCoord(texCoord.x, texCoord.y);
+        GXTexCoord2f32(texCoord.x, texCoord.y);
     }
+
+    GXEnd();
 }
 
 void BezierSurface::drawTrianglePatchPosNormST() const {
@@ -813,14 +818,16 @@ void BezierSurface::drawTrianglePatchPosNormST() const {
         normal = normalBuffer;
     }
 
-    J3DNativeDraw::begin(GX_TRIANGLESTRIP, numPoints, NEBULA_SHAPE_NORMAL | NEBULA_SHAPE_TEXCOORD0);
+    GXBegin(GX_TRIANGLESTRIP, GX_VTXFMT0, numPoints);
 
     for (s32 idx = 0; idx < numPoints; idx++) {
         u16 vertexIndex = vertexOrder[idx];
-        J3DNativeDraw::position(vertices[vertexIndex].x, vertices[vertexIndex].y, vertices[vertexIndex].z);
-        J3DNativeDraw::normal(normal[vertexIndex].x, normal[vertexIndex].y, normal[vertexIndex].z);
+        GXPosition3f32(vertices[vertexIndex].x, vertices[vertexIndex].y, vertices[vertexIndex].z);
+        GXNormal3f32(normal[vertexIndex].x, normal[vertexIndex].y, normal[vertexIndex].z);
         TVec2f texCoord =
             (mSTPoints[0] * triangleST[vertexIndex].x + mSTPoints[1] * triangleST[vertexIndex].y + mSTPoints[2] * triangleST[vertexIndex].z);
-        J3DNativeDraw::texCoord(texCoord.x, texCoord.y);
+        GXTexCoord2f32(texCoord.x, texCoord.y);
     }
+
+    GXEnd();
 }

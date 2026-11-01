@@ -1,5 +1,4 @@
 #include "Game/NPC/TalkDirector.hpp"
-#include <JSystem/J3DGraphBase/J3DNativeView.hpp>
 #include "Game/LiveActor/LiveActor.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/NPC/TalkBalloon.hpp"
@@ -45,15 +44,18 @@ namespace NrvTalkDirector {
     NEW_NERVE(TalkDirectorNrvTerm, TalkDirector, Term);
 };  // namespace NrvTalkDirector
 
-TalkPeekZ::TalkPeekZ() {
+TalkPeekZ::TalkPeekZ() : mDrawSync(DrawSyncManager::sInstance->setCallback(4, 1, this)) {
 }
 
 void TalkPeekZ::setDrawSyncToken() {
-    J3DNativeView::getProjectionv(&_20);
-    J3DNativeView::getViewportv(&_3C);
+    GXGetProjectionv(&_20);
+    GXGetViewportv(&_3C);
     _8 = 0;
-    J3DNativeView::captureReadback(cReadbackChannel);
+    DrawSyncManager::sInstance->pushBreakPoint();
+    GXSetDrawSync(mDrawSync);
+}
 
+void TalkPeekZ::drawSyncCallback(u16 arg) {
     if (!MR::isInRange(mScreenPos.x, 0.0f, MR::getScreenWidth() - 1) ||
         !MR::isInRange(mScreenPos.y, 0.0f, JUTVideo::getManager()->getEfbHeight() - 1)) {
         return;
@@ -62,7 +64,7 @@ void TalkPeekZ::setDrawSyncToken() {
     TVec2f pos;
     MR::convertScreenPosToFrameBufferPos(&pos, mScreenPos);
 
-    _8 = J3DNativeView::readbackDepth(cReadbackChannel, (s32)(pos.x), (s32)(pos.y));
+    GXPeekZ((s32)(pos.x), (s32)(pos.y), &_8);
 
     TDDraw::invProject(&_14, TVec3f(mScreenPos.x, mScreenPos.y, static_cast< f32 >(_8)), const_cast< MtxPtr >(MR::getCameraViewMtx().mMtx), &_20,
                        &_3C, false);

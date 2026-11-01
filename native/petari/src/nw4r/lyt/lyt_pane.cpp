@@ -1,6 +1,4 @@
 #include "nw4r/lyt/animation.h"
-#include <JSystem/J3DGraphBase/J3DNativeState.hpp>
-#include <JSystem/J3DGraphBase/J3DNativeShape.hpp>
 #ifdef TARGET_PC
 #include "Game/Util/MotionSignal.hpp"
 #endif
@@ -370,8 +368,8 @@ namespace nw4r {
                 pMtx = &mGlbMtx;
             }
 
-            J3DNativeShape::sendPosition(*pMtx, GX_PNMTX0);
-            J3DNativeState::setCurrentMtx(GX_PNMTX0);
+            GXLoadPosMtxImm(*pMtx, GX_PNMTX0);
+            GXSetCurrentMtx(GX_PNMTX0);
         }
 
         const math::VEC2 Pane::GetVtxPos() const {

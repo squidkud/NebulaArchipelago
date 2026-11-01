@@ -17,6 +17,8 @@
 
 const NebulaHostServices* nebula_host(void);
 
+static const char kHomeDir[] = "/title/00010000/524d4745/data"; /* RMGE01 */
+
 enum { kSlots = 32 };
 
 typedef enum { kAfterNone, kAfterOpen, kAfterLength, kAfterSafeClose } After;
@@ -104,7 +106,7 @@ static void absolute_path(char* out, const char* path) {
     if (path[0] == '/') {
         strncpy(out, path, NAND_MAX_PATH - 1);
     } else {
-        strcpy(out, nebula_home_dir());
+        strcpy(out, kHomeDir);
         strncat(out, "/", NAND_MAX_PATH - 1 - strlen(out));
         strncat(out, path, NAND_MAX_PATH - 1 - strlen(out));
     }
@@ -338,7 +340,7 @@ s32 NANDCheck(u32 fsBlock, u32 inode, u32* answer) {
 }
 
 s32 NANDGetHomeDir(char path[NAND_MAX_PATH]) {
-    strcpy(path, nebula_home_dir());
+    strcpy(path, kHomeDir);
     return NAND_RESULT_OK;
 }
 

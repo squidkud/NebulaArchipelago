@@ -1,7 +1,6 @@
 #pragma once
 
 #include "Game/LiveActor/LiveActor.hpp"
-#include "Game/Util/NativeMesh.hpp"
 
 class OceanRingPipe;
 class JUTTexture;
@@ -17,7 +16,7 @@ public:
 
     void initDisplayList();
     void loadMaterial() const;
-    void sendGD();
+    void sendGD() const;
 
     /* 0x8C */ const OceanRingPipe* mRingPipe;
     /* 0x90 */ f32 mTexU0;
@@ -25,6 +24,6 @@ public:
     /* 0x98 */ f32 mTexU1;
     /* 0x9C */ f32 mTexV1;
     /* 0xA0 */ JUTTexture* mWaterPipeInsideTex;
-    // The pipe's surface as the renderer draws it.
-    NativeMesh mMesh;
+    /* 0xA4 */ u32 mDispListLength;
+    /* 0xA8 */ u8* mDispList;
 };

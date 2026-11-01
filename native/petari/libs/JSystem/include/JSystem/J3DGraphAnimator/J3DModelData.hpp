@@ -15,6 +15,7 @@ public:
     }
 
     s32 newSharedDisplayList(u32);
+    void indexToPtr();
     void clear();
     void syncJ3DSysFlags() const;
 

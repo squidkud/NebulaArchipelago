@@ -390,6 +390,8 @@ void HanachanParts::calcAndSetBaseMtx() {
 void HanachanParts::exeWalk() {
     if (MR::isFirstStep(this)) {
         MR::startAction(this, "Walk");
+        s32 frameMax = MR::getBckFrameMax(this, "Walk") - 1;
+        f32 unused = (frameMax + ::hWalkStep * mPartsIndex) % frameMax;
         MR::setBckFrameAndStop(this, ::hWalkStep * mPartsIndex);
         MR::setBckRate(this, ::hWalkAnimRate);
     }
@@ -426,6 +428,9 @@ void HanachanParts::exeTrample() {
             mIsLanded = true;
             changeHeadAngry();
             MR::startAction(this, "Walk");
+
+            s32 frameMax = MR::getBckFrameMax(this, "Walk") - 1;
+            f32 unused = (frameMax + mPartsIndex * ::hWalkStep) % frameMax;
 
             MR::setBckFrameAndStop(this, mPartsIndex * ::hWalkStep);
             MR::setBckRate(this, ::hAngryAnimRate);
@@ -619,7 +624,9 @@ void HanachanParts::exeOverturnWait() {
 
     if (!mIsLanded && MR::isBckStopped(this)) {
         MR::startAction(this, "OverturnWait");
+        s16 frameMax = MR::getBckFrameMax(this, "OverturnWait");
         s32 frame = mPartsIndex * ::hWalkStep;
+        f32 unused = ((frameMax - 1) + frame) % (frameMax - 1);
         MR::setBckFrameAndStop(this, frame);
         MR::setBckRate(this, ::hWalkAnimRate);
         mIsLanded = true;

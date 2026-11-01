@@ -1,5 +1,4 @@
 #include "JSystem/JAudio2/JASCalc.hpp"
-#include <string.h>
 #include <cmath>
 
 #ifdef TARGET_PC
@@ -127,7 +126,7 @@ void JASCalc::bzero(void* dest, u32 size) {
     u32* udest;
     u8* bdest = (u8*)dest;
     if ((size & 0x1f) == 0 && (reinterpret_cast< uintptr_t >(dest) & 0x1f) == 0) {
-        memset(dest, 0, size);
+        DCZeroRange(dest, size);
         return;
     }
 

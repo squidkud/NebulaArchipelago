@@ -19,11 +19,7 @@ ArchiveHolderArchiveEntry::~ArchiveHolderArchiveEntry() {
 }
 
 ArchiveHolder::ArchiveHolder() {
-#ifdef TARGET_PC
-    mEntries.init(0x300);  // the console's 384, unchecked
-#else
     mEntries.init(0x180);
-#endif
     OSInitMutex(&mMutex);
 }
 
