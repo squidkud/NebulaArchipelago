@@ -447,7 +447,8 @@ se coche toute seule. Les identifiants viennent de l'APWorld. Je n'ai pas pu lan
 sans refaire de multiworld : `star_colors`, `death_link`, `music_shuffle`, `enemy_shuffle`, `skybox_shuffle`, `color_0` à
 `color_23`. Exemple : `option.star_colors=off`. Le fichier est relu toutes les 5 s pendant que le jeu tourne ; le jeu applique
 le changement au prochain niveau chargé (pas de menu dans le jeu : ce serait trop lourd). Les options de logique (objectifs,
-étoiles, mouvements...) ne peuvent pas être changées ainsi. Non testé en jeu.
+étoiles, mouvements...) ne peuvent pas être changées ainsi. Non testé en jeu. `enemy_shuffle` et `skybox_shuffle` changent ce que
+le jeu charge : après les avoir changés, redémarre le jeu (les changer pendant une partie a fait disparaître des modèles).
 
 **Boo's Boneyard.** Elle s'ouvre avec le Luma affamé à côté de la Gateway (pas avec l'étoile Pièces Violettes de la Gateway),
 donc elle existe toujours dans le multiworld (même sans les étoiles Pièces Violettes) et compte pour le but « Bowser + toutes
