@@ -164,7 +164,7 @@ void AstroMapObjFunction::makeArchiveListFromArg0(NameObjArchiveListCollector* p
 #ifdef TARGET_PC
     if (MR::isEqualString(objName, "AstroDomeSky")) {
         // The skybox_shuffle: the sky that stands in place of this dome's.
-        pCollector->addArchive(NebulaArchipelago::getShuffledDomeSky(modelName));
+        pCollector->addArchive(NebulaArchipelago::getShuffledDomeSkyArchive(modelName));
     }
 #endif
 

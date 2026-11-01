@@ -1298,6 +1298,8 @@ void start(const std::filesystem::path& settings_folder, LogFn log) {
         std::error_code error;
         std::filesystem::create_directories(settings_folder, error);
         const std::lock_guard<std::mutex> log_lock(g_log_mutex);
+        // The log of the previous start is kept (archipelago.previous.log): a game restarted after a fault no longer loses it.
+        std::filesystem::rename(settings_folder / "archipelago.log", settings_folder / "archipelago.previous.log", error);
         g_log_file.open(settings_folder / "archipelago.log", std::ios::trunc);
     }
     log_sink(("Nebula Archipelago client for the game \"" + std::string(kGameName) + "\"; settings folder: " + settings_folder.string()).c_str());

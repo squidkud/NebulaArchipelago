@@ -672,6 +672,14 @@ namespace NebulaPlayerColors {
                 continue;
             }
 
+            // The face, the eyes, the eyelids, the hair and the nose are not clothes: the eyes' blue iris would turn into the
+            // overalls' colour (red eyes on a Luigi with red overalls), so these pictures are left as the game has them.
+            if (kind < 0 && pName != nullptr &&
+                (contains(pName, "eye") || contains(pName, "lid") || contains(pName, "face") || contains(pName, "hair") ||
+                 contains(pName, "noizu"))) {
+                continue;
+            }
+
             char note[96];
             snprintf(note, sizeof(note), "%dx%d format %d, %s", static_cast< int >(pImage->mWidth), static_cast< int >(pImage->mHeight),
                      static_cast< int >(pImage->mFormat), kind < 0 ? "colours by hue" : "by name");

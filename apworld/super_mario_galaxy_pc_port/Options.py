@@ -292,7 +292,8 @@ class SkyboxShuffle(Toggle):
     """Swap the skies of the stages for other skies (the same multiworld swaps them the same way): the plain skies among
     themselves (including the summer, retro and dark-space skies, Bowser Jr.'s fight and the children's room), the skies
     drawn with a projection map among themselves (including the Observatory's, Bowser's fight and the title screen's),
-    and the three skies inside the domes among themselves. Experimental: not tested in play."""
+    and the three skies inside the domes among themselves. Experimental: on the current Nebula a swapped sky can draw as a
+    blue screen and hide models (being fixed)."""
     display_name = "Skybox Shuffle"
 
 
@@ -324,9 +325,9 @@ class StarColors(Toggle):
 class TransformationItems(Toggle):
     """The transformations become items. Bee Mushroom, Boo Mushroom, Spring Mushroom, Fire Flower, Ice Flower and Flying
     (the Red Star) are in the multiworld: taking one of those power-ups in a galaxy does nothing until you have received
-    its item. Rainbow Mario is not affected. The logic knows the stars whose whole mission is a transformation (Honeyhive, Honeyclimb,
-    Boo's Boneyard, Dusty Dune's first star, Cake Lane, Freezeflame); the six items are also placed early, because it
-    does not know the other stars where a power-up only helps (come back later if a star needs one you lack)."""
+    its item. Rainbow Mario is not affected. The logic knows which stars need which transformation (the list is in the
+    game's page of the Archipelago site); a few of them can still be done without it, out of logic: the logic never counts
+    on that, the page only tells you it is possible."""
     display_name = "Transformations as Items"
 
 

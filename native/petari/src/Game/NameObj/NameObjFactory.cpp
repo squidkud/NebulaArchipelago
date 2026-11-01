@@ -8210,7 +8210,7 @@ namespace NameObjFactory {
 
 #ifdef TARGET_PC
             // The skybox_shuffle: the sky that stands in place of this one is loaded too.
-            const char* pSky = NebulaArchipelago::getShuffledSky(pName);
+            const char* pSky = NebulaArchipelago::getShuffledSkyArchive(pName);
 
             if (pSky != pName && strcmp(pSky, pName) != 0) {
                 pCollector->addArchive(pSky);
@@ -8218,7 +8218,7 @@ namespace NameObjFactory {
 
             if (strcmp(pName, "FileSelector") == 0) {
                 // The sky of the title and file selection screens (FileSelectSky) is shuffled too.
-                const char* pTitleSky = NebulaArchipelago::getShuffledSky("CometNearOrbitSky");
+                const char* pTitleSky = NebulaArchipelago::getShuffledSkyArchive("CometNearOrbitSky");
 
                 if (strcmp(pTitleSky, "CometNearOrbitSky") != 0) {
                     pCollector->addArchive(pTitleSky);

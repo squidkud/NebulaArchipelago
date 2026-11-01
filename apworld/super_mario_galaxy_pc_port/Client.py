@@ -10,6 +10,7 @@ import typing
 import Utils
 from CommonClient import ClientCommandProcessor, CommonContext, get_base_parser, gui_enabled, logger, server_loop
 
+from .Forms import OUT_OF_LOGIC
 from .Locations import every_star
 from .TrackerData import format_places, format_summary, summarize
 
@@ -47,7 +48,9 @@ class SMGCommandProcessor(ClientCommandProcessor):
             return
         for star in every_star:
             if star.stage in by_stage and star.code in known:
-                logger.info(f"  [{'x' if star.code in self.ctx.checked_locations else ' '}] {star.location_name}")
+                note = OUT_OF_LOGIC.get(star.name)
+                extra = f"  (possible without the {note}, out of logic)" if note else ""
+                logger.info(f"  [{'x' if star.code in self.ctx.checked_locations else ' '}] {star.location_name}{extra}")
 
     def _cmd_places(self) -> None:
         """Which galaxy each miniature of the Observatory shows (when the galaxies are shuffled)."""

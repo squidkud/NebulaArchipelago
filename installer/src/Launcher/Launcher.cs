@@ -139,6 +139,8 @@ namespace Nebula.Launcher
             {
                 if (!File.Exists(Path.Combine(Content, "game.pak")))
                     return "Nebula could not find the game content (game.pak). Choose it in Nebula settings.";
+                if (!ArchipelagoPage.ContentIsCurrent(Content))
+                    return "The game was packed for another version of Nebula. Pack it again from the Archipelago tab.";
                 if (RuntimeLeaseHeld() && !EndRunningGame())
                     return "Nebula is already running.";
                 LaunchOptions.ValidatePair(App);
@@ -383,15 +385,10 @@ namespace Nebula.Launcher
             var input = new TabPage("Controls");
             var generalPage = new TabPage("General");
             var advanced = new TabPage("Advanced");
-            var pages = new List<TabPage> { archipelagoTab, display, image, input, sound, generalPage };
-            if (ModsPage.Available(session.App))
-            {
-                // The game's mods (ModsPage). Added with the others: TabPages.Insert is ignored before the control
-                // has a window.
-                var modsTab = new TabPage("Mods");
-                pages.Add(modsTab);
-                new ModsPage(modsTab, session.App, session.Content);
-            }
+            // Nebula Archipelago shows only three tabs: Archipelago, Updates and Advanced. The other pages (display,
+            // graphics, controls, audio, general) are still built so their settings keep loading and saving with
+            // their stored values, but they are not attached to the window.
+            var pages = new List<TabPage> { archipelagoTab };
             if (!session.Portable) pages.Add(updatesTab);
 #if NEBULA_DEV
             var devTab = new TabPage("Developer");
@@ -629,7 +626,7 @@ namespace Nebula.Launcher
             };
             UiScale.Apply(this);
             // Tab headers are not scaled with the form.
-            using (var g = CreateGraphics()) tabs.ItemSize = new Size((int)(Math.Min(98, 716 / tabs.TabCount) * g.DpiX / 96f), (int)(28 * g.DpiY / 96f));
+            using (var g = CreateGraphics()) tabs.ItemSize = new Size((int)(Math.Min(140, 716 / tabs.TabCount) * g.DpiX / 96f), (int)(28 * g.DpiY / 96f));
             // After scaling: the notice moves the rows below it by its measured height.
             RefreshDisplayNotice();
             // Each time the launcher opens it looks for a newer release by itself (unless unticked in the Updates tab).
