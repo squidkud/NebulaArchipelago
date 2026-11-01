@@ -15,6 +15,12 @@
 #ifndef AppVersion
   #define AppVersion "0.0.0"
 #endif
+; The file-version resource takes digits only: a beta (1.2.3-beta.1) keeps its full name everywhere else.
+#define NumericVersion AppVersion
+#if Pos("-", AppVersion) > 0
+  #undef NumericVersion
+  #define NumericVersion Copy(AppVersion, 1, Pos("-", AppVersion) - 1)
+#endif
 #ifndef StageDir
   #error StageDir must be defined: ISCC /DStageDir=<folder>
 #endif
@@ -45,7 +51,7 @@ SolidCompression=yes
 WizardStyle=modern
 CloseApplications=yes
 RestartApplications=no
-VersionInfoVersion={#AppVersion}
+VersionInfoVersion={#NumericVersion}
 VersionInfoCompany=squidkud
 VersionInfoDescription=Nebula Archipelago Setup
 VersionInfoProductName=Nebula Archipelago
