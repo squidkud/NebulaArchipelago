@@ -17,5 +17,8 @@ namespace NebulaPlayerColors {
     // normal colour (#5CBEFF), the blue one the useful colour (#6D8BE8); the red one (traps) stays. Which picture is which is
     // read from the picture's own colour.
     void applyStar(J3DModelData* pData);
+
+    // Turns the hue of every texture of the model by `degrees` (the star select screen's nebula with skybox_shuffle).
+    void applyHueShift(J3DModelData* pData, f32 degrees);
 };  // namespace NebulaPlayerColors
 #endif

@@ -74,6 +74,10 @@ namespace NebulaArchipelago {
     bool getStarColorFrame(s32 scenario, s32* pFrame);
     bool areStarColorsOn();
 
+    // The skybox_shuffle option also recolours the nebula of the star select screen: a hue shift (degrees, 60 to 300) chosen
+    // from the multiworld's seed (the same multiworld, the same colour). false when the option is off or there is no seed.
+    bool getStarSelectSkyHueShift(f32* pDegrees);
+
     // The music shuffle option: the sound ID of the music the game asks for (a stage's or boss's theme) -> the one that plays
     // instead (the same ID when the option is off or the ID is not a theme). The same multiworld shuffles the same way.
     u32 getShuffledMusic(u32 soundID);

@@ -8,6 +8,9 @@
 #include "Game/System/GalaxyStatusAccessor.hpp"
 #include "Game/System/GameDataConst.hpp"
 #ifdef TARGET_PC
+#include "Game/LiveActor/ModelManager.hpp"
+#include "Game/Player/NebulaPlayerColors.hpp"
+#include "Game/Scene/MultiSceneActor.hpp"
 #include "Game/System/NebulaArchipelago.hpp"
 #endif
 #include "Game/Util/EffectUtil.hpp"
@@ -124,6 +127,17 @@ void ScenarioSelectLayout::init(const JMapInfoIter& rIter) {
 
     mScenarioSky = new MultiSceneActor("\203\126\203\151\203\212\203\111\221\111\221\360\202\314\213\363" /* シナリオ選択の空 */, "ScenarioSelectSky", false);
     mScenarioSky->initWithoutIter();
+
+    #ifdef TARGET_PC
+    // skybox_shuffle: the nebula behind the star select screen takes a colour per multiworld.
+    {
+        f32 hueShift;
+
+        if (NebulaArchipelago::getStarSelectSkyHueShift(&hueShift) && mScenarioSky->getModelManager() != nullptr) {
+            NebulaPlayerColors::applyHueShift(mScenarioSky->getModelManager()->getJ3DModelData(), hueShift);
+        }
+    }
+    #endif
 
     mBackButton = new BackButton("\226\337\202\351\203\173\203\136\203\223" /* 戻るボタン */, false);
     mBackButton->initWithoutIter();

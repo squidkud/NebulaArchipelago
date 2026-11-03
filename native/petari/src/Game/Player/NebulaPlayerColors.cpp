@@ -41,6 +41,8 @@ namespace {
         f32 mHue;        // the new colour, HSV
         f32 mSat;
         f32 mVal;
+        bool mRotate = false;  // only turns every colour's hue by mShift degrees (saturation and brightness are kept)
+        f32 mShift = 0.0f;
     };
 
     f32 smooth(f32 edge0, f32 edge1, f32 x) {
@@ -124,6 +126,19 @@ namespace {
 
             if (!rClass.mOn) {
                 continue;
+            }
+
+            if (rClass.mRotate) {
+                f32 nh = fmodf(h + rClass.mShift, 360.0f);
+                nh = nh < 0.0f ? nh + 360.0f : nh;
+                f32 nr;
+                f32 ng;
+                f32 nb;
+                toRgb(nh, s, v, &nr, &ng, &nb);
+                *pR = static_cast< u8 >(nr * 255.0f + 0.5f);
+                *pG = static_cast< u8 >(ng * 255.0f + 0.5f);
+                *pB = static_cast< u8 >(nb * 255.0f + 0.5f);
+                return;
             }
 
             f32 weight = 1.0f;
@@ -632,6 +647,23 @@ namespace NebulaPlayerColors {
             recolorClass.mRefSat = sat;
             toHsv(pRgb[0] / 255.0f, pRgb[1] / 255.0f, pRgb[2] / 255.0f, &recolorClass.mHue, &recolorClass.mSat, &recolorClass.mVal);
             recolorImage(&recolorClass, 1, pImage);
+        }
+    }
+
+    void applyHueShift(J3DModelData* pData, f32 degrees) {
+        if (pData == nullptr || pData->getTexture() == nullptr) {
+            return;
+        }
+
+        Recolor rotation;
+        rotation.mOn = true;
+        rotation.mRotate = true;
+        rotation.mShift = degrees;
+        J3DTexture* pTexture = pData->getTexture();
+        const u16 num = pTexture->getNum();
+
+        for (u16 i = 0; i < num; i++) {
+            recolorImage(&rotation, 1, pTexture->getResTIMG(i));
         }
     }
 

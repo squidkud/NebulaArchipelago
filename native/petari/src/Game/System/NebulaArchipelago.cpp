@@ -1272,6 +1272,25 @@ bool NebulaArchipelago::areStarColorsOn() {
     return isHostActive() && status().mStarColors;
 }
 
+bool NebulaArchipelago::getStarSelectSkyHueShift(f32* pDegrees) {
+    if (!isHostActive() || !status().mSkyShuffle) {
+        return false;
+    }
+
+    const u32 seed = __NebulaArchipelago(NEBULA_AP_SEED, 0);
+
+    if (seed == 0) {
+        return false;
+    }
+
+    u32 hash = seed * 2654435761u + 977u;
+    hash ^= hash >> 15;
+    hash *= 2246822519u;
+    hash ^= hash >> 13;
+    *pDegrees = 60.0f + static_cast< f32 >(hash % 241u);
+    return true;
+}
+
 bool NebulaArchipelago::getStarColorFrame(s32 scenario, s32* pFrame) {
     if (!isHostActive() || !status().mStarColors) {
         return false;
