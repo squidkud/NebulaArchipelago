@@ -7,6 +7,9 @@
 #include "Game/NameObj/NameObjArchiveListCollector.hpp"
 #include "Game/Screen/StageResultInformer.hpp"
 #include "Game/System/GameSequenceFunction.hpp"
+#ifdef TARGET_PC
+#include "Game/System/NebulaArchipelago.hpp"
+#endif
 #include "Game/Util/CameraUtil.hpp"
 #include "Game/Util/DemoUtil.hpp"
 #include "Game/Util/EffectUtil.hpp"
@@ -38,6 +41,14 @@ namespace {
 
 namespace {
     bool isGrandStar() {
+#ifdef TARGET_PC
+        // Archipelago: a Grand Star comes back to its dome like any star (StorySequenceExecutor), so its return is an
+        // ordinary star's: the Grand Star's flight powers the Observatory up, which makes no sense in a dome, and its
+        // last part waits for what only the Observatory does (the player could not move afterwards).
+        if (NebulaArchipelago::isActive()) {
+            return false;
+        }
+#endif
         return GameSequenceFunction::isGrandStarAtResultSequence();
     }
 };  // namespace
