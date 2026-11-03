@@ -146,7 +146,7 @@ Mario Galaxy dans un multiworld. Il suppose que vous n'avez jamais compilé de p
 - **Couleurs de Mario et de Luigi** (YAML, APWorld 0.9.5) : `mario_cap_color`, `mario_shirt_color`, `mario_overalls_color`,
   `mario_gloves_color`, `mario_shoes_color` et les mêmes en `luigi_...`. Une valeur : un nom (`red`, `orange`, `yellow`,
   `green`, `azure`, `blue`, `purple`, `pink`, `brown`, `white`, `black`, `gold`...), un code `ff8000` / `#ff8000`, ou
-  `255,128,0`. Vide : la couleur du jeu. Le jeu recolore les images des modèles en mémoire, une fois, avant le premier
+  `255,128,0`, ou `random` (une couleur nommée tirée au hasard à la génération, pour chaque pièce séparément). Vide : la couleur du jeu. Le jeu recolore les images des modèles en mémoire, une fois, avant le premier
   affichage : la casquette et le t-shirt sont ce qui est rouge sur Mario (vert sur Luigi) et la salopette ce qui est
   bleu ; gants et chaussures sont recolorés en entier, d'après le **nom** de leur image. Limite : la casquette et le
   t-shirt partagent leur image, donc la couleur de casquette sert aux deux tant que le jeu ne les sépare pas. Pas
