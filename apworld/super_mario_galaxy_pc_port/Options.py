@@ -344,12 +344,17 @@ COLOR_OPTION_NAMES = (
 )
 
 
-def parse_color(text: str) -> int | None:
-    """A colour as 0xRRGGBB: a name from COLOR_NAMES, "RRGGBB" or "#RRGGBB", or "R,G,B" (0 to 255 each). None when the text
-    is empty (the part keeps the game's colour); raises ValueError for a text that is none of those."""
+def parse_color(text: str, random=None) -> int | None:
+    """A colour as 0xRRGGBB: a name from COLOR_NAMES, "RRGGBB" or "#RRGGBB", or "R,G,B" (0 to 255 each). "random" is one of
+    the named colours drawn with `random` (the generation's random generator: the same seed gives the same colours). None
+    when the text is empty (the part keeps the game's colour); raises ValueError for a text that is none of those."""
     text = str(text).strip().lower()
     if not text or text in ("default", "none", "off", "vanilla"):
         return None
+    if text == "random":
+        if random is None:
+            raise ValueError(text)
+        return random.choice(sorted(set(COLOR_NAMES.values())))
     if text in COLOR_NAMES:
         return COLOR_NAMES[text]
     if "," in text:
@@ -365,8 +370,8 @@ def parse_color(text: str) -> int | None:
 
 class PlayerColor(FreeText):
     """A colour for this part of the character: a name (red, orange, yellow, green, azure, blue, purple, pink, brown, white,
-    black, gold...), a hex code like ff8000 or #ff8000, or three numbers like 255,128,0. Empty keeps the game's colour. Only
-    you see it. Mario and Luigi pictures are recoloured in memory: the cap and the shirt are the parts that are red on Mario
+    black, gold...), a hex code like ff8000 or #ff8000, or three numbers like 255,128,0. "random" draws one of the named
+    colours for this part when the multiworld is generated. Empty keeps the game's colour. Only you see it. Mario and Luigi pictures are recoloured in memory: the cap and the shirt are the parts that are red on Mario
     (green on Luigi) and the overalls those that are blue; the gloves and the shoes are recoloured whole."""
     default = ""
 

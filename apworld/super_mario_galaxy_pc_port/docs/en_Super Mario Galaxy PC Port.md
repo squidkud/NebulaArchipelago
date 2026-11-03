@@ -133,7 +133,7 @@ Use a new save file for each multiworld.
 
 `mario_cap_color`, `mario_shirt_color`, `mario_overalls_color`, `mario_gloves_color`, `mario_shoes_color` and the same with
 `luigi_` recolour the character for you only. Each takes a name (`red`, `orange`, `yellow`, `green`, `azure`, `blue`, `purple`,
-`pink`, `brown`, `white`, `black`, `gold`...), a hex code (`ff8000`, `#ff8000`) or `255,128,0`; empty keeps the game's own colour.
+`pink`, `brown`, `white`, `black`, `gold`...), a hex code (`ff8000`, `#ff8000`), `255,128,0` or `random` (a named colour drawn when the multiworld is generated, for each part on its own); empty keeps the game's own colour.
 The game recolours the character's pictures in memory: the cap and the shirt are what is red on Mario (green on Luigi), the overalls
 what is blue; the gloves and shoes are recoloured whole, found by the name of their picture. The cap and the shirt share a picture,
 so the cap colour is used for both unless the game keeps them apart. Not tested in play.

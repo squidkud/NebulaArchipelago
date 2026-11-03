@@ -623,10 +623,10 @@ class SMGWorld(World):
         # Mario's and Luigi's colours (color_0 .. color_9): 0x01000000 | 0xRRGGBB, or 0 for the game's own.
         for number, option_name in enumerate(COLOR_OPTION_NAMES):
             try:
-                color = parse_color(getattr(self.options, option_name).value)
+                color = parse_color(getattr(self.options, option_name).value, self.random)
             except ValueError:
                 raise OptionError(f"{self.player_name}: {option_name} is not a colour: "
-                                  f"{getattr(self.options, option_name).value!r} (a name like red, a hex code like ff8000, or 255,128,0)")
+                                  f"{getattr(self.options, option_name).value!r} (a name like red, a hex code like ff8000, 255,128,0, or random)")
             slot_data["options"][f"color_{number}"] = 0 if color is None else (0x01000000 | color)
         if self.content_shuffled():
             index = {stage: number for number, (stage, _n, _d, _c) in enumerate(GALAXIES)}
