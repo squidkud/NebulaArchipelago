@@ -224,77 +224,44 @@ namespace NebulaTitleScreen {
             logPane("Title pane", panes[i]);
         }
 
-        // The logo's pictures: those of the "SMGTitleLogo" branch (the whole layout when there is none), without the flashes and
-        // the lights.
-        nw4r::lyt::Pane* pBranch = findNamed(pRoot, "SMGTitleLogo");
-        nw4r::lyt::Pane* branch[cMaxPanes];
-        int branchNum = 0;
+        // From archipelago.log of the game's layout: "PicLogo" is the logo (Super Mario) and "PicLogoGalaxy" the word Galaxy
+        // over it, the bloom pictures the glow of the old logo, "PicSpeculum" and "PicLogoShine" its glints and "PicTM" the TM
+        // sign. The new logo takes PicLogo; the others are taken out (a size of 0: the animation shows and hides panes, but never
+        // changes a size).
+        nw4r::lyt::Picture* pLogo = nw4r::ut::DynamicCast< nw4r::lyt::Picture* >(findNamed(pRoot, "PicLogo"));
 
-        if (pBranch != nullptr) {
-            collect(pBranch, 0, branch, &branchNum);
-        } else {
-            for (int i = 0; i < paneNum; i++) {
-                branch[branchNum++] = panes[i];
-            }
-        }
-
-        nw4r::lyt::Picture* pits[cMaxPanes];
-        int pitNum = 0;
-        nw4r::lyt::Picture* pBiggest = nullptr;
-        f32 biggest = 0.0f;
-
-        for (int i = 0; i < branchNum; i++) {
-            nw4r::lyt::Picture* pPicture = nw4r::ut::DynamicCast< nw4r::lyt::Picture* >(branch[i]);
-            const char* pName = branch[i]->mName;
-
-            if (pPicture == nullptr || contains(pName, "Flash") || contains(pName, "Light") || contains(pName, "Shine") ||
-                contains(pName, "Glow") || contains(pName, "BG") || contains(pName, "Back")) {
-                continue;
-            }
-
-            pits[pitNum++] = pPicture;
-            const f32 area = pPicture->mSize.width * pPicture->mSize.height;
-
-            if (area > biggest) {
-                biggest = area;
-                pBiggest = pPicture;
-            }
-        }
-
-        if (pBiggest == nullptr || pBiggest->GetMaterial() == nullptr || pBiggest->GetMaterial()->GetTextureNum() < 1 ||
-            pBiggest->mTexCoordAry.mNum < 1 || pBiggest->mTexCoordAry.mData == nullptr) {
-            NebulaArchipelago::logNote("Title logo", "no picture to replace", "");
+        if (pLogo == nullptr || pLogo->GetMaterial() == nullptr || pLogo->GetMaterial()->GetTextureNum() < 1 || pLogo->mTexCoordAry.mNum < 1 ||
+            pLogo->mTexCoordAry.mData == nullptr) {
+            NebulaArchipelago::logNote("Title logo", "no PicLogo picture to replace", "");
             return;
         }
 
-        // The other big pictures are parts of the same logo: hidden.
-        for (int i = 0; i < pitNum; i++) {
-            if (pits[i] != pBiggest && pits[i]->mSize.width * pits[i]->mSize.height >= biggest * 0.25f) {
-                pits[i]->SetVisible(false);
-                NebulaArchipelago::logNote("Title logo", pits[i]->mName, "hidden (part of the old logo)");
+        static const char* const cTakenOut[] = {"PicLogoGalaxy", "PicBloomA", "PicBloomB", "PicSpeculum", "PicLogoShine", "PicTM"};
+
+        for (size_t i = 0; i < sizeof(cTakenOut) / sizeof(cTakenOut[0]); i++) {
+            nw4r::lyt::Pane* pPane = findNamed(pRoot, cTakenOut[i]);
+
+            if (pPane != nullptr) {
+                pPane->mSize = nw4r::lyt::Size(0.0f, 0.0f);
+                pPane->SetVisible(false);
             }
         }
 
-        pBiggest->GetMaterial()->SetTexture(0, *getLogoMap());
-        nw4r::math::VEC2(*pCoords)[4] = pBiggest->mTexCoordAry.mData;
+        pLogo->GetMaterial()->SetTexture(0, *getLogoMap());
+        nw4r::math::VEC2(*pCoords)[4] = pLogo->mTexCoordAry.mData;
         pCoords[0][0] = nw4r::math::VEC2(0.0f, 0.0f);
         pCoords[0][1] = nw4r::math::VEC2(1.0f, 0.0f);
         pCoords[0][2] = nw4r::math::VEC2(0.0f, 1.0f);
         pCoords[0][3] = nw4r::math::VEC2(1.0f, 1.0f);
 
-        // As wide as the old picture, as high as the new proportions make it (not higher than the old one).
-        f32 width = pBiggest->mSize.width;
-        f32 height = width * cLogoHeight / cLogoWidth;
-
-        if (height > pBiggest->mSize.height) {
-            height = pBiggest->mSize.height;
-            width = height * cLogoWidth / cLogoHeight;
-        }
-
-        pBiggest->mSize = nw4r::lyt::Size(width, height);
+        // 500 wide (the old picture was 440), as high as the new proportions make it, a little above the middle.
+        const f32 width = 500.0f;
+        const f32 height = width * cLogoHeight / cLogoWidth;
+        pLogo->mSize = nw4r::lyt::Size(width, height);
+        pLogo->mTranslate.y = 40.0f;
         char note[64];
         snprintf(note, sizeof(note), "now %dx%d", static_cast< int >(width), static_cast< int >(height));
-        NebulaArchipelago::logNote("Title logo", pBiggest->mName, note);
+        NebulaArchipelago::logNote("Title logo", pLogo->mName, note);
     }
 
     void keepAOnly(LayoutActor* pLayout) {
