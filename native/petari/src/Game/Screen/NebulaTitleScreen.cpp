@@ -17,12 +17,24 @@
 namespace {
     // The logo (a BTI file, RGBA8).
 #include "NebulaTitleLogo.inc"
+#include "NebulaTitleBloom.inc"
     const f32 cLogoWidth = 1024.0f;
     const f32 cLogoHeight = 396.0f;
 
     // In static storage, as NebulaItemIcons does (a map made on a scene's heap is freed with the scene).
     alignas(16) u8 sLogoStorage[sizeof(nw4r::lyt::TexMap)];
+    alignas(16) u8 sBloomStorage[sizeof(nw4r::lyt::TexMap)];
     nw4r::lyt::TexMap* sLogo = nullptr;
+    nw4r::lyt::TexMap* sBloom = nullptr;
+
+    nw4r::lyt::TexMap* getBloomMap() {
+        if (sBloom == nullptr) {
+            JUTTexture texture(reinterpret_cast< ResTIMG* >(cTitleBloomBti), 0);
+            sBloom = new (sBloomStorage) nw4r::lyt::TexMap(texture.getTexObj());
+        }
+
+        return sBloom;
+    }
 
     nw4r::lyt::TexMap* getLogoMap() {
         if (sLogo == nullptr) {
@@ -34,13 +46,13 @@ namespace {
     }
 
     const int cMaxPanes = 64;
-    const int cDecideFrames = 24;  // the fade
+    const int cDecideFrames = 10;  // the least fade the logo has when A is pressed (the game's animation decides when it is slower)
     const f32 cLogoWidthOnScreen = 500.0f;
     const f32 cLogoY = 40.0f;
+    const f32 cBloomWidth = 580.0f;  // the glow's pictures: the logo's rectangle with 40 on each side
+    const f32 cBloomHeight = 273.0f;
 
     int sDecideFrame = -1;  // -1: not pressed yet
-    f32 sBaseScaleX = 1.0f;
-    f32 sBaseScaleY = 1.0f;
 
     nw4r::lyt::Pane* getRoot(LayoutActor* pLayout) {
         if (pLayout == nullptr || pLayout->getLayoutManager() == nullptr || pLayout->getLayoutManager()->mLayout == nullptr) {
@@ -233,8 +245,8 @@ namespace NebulaTitleScreen {
 
         // From archipelago.log of the game's layout: "PicLogo" is the logo (Super Mario) and "PicLogoGalaxy" the word Galaxy
         // over it, the bloom pictures the glow of the old logo, "PicSpeculum" and "PicLogoShine" its glints and "PicTM" the TM
-        // sign. The new logo takes PicLogo; the others are taken out (a size of 0: the animation shows and hides panes, but never
-        // changes a size).
+        // sign. The new logo takes PicLogo and the bloom pictures a blurred copy of it (the game's own animation makes them
+        // flash); the word, the glints and the TM sign are taken out (a size of 0).
         nw4r::lyt::Picture* pLogo = nw4r::ut::DynamicCast< nw4r::lyt::Picture* >(findNamed(pRoot, "PicLogo"));
 
         if (pLogo == nullptr || pLogo->GetMaterial() == nullptr || pLogo->GetMaterial()->GetTextureNum() < 1 || pLogo->mTexCoordAry.mNum < 1 ||
@@ -243,7 +255,7 @@ namespace NebulaTitleScreen {
             return;
         }
 
-        static const char* const cTakenOut[] = {"PicLogoGalaxy", "PicBloomA", "PicBloomB", "PicSpeculum", "PicLogoShine", "PicTM"};
+        static const char* const cTakenOut[] = {"PicLogoGalaxy", "PicSpeculum", "PicLogoShine", "PicTM"};
 
         for (size_t i = 0; i < sizeof(cTakenOut) / sizeof(cTakenOut[0]); i++) {
             nw4r::lyt::Pane* pPane = findNamed(pRoot, cTakenOut[i]);
@@ -251,6 +263,25 @@ namespace NebulaTitleScreen {
             if (pPane != nullptr) {
                 pPane->mSize = nw4r::lyt::Size(0.0f, 0.0f);
                 pPane->SetVisible(false);
+            }
+        }
+
+        // The glow: the game's animation keeps its scale and alpha; the picture and its size are the new logo's.
+        for (int b = 0; b < 2; b++) {
+            nw4r::lyt::Picture* pBloom = nw4r::ut::DynamicCast< nw4r::lyt::Picture* >(findNamed(pRoot, b == 0 ? "PicBloomA" : "PicBloomB"));
+
+            if (pBloom != nullptr && pBloom->GetMaterial() != nullptr && pBloom->GetMaterial()->GetTextureNum() >= 1 && pBloom->mTexCoordAry.mNum >= 1 &&
+                pBloom->mTexCoordAry.mData != nullptr) {
+                pBloom->GetMaterial()->SetTexture(0, *getBloomMap());
+                nw4r::math::VEC2(*pBloomCoords)[4] = pBloom->mTexCoordAry.mData;
+                pBloomCoords[0][0] = nw4r::math::VEC2(0.0f, 0.0f);
+                pBloomCoords[0][1] = nw4r::math::VEC2(1.0f, 0.0f);
+                pBloomCoords[0][2] = nw4r::math::VEC2(0.0f, 1.0f);
+                pBloomCoords[0][3] = nw4r::math::VEC2(1.0f, 1.0f);
+                pBloom->mSize = nw4r::lyt::Size(cBloomWidth, cBloomHeight);
+                pBloom->mTranslate.x = 0.0f;
+                pBloom->mTranslate.y = cLogoY;
+                NebulaArchipelago::logNote("Title logo", pBloom->mName, "glow of the new logo");
             }
         }
 
@@ -281,7 +312,36 @@ namespace NebulaTitleScreen {
     }
 
     void afterAnimate(nw4r::lyt::Pane* pRoot) {
-        if (sDecideFrame < 0 || pRoot == nullptr) {
+        if (pRoot == nullptr) {
+            return;
+        }
+
+        // Only the title's layout (the pane "SMGTitleLogo" at the root).
+        bool isTitle = false;
+
+        for (nw4r::lyt::PaneList::Iterator it = pRoot->GetChildList().GetBeginIter(); it != pRoot->GetChildList().GetEndIter(); ++it) {
+            if (strcmp(it->mName, "SMGTitleLogo") == 0) {
+                isTitle = true;
+                break;
+            }
+        }
+
+        if (!isTitle) {
+            return;
+        }
+
+        // The glow is the new logo's size wherever the game's animation puts it (its scale and alpha stay the animation's).
+        for (int b = 0; b < 2; b++) {
+            nw4r::lyt::Pane* pBloom = findNamed(pRoot, b == 0 ? "PicBloomA" : "PicBloomB");
+
+            if (pBloom != nullptr) {
+                pBloom->mSize = nw4r::lyt::Size(cBloomWidth, cBloomHeight);
+                pBloom->mTranslate.x = 0.0f;
+                pBloom->mTranslate.y = cLogoY;
+            }
+        }
+
+        if (sDecideFrame < 0) {
             return;
         }
 
@@ -291,29 +351,39 @@ namespace NebulaTitleScreen {
             return;
         }
 
-        if (sDecideFrame == 0) {
-            sBaseScaleX = pLogo->mScale.x;
-            sBaseScaleY = pLogo->mScale.y;
+        // The game's animation when A is pressed runs as it is (the flash, the glow, the fade); the new logo only gets a least
+        // fade of its own, in case the animation hides the picture at once (an alpha or a visibility it does not know).
+        if (sDecideFrame <= 40 && sDecideFrame % 2 == 0) {
+            const char* const names[] = {"PicLogo", "PicBloomA", "PicBloomB", "PicFlash"};
+
+            for (int n = 0; n < 4; n++) {
+                nw4r::lyt::Pane* pPane = findNamed(pRoot, names[n]);
+
+                if (pPane != nullptr) {
+                    char note[112];
+                    snprintf(note, sizeof(note), "frame %d: alpha %d scale %d%%,%d%% size %dx%d at %d,%d %s", sDecideFrame, static_cast< int >(pPane->mAlpha),
+                             static_cast< int >(pPane->mScale.x * 100.0f), static_cast< int >(pPane->mScale.y * 100.0f), static_cast< int >(pPane->mSize.width),
+                             static_cast< int >(pPane->mSize.height), static_cast< int >(pPane->mTranslate.x), static_cast< int >(pPane->mTranslate.y),
+                             pPane->IsVisible() ? "shown" : "hidden");
+                    NebulaArchipelago::logNote("Decide", pPane->mName, note);
+                }
+            }
         }
 
         f32 t = static_cast< f32 >(sDecideFrame) / static_cast< f32 >(cDecideFrames);
         t = t > 1.0f ? 1.0f : t;
-        const f32 ease = t * t * (3.0f - 2.0f * t);
-        const f32 grow = 1.0f + 0.12f * ease;
-        const f32 alpha = 255.0f * (1.0f - ease);
+        const u8 least = static_cast< u8 >(255.0f * (1.0f - t * t * (3.0f - 2.0f * t)));
 
-        // Whatever the game's animation did to the logo (hidden it, set its size), the fade is the logo's own.
         for (nw4r::lyt::Pane* pParent = pLogo->GetParent(); pParent != nullptr; pParent = pParent->GetParent()) {
             pParent->SetVisible(true);
-            pParent->mAlpha = 255;
         }
 
         pLogo->SetVisible(true);
-        pLogo->mAlpha = static_cast< u8 >(alpha);
-        pLogo->mScale.x = sBaseScaleX * grow;
-        pLogo->mScale.y = sBaseScaleY * grow;
-        pLogo->mSize = nw4r::lyt::Size(cLogoWidthOnScreen, cLogoWidthOnScreen * cLogoHeight / cLogoWidth);
-        pLogo->mTranslate.y = cLogoY;
+
+        if (pLogo->mAlpha < least) {
+            pLogo->mAlpha = least;
+        }
+
         sDecideFrame++;
     }
 
