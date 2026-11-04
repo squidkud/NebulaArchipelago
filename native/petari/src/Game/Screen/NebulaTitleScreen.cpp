@@ -18,12 +18,25 @@ namespace {
     // The logo (a BTI file, RGBA8).
 #include "NebulaTitleLogo.inc"
 #include "NebulaTitleBloom.inc"
+#include "NebulaTitleCredits.inc"
     const f32 cLogoWidth = 1024.0f;
     const f32 cLogoHeight = 396.0f;
 
     // In static storage, as NebulaItemIcons does (a map made on a scene's heap is freed with the scene).
     alignas(16) u8 sLogoStorage[sizeof(nw4r::lyt::TexMap)];
     alignas(16) u8 sBloomStorage[sizeof(nw4r::lyt::TexMap)];
+    alignas(16) u8 sCreditsStorage[sizeof(nw4r::lyt::TexMap)];
+    nw4r::lyt::TexMap* sCredits = nullptr;
+
+    nw4r::lyt::TexMap* getCreditsMap() {
+        if (sCredits == nullptr) {
+            JUTTexture texture(reinterpret_cast< ResTIMG* >(cTitleCreditsBti), 0);
+            sCredits = new (sCreditsStorage) nw4r::lyt::TexMap(texture.getTexObj());
+        }
+
+        return sCredits;
+    }
+
     nw4r::lyt::TexMap* sLogo = nullptr;
     nw4r::lyt::TexMap* sBloom = nullptr;
 
@@ -286,6 +299,23 @@ namespace NebulaTitleScreen {
             }
         }
 
+        // The credits (four lines) in place of "(c) 2007 Nintendo" (the picture PicNintendo, 168 x 24): 236 x 68, above the bottom.
+        nw4r::lyt::Picture* pCredits = nw4r::ut::DynamicCast< nw4r::lyt::Picture* >(findNamed(pRoot, "PicNintendo"));
+
+        if (pCredits != nullptr && pCredits->GetMaterial() != nullptr && pCredits->GetMaterial()->GetTextureNum() >= 1 && pCredits->mTexCoordAry.mNum >= 1 &&
+            pCredits->mTexCoordAry.mData != nullptr) {
+            pCredits->GetMaterial()->SetTexture(0, *getCreditsMap());
+            nw4r::math::VEC2(*pCreditCoords)[4] = pCredits->mTexCoordAry.mData;
+            pCreditCoords[0][0] = nw4r::math::VEC2(0.0f, 0.0f);
+            pCreditCoords[0][1] = nw4r::math::VEC2(1.0f, 0.0f);
+            pCreditCoords[0][2] = nw4r::math::VEC2(0.0f, 1.0f);
+            pCreditCoords[0][3] = nw4r::math::VEC2(1.0f, 1.0f);
+            pCredits->mSize = nw4r::lyt::Size(236.0f, 68.0f);
+            pCredits->mTranslate.x = 0.0f;
+            pCredits->mTranslate.y = -188.0f;
+            NebulaArchipelago::logNote("Title logo", pCredits->mName, "credits");
+        }
+
         pLogo->GetMaterial()->SetTexture(0, *getLogoMap());
         nw4r::math::VEC2(*pCoords)[4] = pLogo->mTexCoordAry.mData;
         pCoords[0][0] = nw4r::math::VEC2(0.0f, 0.0f);
@@ -340,6 +370,14 @@ namespace NebulaTitleScreen {
                 pBloom->mTranslate.x = 0.0f;
                 pBloom->mTranslate.y = cLogoY;
             }
+        }
+
+        nw4r::lyt::Pane* pCredits = findNamed(pRoot, "PicNintendo");
+
+        if (pCredits != nullptr) {
+            pCredits->mSize = nw4r::lyt::Size(236.0f, 68.0f);
+            pCredits->mTranslate.x = 0.0f;
+            pCredits->mTranslate.y = -188.0f;
         }
 
         if (sDecideFrame < 0) {
