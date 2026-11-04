@@ -34,6 +34,13 @@ namespace {
     }
 
     const int cMaxPanes = 64;
+    const int cDecideFrames = 24;  // the fade
+    const f32 cLogoWidthOnScreen = 500.0f;
+    const f32 cLogoY = 40.0f;
+
+    int sDecideFrame = -1;  // -1: not pressed yet
+    f32 sBaseScaleX = 1.0f;
+    f32 sBaseScaleY = 1.0f;
 
     nw4r::lyt::Pane* getRoot(LayoutActor* pLayout) {
         if (pLayout == nullptr || pLayout->getLayoutManager() == nullptr || pLayout->getLayoutManager()->mLayout == nullptr) {
@@ -255,13 +262,59 @@ namespace NebulaTitleScreen {
         pCoords[0][3] = nw4r::math::VEC2(1.0f, 1.0f);
 
         // 500 wide (the old picture was 440), as high as the new proportions make it, a little above the middle.
-        const f32 width = 500.0f;
+        const f32 width = cLogoWidthOnScreen;
         const f32 height = width * cLogoHeight / cLogoWidth;
         pLogo->mSize = nw4r::lyt::Size(width, height);
-        pLogo->mTranslate.y = 40.0f;
+        pLogo->mTranslate.y = cLogoY;
+        sDecideFrame = -1;
         char note[64];
         snprintf(note, sizeof(note), "now %dx%d", static_cast< int >(width), static_cast< int >(height));
         NebulaArchipelago::logNote("Title logo", pLogo->mName, note);
+    }
+
+    void startDecide() {
+        sDecideFrame = 0;
+    }
+
+    bool isDecideDone() {
+        return sDecideFrame >= cDecideFrames;
+    }
+
+    void afterAnimate(nw4r::lyt::Pane* pRoot) {
+        if (sDecideFrame < 0 || pRoot == nullptr) {
+            return;
+        }
+
+        nw4r::lyt::Pane* pLogo = findNamed(pRoot, "PicLogo");
+
+        if (pLogo == nullptr) {
+            return;
+        }
+
+        if (sDecideFrame == 0) {
+            sBaseScaleX = pLogo->mScale.x;
+            sBaseScaleY = pLogo->mScale.y;
+        }
+
+        f32 t = static_cast< f32 >(sDecideFrame) / static_cast< f32 >(cDecideFrames);
+        t = t > 1.0f ? 1.0f : t;
+        const f32 ease = t * t * (3.0f - 2.0f * t);
+        const f32 grow = 1.0f + 0.12f * ease;
+        const f32 alpha = 255.0f * (1.0f - ease);
+
+        // Whatever the game's animation did to the logo (hidden it, set its size), the fade is the logo's own.
+        for (nw4r::lyt::Pane* pParent = pLogo->GetParent(); pParent != nullptr; pParent = pParent->GetParent()) {
+            pParent->SetVisible(true);
+            pParent->mAlpha = 255;
+        }
+
+        pLogo->SetVisible(true);
+        pLogo->mAlpha = static_cast< u8 >(alpha);
+        pLogo->mScale.x = sBaseScaleX * grow;
+        pLogo->mScale.y = sBaseScaleY * grow;
+        pLogo->mSize = nw4r::lyt::Size(cLogoWidthOnScreen, cLogoWidthOnScreen * cLogoHeight / cLogoWidth);
+        pLogo->mTranslate.y = cLogoY;
+        sDecideFrame++;
     }
 
     void keepAOnly(LayoutActor* pLayout) {

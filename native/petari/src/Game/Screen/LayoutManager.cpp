@@ -1,6 +1,7 @@
 #include "Game/Screen/LayoutManager.hpp"
 #ifdef TARGET_PC
 #include "Game/Screen/LayoutAspect.hpp"
+#include "Game/Screen/NebulaTitleScreen.hpp"
 #endif
 #include "Game/Screen/LayoutCoreUtil.hpp"
 #include "Game/Screen/LayoutGroupCtrl.hpp"
@@ -477,6 +478,7 @@ void LayoutManager::calcAnimWithoutLocationAdjust(const nw4r::lyt::DrawInfo& rDr
 
 #ifdef TARGET_PC
     LayoutAspect::extendBackings(this);
+    NebulaTitleScreen::afterAnimate(mLayout->mpRootPane);
 #endif
     mLayout->CalculateMtx(rDrawInfo);
     for (u32 i = 0; i < mPaneCount; i++) {

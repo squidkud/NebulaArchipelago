@@ -161,11 +161,20 @@ void TitleSequenceProduct::exeLogoDisplay() {
 void TitleSequenceProduct::exeDecide() {
     if (MR::isFirstStep(this)) {
         MR::startAnim(mLogoLayout, "Decide", 0);
+#ifdef TARGET_PC
+        NebulaTitleScreen::startDecide();  // the new logo fades out by itself
+#endif
         MR::deleteEffectAll(mLogoLayout);
         MR::startAnim(mPressStartLayout, "End", 0);
     }
 
+#ifdef TARGET_PC
+    if (MR::isStep(this, 150)) {
+        setNerve(GET_NERVE_ANON(TitleSequenceProductDead));  // never stays: whatever the animations do
+    } else if (MR::isAnimStopped(mLogoLayout, 0) && MR::isAnimStopped(mPressStartLayout, 0) && NebulaTitleScreen::isDecideDone()) {
+#else
     if (MR::isAnimStopped(mLogoLayout, 0) && MR::isAnimStopped(mPressStartLayout, 0)) {
+#endif
         setNerve(GET_NERVE_ANON(TitleSequenceProductDead));
     }
 }

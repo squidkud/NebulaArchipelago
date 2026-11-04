@@ -14,7 +14,11 @@ source = Path(sys.argv[1]) if len(sys.argv) > 1 else root / "title_logo.png"
 target = root.parent / "native/petari/src/Game/Screen/NebulaTitleLogo.inc"
 
 image = Image.open(source).convert("RGBA")
-image = image.crop(image.getchannel("A").getbbox())
+# The almost invisible haze around the letters (alpha 1 to 40 of 255, a noise of faint white specks) is cleared, and the body
+# (alpha 241 and over: 253 in the picture) made fully opaque.
+channel = image.getchannel("A").point([0 if a <= 40 else 255 if a >= 241 else a for a in range(256)])
+image.putalpha(channel)
+image = image.crop(channel.getbbox())
 
 # Fit inside the texture with a small margin, resizing with premultiplied colours so the edge does not go dark.
 margin = 4
