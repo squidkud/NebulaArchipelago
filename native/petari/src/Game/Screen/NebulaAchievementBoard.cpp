@@ -533,8 +533,22 @@ namespace {
             if (!NebulaArchipelago::getShopLabel(i, label, 96)) {
                 NebulaText::get(label, 96, "ShopUnknown");
             }
-            setText(rCard.mName, label);
-            setText(rCard.mNameShadow, label);
+            // The shelf's number in front of its name ("3. Power Star").
+            wchar_t numbered[104];
+            s32 length = 0;
+            {
+                char digits[16];
+                snprintf(digits, sizeof(digits), "%d. ", i + 1);
+                for (const char* q = digits; *q != 0 && length < 100; q++) {
+                    numbered[length++] = static_cast< wchar_t >(*q);
+                }
+            }
+            for (s32 k = 0; label[k] != 0 && length < 103; k++) {
+                numbered[length++] = label[k];
+            }
+            numbered[length] = 0;
+            setText(rCard.mName, numbered);
+            setText(rCard.mNameShadow, numbered);
             rCard.mUnlocked = bought;
             rCard.mDate = bought ? 1 : 0;
             rCard.mGoal = 0;  // no bar toward the price

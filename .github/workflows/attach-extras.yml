@@ -20,4 +20,4 @@ jobs:
         run: |
           python3 -m pip install pillow
           python3 tools/poptracker_release.py "${{ github.event.inputs.tag }}" poptracker
-          gh release upload "${{ github.event.inputs.tag }}" "release-extras/Super Mario Galaxy PC Port.yaml" poptracker/SMG-PC-Port-PopTracker.zip poptracker/versions.json --clobber
+          gh release upload "${{ github.event.inputs.tag }}" "release-extras/Nebula.yaml" poptracker/SMG-PC-Port-PopTracker.zip poptracker/versions.json --clobber

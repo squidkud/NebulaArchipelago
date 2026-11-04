@@ -31,8 +31,8 @@ json::Value first_command(const std::string& text) {
     return parsed->items()[0];
 }
 
-const char* kRoomInfo = R"([{"cmd":"RoomInfo","version":{"major":0,"minor":5,"build":1,"class":"Version"},"seed_name":"Seed 42!","games":["Super Mario Galaxy PC Port"]}])";
-const char* kConnected = R"([{"cmd":"Connected","team":0,"slot":1,"players":[{"team":0,"slot":1,"alias":"Mario","name":"Mario"},{"team":0,"slot":2,"alias":"Bob","name":"Bob"}],"slot_info":{"1":{"name":"Mario","game":"Super Mario Galaxy PC Port","type":1,"group_members":[]},"2":{"name":"Bob","game":"Other Game","type":1,"group_members":[]}},"missing_locations":[@L1,@L2,@L5,@L100,2000000000],"checked_locations":[],"slot_data":{"goal":1,"options":{"goal":1,"star_items":1,"character":1,"stars_to_finish":30,"star_colors":1,"death_link":1,"music_shuffle":1,"color_3":7},"galaxy_caps":[0,1,3],"dome_order":[2,1],"galaxy_shuffle":[2,0,1]}}])";
+const char* kRoomInfo = R"([{"cmd":"RoomInfo","version":{"major":0,"minor":5,"build":1,"class":"Version"},"seed_name":"Seed 42!","games":["Nebula"]}])";
+const char* kConnected = R"([{"cmd":"Connected","team":0,"slot":1,"players":[{"team":0,"slot":1,"alias":"Mario","name":"Mario"},{"team":0,"slot":2,"alias":"Bob","name":"Bob"}],"slot_info":{"1":{"name":"Mario","game":"Nebula","type":1,"group_members":[]},"2":{"name":"Bob","game":"Other Game","type":1,"group_members":[]}},"missing_locations":[@L1,@L2,@L5,@L100,2000000000],"checked_locations":[],"slot_data":{"goal":1,"options":{"goal":1,"star_items":1,"character":1,"stars_to_finish":30,"star_colors":1,"death_link":1,"music_shuffle":1,"color_3":7},"galaxy_caps":[0,1,3],"dome_order":[2,1],"galaxy_shuffle":[2,0,1]}}])";
 
 // kConnected with the location ids filled in (they are kLocationBase + number).
 std::string connected_message() {
@@ -143,7 +143,7 @@ int main() {
         expect(out.size() == 1u, "one answer to RoomInfo");
         const json::Value connect = first_command(out.at(0));
         expect(connect.find("cmd") && connect.find("cmd")->as_string() == "Connect", "it is a Connect");
-        expect(connect.find("game")->as_string() == "Super Mario Galaxy PC Port", "the game's name");
+        expect(connect.find("game")->as_string() == "Nebula", "the game's name");
         expect(connect.find("name")->as_string() == "Mario" && connect.find("password")->as_string() == "pw", "slot and password");
         expect(connect.find("items_handling")->as_int() == 7, "all items are sent, own ones included");
         expect(connect.find("slot_data")->as_bool(), "slot data is asked for");
@@ -426,7 +426,7 @@ int main() {
         std::vector<std::string> out;
         engine.on_message(kRoomInfo, out);
         out.clear();
-        engine.on_message(R"([{"cmd":"Connected","team":0,"slot":1,"players":[{"team":0,"slot":1,"alias":"Mario","name":"Mario"},{"team":0,"slot":2,"alias":"Bob","name":"Bob"}],"slot_info":{"1":{"name":"Mario","game":"Super Mario Galaxy PC Port","type":1,"group_members":[]},"2":{"name":"Bob","game":"Other Game","type":1,"group_members":[]}},"missing_locations":[)" +
+        engine.on_message(R"([{"cmd":"Connected","team":0,"slot":1,"players":[{"team":0,"slot":1,"alias":"Mario","name":"Mario"},{"team":0,"slot":2,"alias":"Bob","name":"Bob"}],"slot_info":{"1":{"name":"Mario","game":"Nebula","type":1,"group_members":[]},"2":{"name":"Bob","game":"Other Game","type":1,"group_members":[]}},"missing_locations":[)" +
                               id(1) + "," + id(201) + "," + id(202) + R"(],"checked_locations":[)" + id(203) +
                               R"(],"slot_data":{"options":{"goal":0},"shop_prices":[30,60,90]}}])",
                           out);

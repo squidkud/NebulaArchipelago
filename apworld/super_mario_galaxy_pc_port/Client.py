@@ -1,4 +1,4 @@
-"""The Super Mario Galaxy PC Port client: a tracker for the multiworld, started from the Archipelago Launcher.
+"""The Nebula client: a tracker for the multiworld, started from the Archipelago Launcher.
 
 The game talks to the server through Nebula itself (archipelago.ini); this client only watches the same slot. It adds
 the commands /tracker, /stars and /places to the text client, and, when the Universal Tracker is installed, uses its
@@ -14,8 +14,8 @@ from .Forms import OUT_OF_LOGIC
 from .Locations import every_star
 from .TrackerData import format_places, format_summary, summarize
 
-GAME_NAME = "Super Mario Galaxy PC Port"
-CLIENT_NAME = "Super Mario Galaxy PC Port Client"
+GAME_NAME = "Nebula"
+CLIENT_NAME = "Nebula Client"
 
 TRACKER_LOADED = False
 try:
@@ -95,8 +95,17 @@ def launch(*launch_args: str) -> None:
 
     Utils.init_logging(CLIENT_NAME)
     logger.info(f"Starting {CLIENT_NAME}" + (" with the Universal Tracker" if TRACKER_LOADED else ""))
-    parser = get_base_parser(description="Tracker for Super Mario Galaxy PC Port.")
+    parser = get_base_parser(description="Tracker for Nebula.")
+    parser.add_argument("--name", default=None, help="The slot name to connect as.")
+    parser.add_argument("url", nargs="?", help="An archipelago:// link (the Launcher's \"Open\" with a room link).")
     args = parser.parse_args(launch_args)
+    if getattr(args, "url", None):
+        try:
+            from CommonClient import handle_url_arg
+
+            args = handle_url_arg(args, parser=parser)
+        except ImportError:  # an Archipelago without that helper: the address and name are given as options
+            pass
     colorama.just_fix_windows_console()
     asyncio.run(main(args))
     colorama.deinit()

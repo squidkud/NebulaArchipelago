@@ -77,7 +77,7 @@ class StarsToFinish(Range):
     is the star of the final boss: it is sent as soon as you take it."""
     display_name = "Stars to Finish"
     range_start = 10
-    range_end = 100
+    range_end = 120
     default = 50
 
 

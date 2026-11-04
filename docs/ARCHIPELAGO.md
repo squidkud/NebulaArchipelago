@@ -286,7 +286,7 @@ cd C:\dev\nebula-run
 2. Copiez `super_mario_galaxy_pc_port.apworld` (fourni, ou à créer en zippant le dossier `apworld\super_mario_galaxy_pc_port` en
    `super_mario_galaxy_pc_port.zip` puis en renommant l'extension en `.apworld`) dans le dossier `custom_worlds` d'Archipelago.
 3. Lancez le « Archipelago Launcher » → **Generate Template Options** : un dossier de modèles s'ouvre. Copiez
-   `Super Mario Galaxy PC Port.yaml`, renommez le `name:` à l'intérieur (c'est votre nom de joueur, par exemple `Mario`), et
+   `Nebula.yaml`, renommez le `name:` à l'intérieur (c'est votre nom de joueur, par exemple `Mario`), et
    mettez-le dans le dossier `Players` d'Archipelago.
 4. Lancez **Generate** dans le Launcher : il crée un fichier `AP_xxxxx.zip` dans le dossier `output`.
 5. Hébergez-le : soit via [archipelago.gg/uploads](https://archipelago.gg/uploads) (en ligne, le plus simple), soit avec
@@ -298,7 +298,7 @@ Options du YAML (toutes facultatives) :
 | --- | --- |
 | `character` (`mario`, `luigi`, `both`, défaut `mario`) | avec qui on joue ; force le personnage au choix de fichier (pas de bouton de bascule sauf `both`) ; les lieux portent « (Mario) » ou « (Luigi) » |
 | `goal` (`bowser`, `bowser_and_120_stars` ou `242_stars`) | `bowser` : l'étoile de Bowser ; `bowser_and_120_stars` : Bowser **et** les 120 étoiles de chaque personnage (pourpres comprises, sans la Star Festival, la 121e) ; `242_stars` : toutes les étoiles, pourpres comprises, du ou des personnages ; la dernière de chaque personnage est l'étoile « Grand Finale Galaxy - The Star Festival » (la 121e, un lieu seulement avec ce but) : l'entrée du jeu n'est pas modifiée (elle n'apparaît que quand Mario **et** Luigi ont chacun leurs 120 étoiles) ; on peut aussi y aller à tout moment par le menu ADVANCED du choix de galaxie des réglages; avec `both`, le but part quand le second personnage prend la sienne. Avec les deux derniers, les trois options qui suivent sont **ignorées** (tout est activé) |
-| `stars_to_finish` (10 à 100, défaut 50) | **seulement avec le but `bowser`** : nombre d'étoiles pour ouvrir le Réacteur de Bowser |
+| `stars_to_finish` (10 à 120, défaut 50) | **seulement avec le but `bowser`** : nombre d'étoiles pour ouvrir le Réacteur de Bowser |
 | `include_comet_stars` (défaut oui) | **seulement avec le but `bowser`** : les étoiles des comètes sont des lieux ; sinon elles n'apparaissent pas non plus dans le choix d'étoile du jeu |
 | `include_purple_coin_stars` (défaut non) | **seulement avec le but `bowser`** : les étoiles à pièces violettes (après la fin) ; sinon elles n'apparaissent pas dans le choix d'étoile du jeu |
 | *(supprimées)* | `power_star_percentage`, `include_luigi_stars`, `one_up_percentage`, `rainbow_star_percentage`, `star_bit_pack_percentage`, `one_up_burst_percentage`, `full_heal_percentage` n'existent plus (remplissage fixe, personnage via `character`) ; une ligne qui les cite dans un YAML est ignorée |
@@ -348,7 +348,7 @@ Lancez ensuite le jeu (étape 5) et **créez une nouvelle sauvegarde** : vous ar
 
 ## Le client et le tracker
 
-Dans le **Launcher d'Archipelago**, l'APWorld ajoute un bouton **« Super Mario Galaxy PC Port Client »**. Le jeu
+Dans le **Launcher d'Archipelago**, l'APWorld ajoute un bouton **« Nebula Client »**. Le jeu
 parle au serveur tout seul (via Nebula et `archipelago.ini`) ; ce client ne fait que **suivre la même partie**, à
 côté du jeu. Connectez-le avec la même adresse et le même nom de joueur (`/connect adresse:port` dans sa fenêtre, ou
 les champs en haut). Commandes :
@@ -417,7 +417,7 @@ vérifiées en test, l'affichage dans le Launcher ne l'est pas.
 - Aucun message à l'écran : lisez `%LOCALAPPDATA%\Nebula\archipelago.log` (voir plus haut). `archipelago.ini` n'est
   pas au bon endroit, s'appelle `archipelago.ini.txt` ou n'a pas de ligne `server` ou `slot`.
 - « no slot called … » / « password » : `slot` ou `password` ne correspondent pas à la salle ; « game » : le YAML n'a
-  pas été généré avec « Super Mario Galaxy PC Port ».
+  pas été généré avec « Nebula ».
 - Les étoiles ne comptent pas : vérifiez que le message « Connected » s'affiche avant de jouer, et envoyez-moi le
   fichier `archipelago.log`.
 - `No CMAKE_C_COMPILER could be found` ou « l'exécution de scripts est désactivée » : refaites les deux lignes du début

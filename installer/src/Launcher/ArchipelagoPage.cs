@@ -476,7 +476,7 @@ namespace Nebula.Launcher
                     }
                 }
             }
-            MessageBox.Show(page.FindForm(), "Copied to " + target + ". Restart the Archipelago launcher to see \"Super Mario Galaxy PC Port\".",
+            MessageBox.Show(page.FindForm(), "Copied to " + target + ". Restart the Archipelago launcher to see \"Nebula\".",
                 "Nebula Archipelago", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
     }
