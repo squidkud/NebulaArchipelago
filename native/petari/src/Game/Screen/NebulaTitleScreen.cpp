@@ -90,6 +90,76 @@ namespace {
         return nullptr;
     }
 
+    bool isLetter(wchar_t c) {
+        return (c >= L'a' && c <= L'z') || (c >= L'A' && c <= L'Z');
+    }
+
+    void eraseUnits(nw4r::lyt::TextBox* pText, u16 from, u16 count) {
+        wchar_t* pBuf = pText->mTextBuf;
+
+        for (u16 j = from; j + count <= pText->mTextLen; j++) {
+            pBuf[j] = pBuf[j + count];
+        }
+
+        pText->mTextLen = static_cast< u16 >(pText->mTextLen - count);
+        pBuf[pText->mTextLen] = 0;
+    }
+
+    // Takes a whole English word (not one inside a picture tag) out of a text, with the space that separated it.
+    bool removeWord(nw4r::lyt::TextBox* pText, const char* pWord) {
+        wchar_t* pBuf = pText->mTextBuf;
+        const u16 length = static_cast< u16 >(strlen(pWord));
+
+        for (u16 i = 0; i < pText->mTextLen; i++) {
+            if (pBuf[i] == 0x1A && i + 1 < pText->mTextLen) {
+                const u16 units = static_cast< u16 >(reinterpret_cast< const u8* >(&pBuf[i + 1])[0] / 2);
+                i = static_cast< u16 >(i + (units > 0 ? units - 1 : 0));
+                continue;
+            }
+
+            if (i + length > pText->mTextLen || (i > 0 && isLetter(pBuf[i - 1])) || (i + length < pText->mTextLen && isLetter(pBuf[i + length]))) {
+                continue;
+            }
+
+            bool same = true;
+
+            for (u16 k = 0; k < length && same; k++) {
+                wchar_t c = pBuf[i + k];
+                c = (c >= L'A' && c <= L'Z') ? static_cast< wchar_t >(c + 32) : c;
+                same = c == static_cast< wchar_t >(pWord[k]);
+            }
+
+            if (!same) {
+                continue;
+            }
+
+            u16 from = i;
+            u16 count = length;
+
+            if (i + length < pText->mTextLen && pBuf[i + length] == L' ') {
+                count++;
+            } else if (i > 0 && pBuf[i - 1] == L' ') {
+                from--;
+                count++;
+            }
+
+            eraseUnits(pText, from, count);
+            return true;
+        }
+
+        return false;
+    }
+
+    // "Press both [A] and [B]." with the B taken out -> "Press [A]": the words of the two buttons and the full stop go.
+    void trimPressText(nw4r::lyt::TextBox* pText) {
+        removeWord(pText, "both");
+        removeWord(pText, "and");
+
+        while (pText->mTextLen > 0 && (pText->mTextBuf[pText->mTextLen - 1] == L'.' || pText->mTextBuf[pText->mTextLen - 1] == L' ')) {
+            eraseUnits(pText, static_cast< u16 >(pText->mTextLen - 1), 1);
+        }
+    }
+
     // Takes the B button's picture (picture font group 3, picture 1) out of a text, with one of the spaces around it.
     bool removeButtonB(nw4r::lyt::TextBox* pText) {
         wchar_t* pBuf = pText->mTextBuf;
@@ -255,7 +325,8 @@ namespace NebulaTitleScreen {
                 NebulaArchipelago::logNote("Press text", panes[i]->mName, units);
 
                 if (removeButtonB(pText)) {
-                    NebulaArchipelago::logNote("Press text", panes[i]->mName, "B button taken out");
+                    trimPressText(pText);
+                    NebulaArchipelago::logNote("Press text", panes[i]->mName, "B button taken out, \"both\" and \"and\" too");
                 }
             }
 
