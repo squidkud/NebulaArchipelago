@@ -1,4 +1,4 @@
-"""The locations of Super Mario Galaxy PC Port: its stars, one location each.
+"""The locations of Nebula: its stars, one location each.
 
 The stars come from StarData.py (the English names; the order is the numbering). The game checks a location when the
 save file holds that star. A location's id is LOCATION_BASE + its number (the star's position in StarData.STARS, from 1);
@@ -18,7 +18,7 @@ BOO_BONEYARD = "TeresaMario2DGalaxy"
 
 
 class SMGLocation(Location):
-    game = "Super Mario Galaxy PC Port"
+    game = "Nebula"
 
 
 LUIGI_OFFSET = 300  # Luigi's save has its own stars: LOCATION_BASE + LUIGI_OFFSET + number (kLuigiOffset in archipelago.h)

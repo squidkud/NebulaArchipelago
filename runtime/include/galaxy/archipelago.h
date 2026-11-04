@@ -11,7 +11,7 @@
 //     password=
 // Without that file the client stays off and the game plays as usual.
 //
-// The numbers shared with the Super Mario Galaxy PC Port APWorld (apworld/super_mario_galaxy_pc_port/ in this
+// The numbers shared with the Nebula APWorld (apworld/super_mario_galaxy_pc_port/ in this
 // repository) are below: a location is kLocationBase + its number, an item kItemBase + its number.
 #pragma once
 
@@ -33,7 +33,7 @@ namespace galaxy::archipelago {
 
 inline constexpr std::uint32_t kLocationBase = 0x534D4700u;  // "SMG" and 0
 inline constexpr std::uint32_t kItemBase = 0x534D4800u;
-inline constexpr const char* kGameName = "Super Mario Galaxy PC Port";
+inline constexpr const char* kGameName = "Nebula";
 
 // Item numbers (kItemBase + number); the game applies them (NebulaArchipelago).
 inline constexpr std::uint32_t kItemOneUp = 1;

@@ -125,8 +125,8 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             page.Controls.Add(box);
         }
 
-        /// <summary>The Nebula commit the patches are made on (Nebula 3da13ef1: v1.0.1 and the commits after it).</summary>
-        private const string DefaultBase = "3da13ef1";
+        /// <summary>The Nebula commit the patches are made on (the old Nebula engine, 0dd6d99: the official line again).</summary>
+        private const string DefaultBase = "0dd6d99";
 
         private void LoadConfig()
         {
@@ -139,7 +139,7 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
                 var config = Json.Load(ConfigPath);
                 if (!string.IsNullOrEmpty(Json.Str(config, "repo"))) repo.Text = Json.Str(config, "repo");
                 if (!string.IsNullOrEmpty(Json.Str(config, "base"))) baseCommit.Text = Json.Str(config, "base");
-                if (baseCommit.Text == "0dd6d99") baseCommit.Text = DefaultBase;  // the previous default: the patches are on the newer Nebula now
+                if (baseCommit.Text == "3da13ef1") baseCommit.Text = DefaultBase;  // the newer Nebula was given up: back on the old engine
                 if (!string.IsNullOrEmpty(Json.Str(config, "patchFolders"))) patchFolders.Text = Json.Str(config, "patchFolders");
                 appliedHash = Json.Str(config, "patchHash") ?? "";
                 if (config.ContainsKey("runAfter")) runAfter.Checked = Json.Bool(config, "runAfter");

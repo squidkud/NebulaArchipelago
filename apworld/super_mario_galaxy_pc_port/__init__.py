@@ -90,11 +90,11 @@ TRIAL_GALAXIES = {"TamakoroExLv2Galaxy", "SurfingLv2Galaxy", "CubeBubbleExLv2Gal
 def launch_client(*args: str) -> None:
     from .Client import launch
 
-    launch_component(launch, name="Super Mario Galaxy PC Port Client", args=args)
+    launch_component(launch, name="Nebula Client", args=args)
 
 
-components.append(Component("Super Mario Galaxy PC Port Client", func=launch_client, component_type=Type.CLIENT,
-                            game_name="Super Mario Galaxy PC Port"))
+components.append(Component("Nebula Client", func=launch_client, component_type=Type.CLIENT,
+                            game_name="Nebula"))
 
 
 class SMGWebWorld(WebWorld):
@@ -131,7 +131,7 @@ class SMGWorld(World):
     counts. Grand Stars open the Observatory's domes.
     """
 
-    game = "Super Mario Galaxy PC Port"
+    game = "Nebula"
     web = SMGWebWorld()
     options_dataclass = SMGOptions
     options: SMGOptions
@@ -269,7 +269,7 @@ class SMGWorld(World):
             if slack >= MIN_SLACK:
                 return
         if best is None:
-            raise OptionError(f"Super Mario Galaxy PC Port ({self.player_name}): could not find a galaxy shuffle without a "
+            raise OptionError(f"Nebula ({self.player_name}): could not find a galaxy shuffle without a "
                               f"place that needs a star of the galaxy standing behind it.")
         self.content = best[1]  # the roomiest shuffle found
 
@@ -389,11 +389,14 @@ class SMGWorld(World):
             self._shuffle_galaxies()
         highest = max(self.need[stage] for stage, content in self.content.items() if content in used_stages)
         # Enough Power Stars to reach the most demanding galaxy (the counter also holds the Green and Grand Stars).
-        needed = max(0, highest - GRAND_STARS_IN_POOL - GREEN_STARS_IN_POOL)
+        # And enough for Stars to Finish when the locations allow it (a request above what exists is lowered to it).
+        # (Not when the slot's data rebuilds a finished multiworld: that one keeps the pool it was generated with.)
+        wanted_total = highest if regenerated else max(highest, min(asked, rest + GRAND_STARS_IN_POOL + GREEN_STARS_IN_POOL))
+        needed = max(0, wanted_total - GRAND_STARS_IN_POOL - GREEN_STARS_IN_POOL)
         wanted = round(rest * POWER_STAR_SHARE / 100)
         self.power_stars = min(rest, max(wanted, needed))
         if self.power_stars < needed:
-            raise OptionError(f"Super Mario Galaxy PC Port ({self.player_name}): too few locations ({len(self.stars)}) to hold the "
+            raise OptionError(f"Nebula ({self.player_name}): too few locations ({len(self.stars)}) to hold the "
                               f"Power Stars the galaxies ask for. Turn on more kinds of stars.")
         reachable = self.power_stars + GRAND_STARS_IN_POOL + GREEN_STARS_IN_POOL
         self.stars_to_finish = asked if regenerated else min(asked, reachable)

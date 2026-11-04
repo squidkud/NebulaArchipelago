@@ -1,4 +1,4 @@
-"""The items of Super Mario Galaxy PC Port, and their numbers.
+"""The items of Nebula, and their numbers.
 
 The numbers are shared with the game's side: kItemBase and the kItem* in runtime/include/galaxy/archipelago.h (and
 NEBULA_AP_ITEM_* in native/include/nebula_game_api.h). An item's id is ITEM_BASE + its number; change one side and the
@@ -47,7 +47,7 @@ COMPLETE = "All Stars Complete"  # the event of the goal All Stars: every star t
 
 
 class SMGItem(Item):
-    game = "Super Mario Galaxy PC Port"
+    game = "Nebula"
 
 
 class ItemData(NamedTuple):

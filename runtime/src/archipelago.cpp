@@ -700,7 +700,7 @@ void Engine::handle_command(const json::Value& command, std::vector<std::string>
             connected_ = false;
             std::string shown = reasons.empty() ? std::string("unknown reason") : reasons;
             if (reasons.find("InvalidSlot") != std::string::npos) shown = "no slot called \"" + config_.slot + "\" in this room";
-            else if (reasons.find("InvalidGame") != std::string::npos) shown = "that slot is not a Super Mario Galaxy PC Port slot";
+            else if (reasons.find("InvalidGame") != std::string::npos) shown = "that slot is not a Nebula slot";
             else if (reasons.find("InvalidPassword") != std::string::npos) shown = "wrong password";
             notice_locked("Archipelago refused: " + shown);
         }

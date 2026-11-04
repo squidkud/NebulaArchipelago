@@ -1,4 +1,4 @@
-# Super Mario Galaxy PC Port
+# Nebula
 
 ## Where is the options page?
 
@@ -106,7 +106,7 @@ Observatory Hungry Luma options set the Star Bits each Hungry Luma asks.
 
 ## The client and the tracker
 
-The Archipelago Launcher lists a "Super Mario Galaxy PC Port Client". The game itself talks to the server through Nebula
+The Archipelago Launcher lists a "Nebula Client". The game itself talks to the server through Nebula
 (archipelago.ini); this client only watches the same slot, so you can leave it open next to the game. Its commands:
 `/tracker` (the star counter, the Grand Stars, every galaxy with its stars checked and whether its star count is met),
 `/stars <part of a galaxy's name>` (its stars, checked or not), `/places` (which galaxy each miniature shows when the

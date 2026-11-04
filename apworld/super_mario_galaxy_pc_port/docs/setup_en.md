@@ -1,4 +1,4 @@
-# Super Mario Galaxy PC Port Multiworld Setup Guide
+# Nebula Multiworld Setup Guide
 
 ## What you need
 
@@ -12,7 +12,7 @@ Put `super_mario_galaxy_pc_port.apworld` in the `custom_worlds` folder of your A
 
 ## Making your config file
 
-Open the Archipelago Launcher, choose "Generate Template Options", edit `Super Mario Galaxy PC Port.yaml` (the name under
+Open the Archipelago Launcher, choose "Generate Template Options", edit `Nebula.yaml` (the name under
 `name:` is your slot name), and give it to whoever generates the multiworld.
 
 ## Connecting the game

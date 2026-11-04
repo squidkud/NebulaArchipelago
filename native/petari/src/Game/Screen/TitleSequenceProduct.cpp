@@ -9,6 +9,11 @@
 #include "Game/Util/SoundUtil.hpp"
 #include "Game/Util/SystemUtil.hpp"
 #include "Game/Util/TriggerChecker.hpp"
+#ifdef TARGET_PC
+#include "Game/Screen/NebulaTitleScreen.hpp"
+#include "Game/System/NebulaArchipelago.hpp"
+#include <cstdio>
+#endif
 
 namespace {
     static const s32 sPressABAppearFrame = 25;
@@ -17,6 +22,9 @@ namespace {
 namespace TitleSequenceProductSub {
     LogoLayout::LogoLayout() : SimpleLayout("\203\215\203\123" /* ロゴ */, "TitleLogo", 2, -1) {
         initEffectKeeper(1, "TitleLogo", nullptr);
+#ifdef TARGET_PC
+        NebulaTitleScreen::replaceLogo(this);  // the Nebula Archipelago logo
+#endif
         kill();
     }
 };  // namespace TitleSequenceProductSub
@@ -43,6 +51,9 @@ TitleSequenceProduct::TitleSequenceProduct()
     mLogoLayout = new TitleSequenceProductSub::LogoLayout();
     mPressStartLayout = new SimpleLayout("Press[A][B]", "PressStart", 1, -1);
     mPressStartLayout->initWithoutIter();
+#ifdef TARGET_PC
+    NebulaTitleScreen::keepAOnly(mPressStartLayout);  // "Press A": the B button is taken out of the text
+#endif
     mAButtonChecker = new TriggerChecker();
     mBButtonChecker = new TriggerChecker();
     mIsDisplayEncouragePal60Window = MR::isDisplayEncouragePal60Window();
@@ -131,7 +142,12 @@ void TitleSequenceProduct::exeLogoDisplay() {
     mAButtonChecker->update(MR::testCorePadButtonA(WPAD_CHAN0));
     mBButtonChecker->update(MR::testCorePadButtonB(WPAD_CHAN0));
 
+#ifdef TARGET_PC
+    // A alone starts (the game asks for A and B together).
+    if (mAButtonChecker->getOnTrigger()) {
+#else
     if (mAButtonChecker->getLevel() && mBButtonChecker->getLevel()) {
+#endif
         MR::stopStageBGM(75);
         MR::startSystemSE("SE_SY_GAME_START");
         MR::startCSSound("CS_CLICK_CLOSE", nullptr, 0);
@@ -147,17 +163,56 @@ void TitleSequenceProduct::exeLogoDisplay() {
 void TitleSequenceProduct::exeDecide() {
     if (MR::isFirstStep(this)) {
         MR::startAnim(mLogoLayout, "Decide", 0);
+#ifdef TARGET_PC
+        NebulaTitleScreen::startDecide();  // the new logo fades out by itself
+#endif
         MR::deleteEffectAll(mLogoLayout);
         MR::startAnim(mPressStartLayout, "End", 0);
     }
 
+#ifdef TARGET_PC
+    {
+        // Diagnostic: when the two animations stop.
+        static int sLogStep = -1;
+        static bool sLogoStopped = false;
+        static bool sPressStopped = false;
+
+        if (MR::isFirstStep(this)) {
+            sLogoStopped = sPressStopped = false;
+        }
+
+        if (!sLogoStopped && MR::isAnimStopped(mLogoLayout, 0)) {
+            sLogoStopped = true;
+            char note[32];
+            snprintf(note, sizeof(note), "step %d", static_cast< int >(getNerveStep()));
+            NebulaArchipelago::logNote("Decide", "logo animation stopped", note);
+        }
+
+        if (!sPressStopped && MR::isAnimStopped(mPressStartLayout, 0)) {
+            sPressStopped = true;
+            char note[32];
+            snprintf(note, sizeof(note), "step %d", static_cast< int >(getNerveStep()));
+            NebulaArchipelago::logNote("Decide", "press animation stopped", note);
+        }
+
+        (void)sLogStep;
+    }
+
+    if (MR::isStep(this, 150)) {
+        setNerve(GET_NERVE_ANON(TitleSequenceProductDead));  // never stays: whatever the animations do
+    } else if (MR::isAnimStopped(mLogoLayout, 0) && MR::isAnimStopped(mPressStartLayout, 0) && NebulaTitleScreen::isDecideDone()) {
+#else
     if (MR::isAnimStopped(mLogoLayout, 0) && MR::isAnimStopped(mPressStartLayout, 0)) {
+#endif
         setNerve(GET_NERVE_ANON(TitleSequenceProductDead));
     }
 }
 
 void TitleSequenceProduct::exeDead() {
     if (MR::isFirstStep(this)) {
+#ifdef TARGET_PC
+        NebulaArchipelago::logNote("Decide", "title taken down", "");
+#endif
         mLogoLayout->kill();
         mPressStartLayout->kill();
 
@@ -195,7 +250,10 @@ void TitleSequenceProduct::updateButtonReaction(TriggerChecker* pButtonChecker, 
 void TitleSequenceProduct::updatePressStartReaction() {
     if (mAButtonChecker->getOnTrigger()) {
         MR::startAnim(mPressStartLayout, "ButtonReaction", 0);
-    } else if (mBButtonChecker->getOnTrigger()) {
+    }
+#ifndef TARGET_PC
+    else if (mBButtonChecker->getOnTrigger()) {
         MR::startAnim(mPressStartLayout, "ButtonReaction", 0);
     }
+#endif
 }
