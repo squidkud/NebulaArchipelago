@@ -74,6 +74,15 @@ class SMGContext(BaseContext):
             self.slot_data_smg = args.get("slot_data") or {}
             logger.info("Connected: /tracker shows your progress, /stars <galaxy> its stars, /places the shuffled galaxies.")
 
+    def make_gui(self):
+        # The window's title: the Universal Tracker would call it "Tracker v... for AP version ...".
+        ui = super().make_gui()
+
+        class NebulaManager(ui):
+            base_title = "Nebula Client for AP version"
+
+        return NebulaManager
+
     def summary(self):
         return summarize(self.slot_data_smg, self.checked_locations, self.server_locations,
                          [item.item for item in self.items_received])

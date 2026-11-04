@@ -34,7 +34,7 @@ game: Nebula
 requires:
   version: 0.6.9 # Version of Archipelago required for this yaml to work as expected.
   game:
-    Nebula: 0.9.28 # Version of the world required for this yaml to work as expected.
+    Nebula: 0.9.29 # Version of the world required for this yaml to work as expected.
 
 Nebula:
   ################
