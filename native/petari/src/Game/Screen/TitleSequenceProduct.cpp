@@ -9,6 +9,9 @@
 #include "Game/Util/SoundUtil.hpp"
 #include "Game/Util/SystemUtil.hpp"
 #include "Game/Util/TriggerChecker.hpp"
+#ifdef TARGET_PC
+#include "Game/Screen/NebulaTitleScreen.hpp"
+#endif
 
 namespace {
     static const s32 sPressABAppearFrame = 25;
@@ -17,6 +20,9 @@ namespace {
 namespace TitleSequenceProductSub {
     LogoLayout::LogoLayout() : SimpleLayout("\203\215\203\123" /* ロゴ */, "TitleLogo", 2, -1) {
         initEffectKeeper(1, "TitleLogo", nullptr);
+#ifdef TARGET_PC
+        NebulaTitleScreen::replaceLogo(this);  // the Nebula Archipelago logo
+#endif
         kill();
     }
 };  // namespace TitleSequenceProductSub
@@ -43,6 +49,9 @@ TitleSequenceProduct::TitleSequenceProduct()
     mLogoLayout = new TitleSequenceProductSub::LogoLayout();
     mPressStartLayout = new SimpleLayout("Press[A][B]", "PressStart", 1, -1);
     mPressStartLayout->initWithoutIter();
+#ifdef TARGET_PC
+    NebulaTitleScreen::keepAOnly(mPressStartLayout);  // "Press A": the B button is taken out of the text
+#endif
     mAButtonChecker = new TriggerChecker();
     mBButtonChecker = new TriggerChecker();
     mIsDisplayEncouragePal60Window = MR::isDisplayEncouragePal60Window();
@@ -131,7 +140,12 @@ void TitleSequenceProduct::exeLogoDisplay() {
     mAButtonChecker->update(MR::testCorePadButtonA(WPAD_CHAN0));
     mBButtonChecker->update(MR::testCorePadButtonB(WPAD_CHAN0));
 
+#ifdef TARGET_PC
+    // A alone starts (the game asks for A and B together).
+    if (mAButtonChecker->getOnTrigger()) {
+#else
     if (mAButtonChecker->getLevel() && mBButtonChecker->getLevel()) {
+#endif
         MR::stopStageBGM(75);
         MR::startSystemSE("SE_SY_GAME_START");
         MR::startCSSound("CS_CLICK_CLOSE", nullptr, 0);
@@ -195,7 +209,10 @@ void TitleSequenceProduct::updateButtonReaction(TriggerChecker* pButtonChecker, 
 void TitleSequenceProduct::updatePressStartReaction() {
     if (mAButtonChecker->getOnTrigger()) {
         MR::startAnim(mPressStartLayout, "ButtonReaction", 0);
-    } else if (mBButtonChecker->getOnTrigger()) {
+    }
+#ifndef TARGET_PC
+    else if (mBButtonChecker->getOnTrigger()) {
         MR::startAnim(mPressStartLayout, "ButtonReaction", 0);
     }
+#endif
 }
