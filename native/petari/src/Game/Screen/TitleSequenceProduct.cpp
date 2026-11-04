@@ -11,6 +11,8 @@
 #include "Game/Util/TriggerChecker.hpp"
 #ifdef TARGET_PC
 #include "Game/Screen/NebulaTitleScreen.hpp"
+#include "Game/System/NebulaArchipelago.hpp"
+#include <cstdio>
 #endif
 
 namespace {
@@ -169,6 +171,33 @@ void TitleSequenceProduct::exeDecide() {
     }
 
 #ifdef TARGET_PC
+    {
+        // Diagnostic: when the two animations stop.
+        static int sLogStep = -1;
+        static bool sLogoStopped = false;
+        static bool sPressStopped = false;
+
+        if (MR::isFirstStep(this)) {
+            sLogoStopped = sPressStopped = false;
+        }
+
+        if (!sLogoStopped && MR::isAnimStopped(mLogoLayout, 0)) {
+            sLogoStopped = true;
+            char note[32];
+            snprintf(note, sizeof(note), "step %d", static_cast< int >(getNerveStep()));
+            NebulaArchipelago::logNote("Decide", "logo animation stopped", note);
+        }
+
+        if (!sPressStopped && MR::isAnimStopped(mPressStartLayout, 0)) {
+            sPressStopped = true;
+            char note[32];
+            snprintf(note, sizeof(note), "step %d", static_cast< int >(getNerveStep()));
+            NebulaArchipelago::logNote("Decide", "press animation stopped", note);
+        }
+
+        (void)sLogStep;
+    }
+
     if (MR::isStep(this, 150)) {
         setNerve(GET_NERVE_ANON(TitleSequenceProductDead));  // never stays: whatever the animations do
     } else if (MR::isAnimStopped(mLogoLayout, 0) && MR::isAnimStopped(mPressStartLayout, 0) && NebulaTitleScreen::isDecideDone()) {
@@ -181,6 +210,9 @@ void TitleSequenceProduct::exeDecide() {
 
 void TitleSequenceProduct::exeDead() {
     if (MR::isFirstStep(this)) {
+#ifdef TARGET_PC
+        NebulaArchipelago::logNote("Decide", "title taken down", "");
+#endif
         mLogoLayout->kill();
         mPressStartLayout->kill();
 

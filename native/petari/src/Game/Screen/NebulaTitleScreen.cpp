@@ -53,6 +53,7 @@ namespace {
     const f32 cBloomHeight = 273.0f;
 
     int sDecideFrame = -1;  // -1: not pressed yet
+    f32 sPrevState[cMaxPanes][10];
 
     nw4r::lyt::Pane* getRoot(LayoutActor* pLayout) {
         if (pLayout == nullptr || pLayout->getLayoutManager() == nullptr || pLayout->getLayoutManager()->mLayout == nullptr) {
@@ -345,43 +346,34 @@ namespace NebulaTitleScreen {
             return;
         }
 
-        nw4r::lyt::Pane* pLogo = findNamed(pRoot, "PicLogo");
+        // Diagnostic: what the game's animation does to every pane after A is pressed, written when something changes (frame 0
+        // gives the starting point). The game's animation is left alone.
+        if (sDecideFrame <= 120) {
+            nw4r::lyt::Pane* panes[cMaxPanes];
+            int paneNum = 0;
+            collect(pRoot, 0, panes, &paneNum);
 
-        if (pLogo == nullptr) {
-            return;
-        }
+            for (int i = 0; i < paneNum; i++) {
+                const nw4r::lyt::Pane* pPane = panes[i];
+                f32 state[10] = {static_cast< f32 >(pPane->mAlpha), pPane->IsVisible() ? 1.0f : 0.0f, pPane->mScale.x, pPane->mScale.y, pPane->mSize.width,
+                                 pPane->mSize.height, pPane->mTranslate.x, pPane->mTranslate.y, pPane->mRotate.z, static_cast< f32 >(pPane->mFlag)};
+                bool changed = sDecideFrame == 0;
 
-        // The game's animation when A is pressed runs as it is (the flash, the glow, the fade); the new logo only gets a least
-        // fade of its own, in case the animation hides the picture at once (an alpha or a visibility it does not know).
-        if (sDecideFrame <= 40 && sDecideFrame % 2 == 0) {
-            const char* const names[] = {"PicLogo", "PicBloomA", "PicBloomB", "PicFlash"};
+                for (int k = 0; k < 10 && !changed; k++) {
+                    changed = state[k] != sPrevState[i][k];
+                }
 
-            for (int n = 0; n < 4; n++) {
-                nw4r::lyt::Pane* pPane = findNamed(pRoot, names[n]);
-
-                if (pPane != nullptr) {
-                    char note[112];
-                    snprintf(note, sizeof(note), "frame %d: alpha %d scale %d%%,%d%% size %dx%d at %d,%d %s", sDecideFrame, static_cast< int >(pPane->mAlpha),
-                             static_cast< int >(pPane->mScale.x * 100.0f), static_cast< int >(pPane->mScale.y * 100.0f), static_cast< int >(pPane->mSize.width),
-                             static_cast< int >(pPane->mSize.height), static_cast< int >(pPane->mTranslate.x), static_cast< int >(pPane->mTranslate.y),
-                             pPane->IsVisible() ? "shown" : "hidden");
+                if (changed) {
+                    char note[160];
+                    snprintf(note, sizeof(note), "f%d alpha %d %s scale %.2f,%.2f size %.0fx%.0f at %.1f,%.1f rot %.1f flag %d", sDecideFrame, static_cast< int >(state[0]),
+                             state[1] > 0.5f ? "shown" : "hidden", state[2], state[3], state[4], state[5], state[6], state[7], state[8], static_cast< int >(state[9]));
                     NebulaArchipelago::logNote("Decide", pPane->mName, note);
                 }
+
+                for (int k = 0; k < 10; k++) {
+                    sPrevState[i][k] = state[k];
+                }
             }
-        }
-
-        f32 t = static_cast< f32 >(sDecideFrame) / static_cast< f32 >(cDecideFrames);
-        t = t > 1.0f ? 1.0f : t;
-        const u8 least = static_cast< u8 >(255.0f * (1.0f - t * t * (3.0f - 2.0f * t)));
-
-        for (nw4r::lyt::Pane* pParent = pLogo->GetParent(); pParent != nullptr; pParent = pParent->GetParent()) {
-            pParent->SetVisible(true);
-        }
-
-        pLogo->SetVisible(true);
-
-        if (pLogo->mAlpha < least) {
-            pLogo->mAlpha = least;
         }
 
         sDecideFrame++;
