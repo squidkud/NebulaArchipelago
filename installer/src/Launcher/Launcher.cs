@@ -254,6 +254,7 @@ namespace Nebula.Launcher
     internal sealed class SettingsForm : Form
     {
         private readonly LaunchSession session;
+        private Button playButton;
         private readonly List<MonitorEntry> monitors = DisplayInfo.Enumerate();
         private GraphicsSettings graphics = GraphicsSettings.Load();
         private AudioSettings audio = AudioSettings.Load();
@@ -552,6 +553,7 @@ namespace Nebula.Launcher
                 Button(advanced, "Beta releases", 12, y, 200).Click += delegate { Process.Start("https://github.com/" + BuildInfo.Repository + "/releases"); };
 
             var play = new Button { Text = "Save and play", Location = new Point(608, 628), Size = new Size(140, 38) };
+            playButton = play;
             play.Click += delegate { if (Commit()) Play(); };
             Controls.Add(play);
             AcceptButton = play;
@@ -1249,8 +1251,15 @@ namespace Nebula.Launcher
                 MessageBox.Show(this, error, "Nebula", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
             }
-            // A recording keeps this process alive, through its capture thread, until the game exits.
-            Close();
+            // The launcher stays open (to change a setting or the room while the game runs). Pressing Save and play again right
+            // away would start a second game, so the button rests a few seconds.
+            if (playButton != null)
+            {
+                playButton.Enabled = false;
+                var rest = new System.Windows.Forms.Timer { Interval = 5000 };
+                rest.Tick += delegate { rest.Stop(); rest.Dispose(); if (playButton != null && !playButton.IsDisposed) playButton.Enabled = true; };
+                rest.Start();
+            }
         }
 
         private bool ChooseContent()
@@ -1434,7 +1443,8 @@ namespace Nebula.Launcher
                 catch (Exception) { /* Logs remain available if ZIP creation fails. */ }
                 if (process.ExitCode != 0) result = "The game exited with code " + process.ExitCode + ".\r\n" + result;
                 RecordingNotice.Show(result, process.ExitCode != 0, saved);
-                Environment.Exit(0);
+                // The launcher window may still be open (Save and play leaves it open): only a process with no window ends here.
+                if (Application.OpenForms.Count == 0) Environment.Exit(0);
             });
             thread.IsBackground = false;
             thread.Start();
