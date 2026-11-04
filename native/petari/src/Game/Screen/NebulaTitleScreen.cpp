@@ -1,6 +1,6 @@
 #ifdef TARGET_PC
 #include "Game/Screen/NebulaTitleScreen.hpp"
-#include "Game/LiveActor/LayoutActor.hpp"
+#include "Game/Screen/LayoutActor.hpp"
 #include "Game/Screen/LayoutManager.hpp"
 #include "Game/System/NebulaArchipelago.hpp"
 #include <JSystem/JUtility/JUTTexture.hpp>
