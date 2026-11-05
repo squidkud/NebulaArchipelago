@@ -394,32 +394,37 @@ class SMGWorld(World):
         # Enough Power Stars to reach the most demanding galaxy (the counter also holds the Green and Grand Stars).
         # And enough for Stars to Finish when the locations allow it (a request above what exists is lowered to it).
         # (Not when the slot's data rebuilds a finished multiworld: that one keeps the pool it was generated with.)
-        # No star (Power, Green or Grand) sits behind the ending (the Purple Coin stars, the Star Festival): they are all in
-        # the places before it, the stars of the galaxies and the shelves of the shop (the transformations need places there
-        # too). So the stars the counter can hold are limited by those places.
-        # (The transformations need their places before the ending, and as many again are left free: a fill that has no
-        # slack at all is stuck by the stars that need a transformation.)
+        # No star (Power, Green or Grand) sits behind the ending (the Purple Coin stars, the Star Festival). Alone in the
+        # multiworld, the stars are all in the places before it, the stars of the galaxies and the shelves of the shop (the
+        # transformations need places there too, and twice as many are left free: a fill that has no slack at all is stuck
+        # by the stars that need a transformation), so those places limit how many the counter can hold. With other players
+        # the stars can be in their places, and nothing limits it but the pool.
+        others = self.multiworld.players > 1  # the number of players
+        goal120 = not regenerated and self.options.goal.value == self.options.goal.option_bowser_and_120_stars
         places_before = (sum(1 for star in self.stars if star.kind not in AFTER_ENDING_KINDS)
-                         - (2 * len(TRANSFORMATIONS) if self.options.transformation_items else 0))
-        if not regenerated and self.options.goal.value == self.options.goal.option_bowser_and_120_stars:
-            # The 120 stars of the Reactor must fit before the ending: with one character the galaxies alone hold fewer, so the
-            # shop gets the shelves that are missing (at most 20).
-            missing = asked - places_before - int(self.options.shop_items.value)
+                         - (3 * len(TRANSFORMATIONS) if self.options.transformation_items else 0))
+        if goal120:
+            # The Reactor asks 120 stars: the pool must hold them (with other players), or the places before the ending
+            # must (alone). Either way the shop gets the shelves that are missing (at most 20).
+            stars_held = asked - GRAND_STARS_IN_POOL - GREEN_STARS_IN_POOL  # the Power Stars the 120 are made of
+            missing = stars_held - rest - int(self.options.shop_items.value) if others else \
+                asked - places_before - int(self.options.shop_items.value)
             if missing > 0 and self.options.shop_items.value < self.options.shop_items.range_end:
                 raised = min(self.options.shop_items.range_end, int(self.options.shop_items.value) + missing)
                 logging.info("Nebula (%s): the Star Bit shop gets %d shelves instead of %d, so that the 120 stars of the Reactor "
-                             "fit before the ending.", self.player_name, raised, self.options.shop_items.value)
+                             "can be held.", self.player_name, raised, self.options.shop_items.value)
                 self.options.shop_items.value = raised
         before_ending = places_before + int(self.options.shop_items.value)
-        star_room = max(0, before_ending - GRAND_STARS_IN_POOL - GREEN_STARS_IN_POOL)  # the Power Stars that fit
+        star_room = max(0, before_ending - GRAND_STARS_IN_POOL - GREEN_STARS_IN_POOL)  # the Power Stars that fit before it
         # (With the goal Bowser And 120 Stars the shelves of the shop can hold stars too: the Reactor asks all of them.)
         power_room = rest + (int(self.options.shop_items.value)
                              if self.options.goal.value == self.options.goal.option_bowser_and_120_stars else 0)
+        room = power_room if others else star_room
         wanted_total = highest if regenerated else max(highest, min(asked, power_room + GRAND_STARS_IN_POOL + GREEN_STARS_IN_POOL,
-                                                                    star_room + GRAND_STARS_IN_POOL + GREEN_STARS_IN_POOL))
+                                                                    room + GRAND_STARS_IN_POOL + GREEN_STARS_IN_POOL))
         needed = max(0, wanted_total - GRAND_STARS_IN_POOL - GREEN_STARS_IN_POOL)
         wanted = round(rest * POWER_STAR_SHARE / 100)
-        self.power_stars = min(rest, max(wanted, needed)) if regenerated else min(power_room, star_room, max(wanted, needed))
+        self.power_stars = min(rest, max(wanted, needed)) if regenerated else min(power_room, room, max(wanted, needed))
         if self.power_stars < needed:
             raise OptionError(f"Nebula ({self.player_name}): too few locations ({len(self.stars)}) to hold the "
                               f"Power Stars the galaxies ask for. Turn on more kinds of stars.")

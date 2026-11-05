@@ -275,7 +275,9 @@ class Goal(Choice):
     unfinished until it is done, with each character the slot plays. With Bowser And 120 Stars or 242 Stars, Stars to
     Finish, Include Comet Stars and Include Purple Coin Stars are ignored: all the stars are in. Bowser And 120 Stars opens
     Bowser's Galaxy Reactor with 120 stars (242 Stars with the game's own 60); no Power, Green or Grand Star is ever behind
-    the ending (the Purple Coin stars hold none), so with one character the shop gets more shelves if the 120 would not fit."""
+    the ending (the Purple Coin stars hold none). With other players in the multiworld the 120 are always asked (the stars can be
+    in their places; the shop gets shelves if the pool needs them). Alone, the places before the ending limit it: the shop gets
+    shelves, and with one character and the transformations as items the Reactor asks a little less (about 104)."""
     display_name = "Goal"
     option_bowser = 0
     option_bowser_and_120_stars = 2
