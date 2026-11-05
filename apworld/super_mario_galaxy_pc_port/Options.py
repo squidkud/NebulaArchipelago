@@ -273,7 +273,9 @@ class Goal(Choice):
     Purple Coin stars too (with both characters: the stars of Mario's saves and of Luigi's), plus the Grand Finale Galaxy's Star
     Festival, the 121st star of each character, the last one (the game's own entrance opens only when Mario and Luigi both have 120 stars; the settings' ADVANCED galaxy select goes there at any time). The multiworld stays
     unfinished until it is done, with each character the slot plays. With Bowser And 120 Stars or 242 Stars, Stars to
-    Finish, Include Comet Stars and Include Purple Coin Stars are ignored: all the stars are in."""
+    Finish, Include Comet Stars and Include Purple Coin Stars are ignored: all the stars are in. Bowser And 120 Stars opens
+    Bowser's Galaxy Reactor with 120 stars (242 Stars with the game's own 60); no Power, Green or Grand Star is ever behind
+    the ending (the Purple Coin stars hold none), so with one character the shop gets more shelves if the 120 would not fit."""
     display_name = "Goal"
     option_bowser = 0
     option_bowser_and_120_stars = 2

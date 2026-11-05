@@ -962,8 +962,11 @@ namespace NebulaArchipelago {
                     return powerStarNum;
                 }
 
-                // With the slot's own requirements the number is the slot's, higher or lower than the game's.
-                return rStatus.mExactRequirements || cap < powerStarNum ? cap : powerStarNum;
+                // With the slot's own requirements the number is the slot's, higher or lower than the game's. The Reactor of the
+                // goal Bowser And 120 Stars is always the slot's too (120, where the game asks 60).
+                const bool strictReactor = strcmp(pGalaxyName, "KoopaBattleVs3Galaxy") == 0 &&
+                                           __NebulaArchipelago(NEBULA_AP_GOAL_OPTION, 0) == NEBULA_AP_GOAL_ENDING_AND_STARS;
+                return rStatus.mExactRequirements || strictReactor || cap < powerStarNum ? cap : powerStarNum;
             }
         }
 
