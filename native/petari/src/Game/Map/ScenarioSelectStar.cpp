@@ -1,6 +1,10 @@
 #include "Game/Map/ScenarioSelectStar.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/MapObj/PowerStar.hpp"
+#ifdef TARGET_PC
+#include "Game/LiveActor/ModelManager.hpp"
+#include "Game/Player/NebulaPlayerColors.hpp"
+#endif
 #include "Game/Util/MathUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
@@ -56,6 +60,12 @@ void ScenarioSelectStar::appear() {
     mIsPointing = false;
     mRotateSpeed = 0.0f;
     updatePos();
+#ifdef TARGET_PC
+    // star_colors: the stars of this screen are not the level's: their pictures are painted too (a no-op if they are the same ones).
+    if (getModelManager() != nullptr) {
+        NebulaPlayerColors::applyStar(getModelManager()->getJ3DModelData());
+    }
+#endif
     MultiScene::startBtp(this, "PowerStar");
     MultiScene::startBva(this, "PowerStar");
     MultiScene::setBtpFrameAndStop(this, PowerStar::getBtpFrameCurrentStage(mScenarioNo));
