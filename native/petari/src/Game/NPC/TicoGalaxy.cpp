@@ -1,6 +1,9 @@
 #include "Game/NPC/TicoGalaxy.hpp"
 #include "Game/MapObj/StarPieceDirector.hpp"
 #include "Game/NPC/TicoStarRing.hpp"
+#ifdef TARGET_PC
+#include "Game/System/NebulaArchipelago.hpp"
+#endif
 #include "Game/System/GameEventFlagTable.hpp"
 #include "Game/Util/EventUtil.hpp"
 #include "Game/Util/JMapUtil.hpp"
@@ -126,5 +129,10 @@ void TicoGalaxy::disappear(bool a1) {
 
 void TicoGalaxy::appearInformation() const {
     MR::appearInformationMessage(MR::getGameMessageDirect(::sInfoMessageID), true);
+#ifdef TARGET_PC
+    // Archipelago's galaxy shuffle: the Luma names the galaxy that stands in its place, not the game's.
+    MR::setInformationMessageReplaceString(MR::getGalaxyNameShortOnCurrentLanguage(NebulaArchipelago::getShuffledGalaxy(mGalaxyName)), 0);
+#else
     MR::setInformationMessageReplaceString(MR::getGalaxyNameShortOnCurrentLanguage(mGalaxyName), 0);
+#endif
 }
