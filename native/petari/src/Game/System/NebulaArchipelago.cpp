@@ -5,6 +5,7 @@
 #include "Game/Player/MarioAccess.hpp"
 #include "Game/Player/MarioActor.hpp"
 #include "Game/System/GalaxyStatusAccessor.hpp"
+#include "Game/System/GameDataConst.hpp"
 #include "Game/System/GameDataFunction.hpp"
 #include "Game/System/GameSequenceFunction.hpp"
 #include "Game/Util/FileUtil.hpp"
@@ -1031,7 +1032,16 @@ namespace NebulaArchipelago {
             const s32 here = shown == cNoCap || shown >= static_cast< u32 >(cGalaxyNum) ? i : static_cast< s32 >(shown);
 
             if (here == content) {
-                return cApGalaxies[i].mDome;
+                if (cApGalaxies[i].mDome >= 1) {
+                    return cApGalaxies[i].mDome;
+                }
+
+                // The place is a Hungry Luma's planet of the Observatory (dome 0 in the table: no miniature in a dome): the
+                // room where the game puts that Luma is where the player returns. Dome 0 would send him to a dome room
+                // with no star chosen, and the game crashed there.
+                const s32 lumaDome = static_cast< s32 >(GameDataConst::getIncludedGrandGalaxyId(cApGalaxies[i].mName));
+
+                return lumaDome >= 1 ? lumaDome : vanillaDome;
             }
         }
 

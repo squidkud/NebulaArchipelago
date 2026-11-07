@@ -1325,7 +1325,11 @@ s32 StorySequenceExecutor::calcAproposScenarioNoOnAstroDome() const {
     s32 domeId = GameDataConst::getIncludedGrandGalaxyId(mStageName);
 #ifdef TARGET_PC
     // Archipelago's galaxy shuffle: back to the room where the galaxy was chosen, not to the one it has in the game.
-    domeId = NebulaArchipelago::getReturnDome(mStageName, domeId);
+    const s32 returnDome = NebulaArchipelago::getReturnDome(mStageName, domeId);
+
+    if (returnDome >= 1) {
+        domeId = returnDome;
+    }
 #endif
     return domeId;
 }
