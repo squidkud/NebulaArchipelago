@@ -25,9 +25,8 @@ jobs:
           .\native\build.ps1 -Petari native\petari -Build build\game
           if ($LASTEXITCODE -ne 0) { throw 'game build failed' }
           Get-ChildItem build\game -Filter smg_game.* | Format-Table Name, Length
-      - uses: actions/upload-artifact@v4
-        with:
-          name: symbols
-          path: |
-            build/game/smg_game.dll
-            build/game/smg_game.map
+      - name: Resolve the crash addresses
+        shell: pwsh
+        run: |
+          python tools_resolve.py
+          Get-Content build\game\smg_game.map -TotalCount 12
