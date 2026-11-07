@@ -1,4 +1,7 @@
 #include "Game/NPC/TicoStarRing.hpp"
+#ifdef TARGET_PC
+#include "Game/System/NebulaArchipelago.hpp"
+#endif
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/NPC/TicoGalaxy.hpp"
 #include "Game/Util/ActorSwitchUtil.hpp"
@@ -42,7 +45,12 @@ void TicoStarRing::init(const JMapInfoIter& rIter) {
             break;
         }
 
+#ifdef TARGET_PC
+        // Archipelago's galaxy shuffle: the Luma names the galaxy that stands in its place, not the game's.
+        MR::setMessageArgToCurrentGalaxyName(mMsgCtrl, NebulaArchipelago::getShuffledGalaxy(mGalaxyName));
+#else
         MR::setMessageArgToCurrentGalaxyName(mMsgCtrl, mGalaxyName);
+#endif
 
         if (!MR::isAppearGalaxy(mGalaxyName)) {
             makeActorDead();
@@ -75,7 +83,11 @@ void TicoStarRing::initialize(LiveActor* pTicoGalaxy, LiveActor* a2, const char*
     setBaseMtx(pTicoGalaxy->getBaseMtx());
     mPosition.set(a2->mPosition);
     makeActorDead();
+#ifdef TARGET_PC
+    MR::setMessageArgToCurrentGalaxyName(mMsgCtrl, NebulaArchipelago::getShuffledGalaxy(pGalaxyName));
+#else
     MR::setMessageArgToCurrentGalaxyName(mMsgCtrl, pGalaxyName);
+#endif
 }
 
 void TicoStarRing::exeWait() {
