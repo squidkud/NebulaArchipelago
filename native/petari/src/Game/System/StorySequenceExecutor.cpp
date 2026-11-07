@@ -868,14 +868,22 @@ void StorySequenceExecutor::decideNextEventForClearGalaxy(GalaxyMoveArgument* pM
                     prepareDemoSequence(::cDemoGrandStar1ResultFirst);
                 }
 
-                if (isEqualStageScenarioBefore("EggStarGalaxy", 1)) {
-                    prepareDemoSequence(::cDemoPowerStarResultAstroDomeWithSave);
-                    setNextStageToAstroDome(pMoveArgument);
-                }
+#ifdef TARGET_PC
+                // Archipelago: Good Egg's first stars are ordinary stars. The game's own flow takes the player to the dome
+                // (and its story demos); where Good Egg stands in the shuffle (a Hungry Luma's planet, outside) there is no
+                // dome to go back to, and the scene started without a camera: crash. The general flow below picks the place.
+                if (!NebulaArchipelago::isActive())
+#endif
+                {
+                    if (isEqualStageScenarioBefore("EggStarGalaxy", 1)) {
+                        prepareDemoSequence(::cDemoPowerStarResultAstroDomeWithSave);
+                        setNextStageToAstroDome(pMoveArgument);
+                    }
 
-                if (isEqualStageScenarioBefore("EggStarGalaxy", 2)) {
-                    prepareDemoSequence(::cDemoNewGalaxyDiscover);
-                    setNextStageToAstroDome(pMoveArgument);
+                    if (isEqualStageScenarioBefore("EggStarGalaxy", 2)) {
+                        prepareDemoSequence(::cDemoNewGalaxyDiscover);
+                        setNextStageToAstroDome(pMoveArgument);
+                    }
                 }
 
                 if (GameDataFunction::isOnJustGameEventFlag("EventKinopioExplorerRescued")) {
@@ -1325,11 +1333,7 @@ s32 StorySequenceExecutor::calcAproposScenarioNoOnAstroDome() const {
     s32 domeId = GameDataConst::getIncludedGrandGalaxyId(mStageName);
 #ifdef TARGET_PC
     // Archipelago's galaxy shuffle: back to the room where the galaxy was chosen, not to the one it has in the game.
-    const s32 returnDome = NebulaArchipelago::getReturnDome(mStageName, domeId);
-
-    if (returnDome >= 1) {
-        domeId = returnDome;
-    }
+    domeId = NebulaArchipelago::getReturnDome(mStageName, domeId);
 #endif
     return domeId;
 }
