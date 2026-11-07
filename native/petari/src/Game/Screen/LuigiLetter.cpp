@@ -105,6 +105,12 @@ void LuigiLetter::makeArchiveListCommon(NameObjArchiveListCollector* pCollector,
         return;
     }
 
+#ifdef TARGET_PC
+    if (pGalaxyName[0] == '\0') {
+        return;
+    }
+#endif
+
     char archiveName[256];
     snprintf(archiveName, sizeof(archiveName), "LuigiPicture%s", pGalaxyName);
 
