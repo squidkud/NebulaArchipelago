@@ -72,6 +72,13 @@ void EventUtil_FORCE_MATCH_STRINGS() {
 }
 
 namespace {
+#ifdef TARGET_PC
+    // An empty name must not reach the archive list: "LuigiPicture.arc" does not exist and the game stops on loading a save.
+    const char* nameOrNull(const char* pName) {
+        return pName != nullptr && pName[0] != '\0' ? pName : nullptr;
+    }
+#endif
+
     ScenePlayingResult* getScenePlayingResult() {
         return MR::getSceneObj< ScenePlayingResult >(SceneObj_ScenePlayingResult);
     }
@@ -830,15 +837,25 @@ namespace MR {
     const char* getLuigiLetterGalaxyName() {
         s32 scenarioNo = getCurrentSelectedScenarioNo();
         bool hasStar = scenarioNo != -1 && GameDataConst::isPowerStarLuigiHas(getCurrentStageName(), scenarioNo);
+#ifdef TARGET_PC
+        if (hasStar) {
+            return nameOrNull(getCurrentStageName());
+        }
+#else
         if (hasStar) {
             return getCurrentStageName();
         }
+#endif
 
         if (GameSequenceFunction::isLuigiDisappearFromAstroGalaxy() || GameSequenceFunction::isLuigiHidingAnyGalaxy()) {
             s32 starId;
             const char* pGalaxyName = nullptr;
             GameSequenceFunction::getLuigiHidingGalaxyNameAndStarId(&pGalaxyName, &starId);
+#ifdef TARGET_PC
+            return nameOrNull(pGalaxyName);
+#else
             return pGalaxyName;
+#endif
         }
 
         return nullptr;
@@ -853,7 +870,11 @@ namespace MR {
 
             GameSequenceFunction::getLuigiHidingGalaxyNameAndStarId(&pGalaxyName, &starId);
 
+#ifdef TARGET_PC
+            return nameOrNull(pGalaxyName);
+#else
             return pGalaxyName;
+#endif
         }
 
         return nullptr;
