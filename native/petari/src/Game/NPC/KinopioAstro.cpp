@@ -248,7 +248,14 @@ void KinopioAstro::init(const JMapInfoIter& rIter) {
             }
         }
 
-        if (MR::isLuigiLetterArrivalAtMessenger()) {
+#ifdef TARGET_PC
+        // Archipelago's saves can have all of Luigi's events done: there is then no galaxy for the letter's picture and the
+        // game asked for "LuigiPicture.arc", which does not exist (the game stopped on loading the save). No letter then.
+        if (MR::isLuigiLetterArrivalAtMessenger() && MR::getLuigiLetterGalaxyNameForNPC() != nullptr)
+#else
+        if (MR::isLuigiLetterArrivalAtMessenger())
+#endif
+        {
             mLuigiLetter = MR::createLuigiLetterForTalk();
             mLuigiLetter->initWithoutIter();
             _195 = true;
