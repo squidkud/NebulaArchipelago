@@ -1,0 +1,33 @@
+# One-off: rebuilds the game module of the commit it runs on, with a linker map, so that a crash report
+# ("smg_game.dll+0x...") can be turned into a function name. Runs on the push of the branch "symbols".
+name: symbols
+on:
+  push:
+    branches: ['symbols']
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tools (Ninja, CMake, LLVM)
+        shell: pwsh
+        run: |
+          choco install ninja -y --no-progress
+          if (-not (Test-Path 'C:\Program Files\CMake\bin\cmake.exe')) { choco install cmake -y --no-progress --installargs 'ADD_CMAKE_TO_PATH=System' }
+          if (-not (Test-Path 'C:\Program Files\LLVM\bin\clang++.exe')) { choco install llvm -y --no-progress }
+      - name: Game module with a linker map
+        shell: pwsh
+        run: |
+          $env:LDFLAGS = '-Wl,/MAP'
+          .\native\build.ps1 -Petari native\petari -Build build\game
+          if ($LASTEXITCODE -ne 0) { throw 'game build failed' }
+          Get-ChildItem build\game -Filter smg_game.* | Format-Table Name, Length
+      - uses: actions/upload-artifact@v4
+        with:
+          name: symbols
+          path: |
+            build/game/smg_game.dll
+            build/game/smg_game.map
