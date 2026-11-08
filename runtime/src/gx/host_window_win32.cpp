@@ -1786,6 +1786,9 @@ void end_text_entry(bool keep) {
         ap_field(s_text_field) = text;
         s_ap.dirty = true;
         s_ap.saved = false;
+        // Written at once: a game restarted before CONNECT finds what was typed, not the old room.
+        std::string error;
+        if (s_ap_hooks.save != nullptr && s_ap_hooks.save(s_ap.server, s_ap.slot, s_ap.password, error)) s_ap.saved = true;
     }
 }
 

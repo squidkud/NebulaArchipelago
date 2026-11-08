@@ -1348,7 +1348,7 @@ bool read_file(const std::filesystem::path& path, std::string& text) {
 }
 }  // namespace
 
-void start(const std::filesystem::path& settings_folder, LogFn log) {
+void start(const std::filesystem::path& settings_folder, LogFn log, bool connect_now) {
     const std::lock_guard<std::mutex> lock(g_mutex);
     if (g_client != nullptr || settings_folder.empty()) return;
     g_user_log = log;
@@ -1420,6 +1420,10 @@ void start(const std::filesystem::path& settings_folder, LogFn log) {
         }
     }
     g_ini_path = found;
+    if (!connect_now) {
+        log_sink("the Archipelago client waits for the connection screen (it is not started yet)");
+        return;
+    }
     Config config = parse_config(text);
     config.path = found.string();
     if (!config.enabled) {

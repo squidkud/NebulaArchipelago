@@ -418,6 +418,8 @@ struct NativeSettingsView {
 // stands (galaxy::archipelago::State as a number, 0 off, 1 connecting, 2 connected, 3 refused).
 struct NativeArchipelagoHooks {
     bool (*load)(std::string& server, std::string& slot, std::string& password) = nullptr;
+    // Writes archipelago.ini with these (as soon as a field is validated), without connecting.
+    bool (*save)(const std::string& server, const std::string& slot, const std::string& password, std::string& error) = nullptr;
     // Writes archipelago.ini with these and restarts the client with it (the connection goes on in the background).
     bool (*connect)(const std::string& server, const std::string& slot, const std::string& password, std::string& error) = nullptr;
     unsigned (*state)() = nullptr;

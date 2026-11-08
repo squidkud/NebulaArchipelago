@@ -976,7 +976,12 @@ int main() {
         // The ARCHIPELAGO page: a row asks for a text, typed and picked on the on-screen keyboard.
         {
             static std::string s_saved_server;
+            static std::string s_written_server;
             galaxy::gx::NativeArchipelagoHooks hooks;
+            hooks.save = [](const std::string& server, const std::string&, const std::string&, std::string&) {
+                s_written_server = server;
+                return true;
+            };
             hooks.load = [](std::string& server, std::string& slot, std::string& password) {
                 server = "old:1";
                 slot = "S";
@@ -1012,9 +1017,11 @@ int main() {
             galaxy::gx::native_settings_input(NativeSettingsInput::Press, 45);  // NEBULA_KEY_DONE
             passed &= expect(!galaxy::gx::native_settings_text_active() && galaxy::gx::native_settings_view().rows[1].value == "old:1w",
                              "DONE keeps the text");
+            passed &= expect(s_written_server == "old:1w", "a validated field is written to the file at once, before CONNECT");
             galaxy::gx::native_settings_input(NativeSettingsInput::Change, 1);
             (void)galaxy::gx::native_settings_text_char(U'z');
             galaxy::gx::native_settings_input(NativeSettingsInput::Press, 44);  // NEBULA_KEY_CANCEL
+            passed &= expect(s_written_server == "old:1w", "CANCEL writes nothing");
             passed &= expect(galaxy::gx::native_settings_view().rows[1].value == "old:1w", "CANCEL leaves the text as it was");
             galaxy::gx::native_settings_input(NativeSettingsInput::SelectRow, 4);
             galaxy::gx::native_settings_input(NativeSettingsInput::Press, 0);
