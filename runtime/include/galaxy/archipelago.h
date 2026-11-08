@@ -224,6 +224,9 @@ public:
     // holds as a line for the shelf ("Power Star for Mario", "an item" while the server has not answered). Empty when
     // the server did not tell yet.
     [[nodiscard]] bool shop_bought(std::uint32_t item) const;
+    // Whether a location (its number) is checked: reported by this game, or checked on the server (a release of another
+    // player's game sends the rest of a slot's checks).
+    [[nodiscard]] bool location_checked(std::uint32_t number) const;
     [[nodiscard]] std::string shop_label(std::uint32_t item) const;
     // The item number (kItem* - kItemBase) of this game's own item on the shelf, or 0: another player's item (or one with no picture).
     [[nodiscard]] std::uint32_t shop_icon(std::uint32_t item) const;
@@ -298,6 +301,7 @@ private:
     std::vector<std::uint32_t> galaxy_shuffle_;
     std::vector<std::uint32_t> shop_prices_;
     std::set<std::uint32_t> checked_shop_;  // shop locations known checked (the server's, and ours)
+    std::set<std::uint32_t> checked_all_;   // every location the server says is checked (Connected, then RoomUpdate)
     struct Scouted {
         std::int64_t item = 0;
         std::int64_t player = 0;
@@ -361,6 +365,7 @@ void item_applied(std::uint32_t file);
 void report_death();
 [[nodiscard]] bool take_death();
 [[nodiscard]] bool shop_bought(std::uint32_t item);
+[[nodiscard]] bool location_checked(std::uint32_t number);
 [[nodiscard]] std::string shop_label(std::uint32_t item);
 [[nodiscard]] std::uint32_t shop_icon(std::uint32_t item);
 void request_shop_hints();

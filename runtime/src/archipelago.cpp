@@ -375,6 +375,7 @@ void Engine::forget_slot_locked() {
     galaxy_shuffle_.clear();
     shop_prices_.clear();
     checked_shop_.clear();
+    checked_all_.clear();
     valid_.clear();
     have_valid_ = false;
     seed_id_ = 0;
@@ -608,7 +609,11 @@ void Engine::handle_connected(const json::Value& command, std::vector<std::strin
                 have_valid_ = true;
                 for (const json::Value& id : list->items()) {
                     const std::int64_t number = id.as_int(0) - static_cast<std::int64_t>(kLocationBase);
-                    if (number >= 1 && number <= static_cast<std::int64_t>(kLocationLast)) valid_.insert(static_cast<std::uint32_t>(number));
+                    if (number >= 1 && number <= static_cast<std::int64_t>(kLocationLast)) {
+                        valid_.insert(static_cast<std::uint32_t>(number));
+                        if (std::string_view(key) == "checked_locations") checked_all_.insert(static_cast<std::uint32_t>(number));
+                        else checked_all_.erase(static_cast<std::uint32_t>(number));
+                    }
                     if (number >= static_cast<std::int64_t>(kShopFirst) && number <= static_cast<std::int64_t>(kShopLast)) {
                         if (std::string_view(key) == "checked_locations") checked_shop_.insert(static_cast<std::uint32_t>(number));
                         else checked_shop_.erase(static_cast<std::uint32_t>(number));
@@ -838,6 +843,27 @@ void Engine::handle_command(const json::Value& command, std::vector<std::string>
             }
         }
         log("the classes of " + std::to_string(count) + " items of the stars are known");
+        return;
+    }
+
+    if (cmd == "RoomUpdate") {
+        // Locations checked while we play (another player's release sends the whole rest of this slot's checks): the shelves
+        // and the stars they stand for count as done.
+        if (const json::Value* list = command.find("checked_locations")) {
+            const std::lock_guard<std::mutex> lock(mutex_);
+            std::size_t added = 0;
+            bool shop_changed = false;
+            for (const json::Value& id : list->items()) {
+                const std::int64_t number = id.as_int(0) - static_cast<std::int64_t>(kLocationBase);
+                if (number < 1 || number > static_cast<std::int64_t>(kLocationLast)) continue;
+                if (checked_all_.insert(static_cast<std::uint32_t>(number)).second) ++added;
+                if (number >= static_cast<std::int64_t>(kShopFirst) && number <= static_cast<std::int64_t>(kShopLast)) {
+                    shop_changed = checked_shop_.insert(static_cast<std::uint32_t>(number)).second || shop_changed;
+                }
+            }
+            if (shop_changed) save_cache_locked();
+            if (added > 0) log(std::to_string(added) + " more locations are checked on the server (a release, or another way)");
+        }
         return;
     }
 
@@ -1127,6 +1153,12 @@ bool Engine::shop_bought(std::uint32_t item) const {
     const std::uint32_t number = kShopFirst + item;
     if (number > kLocationLast) return false;
     return found_flags_[number] || checked_shop_.count(number) != 0u;
+}
+
+bool Engine::location_checked(std::uint32_t number) const {
+    const std::lock_guard<std::mutex> lock(mutex_);
+    if (number == 0u || number > kLocationLast) return false;
+    return found_flags_[number] || checked_all_.count(number) != 0u || checked_shop_.count(number) != 0u;
 }
 
 std::string Engine::shop_label(std::uint32_t item) const {
@@ -1536,6 +1568,11 @@ void report_death() {
 bool take_death() {
     Client* c = client();
     return c != nullptr && c->engine().take_death();
+}
+
+bool location_checked(std::uint32_t number) {
+    Client* c = client();
+    return c != nullptr && c->engine().location_checked(number);
 }
 
 std::uint32_t star_class(std::uint32_t index) noexcept {

@@ -853,6 +853,7 @@ private:
     f32 mRight;
     f32 mTitleY;
     f32 mTabY;
+    bool mGate;  // the connection screen after the title: no tabs, so the list rises under the title
     f32 mListTop;
     f32 mListBottom;
     f32 mStatusY;
@@ -878,7 +879,7 @@ NebulaSettingsScreen::NebulaSettingsScreen()
       mScrollTarget(0.0f), mHighlightY(0.0f), mPointerMode(false), mPointerX(0.0f), mPointerY(0.0f), mPointerRow(-1), mHoverRow(-1),
       mHoverTab(-1), mPressing(false), mPressRow(-1), mPressY(0.0f), mPressScroll(0.0f), mScrollDrag(false), mDraggedAt(-1), mHoverArrow(0),
       mHoverSlider(false), mHeldArrow(0), mHeldFrames(0), mSliderRow(-1), mHoverRowButton(-1), mHoverButton(nullptr), mScaleX(1.0f), mWidth(0.0f), mHeight(0.0f), mPanelWidth(0.0f),
-      mPanelHeight(0.0f), mLeft(0.0f), mRight(0.0f), mTitleY(0.0f), mTabY(0.0f), mListTop(0.0f), mListBottom(0.0f), mStatusY(0.0f),
+      mPanelHeight(0.0f), mLeft(0.0f), mRight(0.0f), mTitleY(0.0f), mTabY(0.0f), mGate(false), mListTop(0.0f), mListBottom(0.0f), mStatusY(0.0f),
       mHintsY(0.0f), mFooterY(0.0f), mValueRight(0.0f) {
     memset(mTabs, 0, sizeof(mTabs));
     memset(mHalves, 0, sizeof(mHalves));
@@ -1177,7 +1178,7 @@ void NebulaSettingsScreen::arrange() {
     mRight = mPanelWidth * 0.5f - cPad;
     mTitleY = top - cTitleSize * 0.5f;
     mTabY = mTitleY - cTitleSize * 0.5f - 14.0f - cTabHeight * 0.5f;
-    mListTop = mTabY - cTabHeight * 0.5f - 8.0f;
+    mListTop = mGate ? mTitleY - cTitleSize * 0.5f - 14.0f : mTabY - cTabHeight * 0.5f - 8.0f;
     mFooterY = -mPanelHeight * 0.5f + cPad * 0.8f + cButtonHeight * 0.5f;
     mHintsY = mFooterY - cFooterLine * 0.5f + 3.0f;
     mStatusY = mHintsY + cFooterLine;
@@ -2692,6 +2693,7 @@ void NebulaSettingsScreen::step(const NebulaSettingsView& rView, s32 homeView) {
             }
             mFooter[FooterApply].mChip.mFocusLevel = 0.0f;
             mFooter[FooterBack].mChip.mFocusLevel = 0.0f;
+            mGate = rView.gate != 0;
             arrange();
             memcpy(&mShown, &rView, sizeof(rView));
             if (home) {

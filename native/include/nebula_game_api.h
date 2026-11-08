@@ -405,6 +405,7 @@ enum {
     NEBULA_AP_SAVE_OWNER,   /* -> 0 not connected yet (the room's seed is not known), 1 the save files belong to this multiworld, 2 they belong to another one (or none): they are to be cleared, 3 no owner was recorded but this multiworld was played before: keep them as they are */
     NEBULA_AP_CLAIM_SAVES,  /* the connected multiworld owns the save files from now on; -> 0 */
     NEBULA_AP_BACKUP_SAVES, /* the save files are copied to saves-backup\<date> in the settings folder; -> 1 done, 0 failed */
+    NEBULA_AP_LOCATION_CHECKED, /* value: a location number: 1 when it is checked (by this game, or on the server: a release), else 0 */
 };
 enum {
     NEBULA_AP_CLASS_FILLER = 0,

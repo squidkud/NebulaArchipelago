@@ -1815,6 +1815,8 @@ uint32_t svc_archipelago(void*, uint32_t what, uint32_t value) {
         return galaxy::archipelago::list_value(galaxy::archipelago::Engine::kListShopPrices, value);
     case NEBULA_AP_SHOP_BOUGHT:
         return galaxy::archipelago::shop_bought(value) ? 1u : 0u;
+    case NEBULA_AP_LOCATION_CHECKED:
+        return galaxy::archipelago::location_checked(value) ? 1u : 0u;
     case NEBULA_AP_SHOP_BUY:
         galaxy::archipelago::report_location(galaxy::archipelago::kShopFirst + value);
         return 0u;
