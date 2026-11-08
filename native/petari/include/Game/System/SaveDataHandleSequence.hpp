@@ -31,6 +31,9 @@ public:
     void startSaveBackup(bool, bool);
     void startSaveAll();
 #ifdef TARGET_PC
+    // Archipelago: the saves of the connection (clearing and creating the multiworld's files) are written without the
+    // system window, with the small "Saving..." of the automatic save instead. Until it is set back.
+    static void setQuiet(bool quiet);
     // The caller opens a system window when the save is done (the pause menu's question): the done message hands the
     // screen dim to it (SysInfoWindow::setDimHandOver). Until the next start.
     void setWindowFollows(bool follows) {

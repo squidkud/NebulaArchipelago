@@ -7,6 +7,7 @@
 #include "Game/System/GalaxyStatusAccessor.hpp"
 #include "Game/System/GameDataFunction.hpp"
 #include "Game/System/GameSequenceFunction.hpp"
+#include "Game/System/SaveDataHandleSequence.hpp"
 #include "Game/System/UserFile.hpp"
 #include "Game/Util/FileUtil.hpp"
 #include "Game/Util/EventUtil.hpp"
@@ -602,10 +603,13 @@ namespace {
         sMakeAt = 0;
         sMakeIcon = false;
         sClaim = owner != 0;
-        const bool oneCharacter = __NebulaArchipelago(NEBULA_AP_OPTION_SET, NEBULA_AP_OPT_CHARACTER) != 0 &&
-                                  __NebulaArchipelago(NEBULA_AP_OPTION, NEBULA_AP_OPT_CHARACTER) <= 1;
-        const s32 kept = oneCharacter ? 1 : 2;
-        if (owner == 1 || owner == 2) {
+        // Two files only when the slot says both, explicitly; a slot that does not say plays Mario (the option's default).
+        const bool optionSet = __NebulaArchipelago(NEBULA_AP_OPTION_SET, NEBULA_AP_OPT_CHARACTER) != 0;
+        const u32 optionValue = __NebulaArchipelago(NEBULA_AP_OPTION, NEBULA_AP_OPT_CHARACTER);
+        const s32 kept = (optionSet && optionValue == 2) ? 2 : 1;
+        writeLog("save files: owner %d, character option %d (set: %d)", static_cast< s32 >(owner), static_cast< s32 >(optionValue),
+                 optionSet ? 1 : 0);
+        if (owner >= 1 && owner <= 3) {
             UserFile* pFile = new UserFile();
             for (s32 id = 1; id <= cUserFileNum; id++) {
                 GameSequenceFunction::restoreUserFile(pFile, id, true);
@@ -618,13 +622,16 @@ namespace {
                     if (owner == 2 || !created) {
                         sMakeFiles[sMakeCount++] = id;
                     }
-                } else if (created) {
+                } else if (created && owner != 3) {
                     sWipeFiles[sWipeCount++] = id;
                 }
             }
             delete pFile;
         }
-        sFileCount = (owner == 1 || owner == 2) ? kept : 0;
+        sFileCount = (owner >= 1 && owner <= 3) ? kept : 0;
+        writeLog("save files: %d shown, %d to clear, %d to create", sFileCount, sWipeCount, sMakeCount);
+        // Written without the system window: the small "Saving..." of the automatic save says it.
+        SaveDataHandleSequence::setQuiet(true);
         if (sWipeCount > 0) {
             NebulaArchipelago::logNote("Save files", "copy before clearing", "");
             (void)__NebulaArchipelago(NEBULA_AP_BACKUP_SAVES, 0);
@@ -656,6 +663,7 @@ namespace {
             }
             return false;
         }
+        SaveDataHandleSequence::setQuiet(false);
         if (sClaim) {
             __NebulaArchipelago(NEBULA_AP_CLAIM_SAVES, 0);
         }
