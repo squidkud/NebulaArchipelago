@@ -38,6 +38,7 @@ Mario Galaxy dans un multiworld. Il suppose que vous n'avez jamais compilé de p
   à ouvrir ce dernier niveau (Rosetta vous parle d'harmonie, puis il est ouvert) ; les Grandes Étoiles ne sont pas
   nécessaires.
 - **Exigences d'étoiles** par galaxie et **coût des Lumas affamés** réglables (voir le tableau des options).
+- **Lumas affamés de l'Observatoire** : quand on leur parle, ils ne racontent plus leur histoire de transformation : ils annoncent la galaxie qu'ils ouvrent (celle qui est vraiment à leur place, même mélangée) et le nombre de Star Bits qu'il leur reste à manger.
 - **Mélange des galaxies** (`galaxy_shuffle`, `galaxy_shuffle_type`) : dans l'Observatoire, chaque petite galaxie
   garde ce qui l'ouvre (le nombre d'étoiles demandé, sa place dans le dôme), mais **montre, nomme et lance une autre
   galaxie**. Les étoiles de cette galaxie sont les emplacements de cette galaxie, où qu'elle se trouve. Détails dans

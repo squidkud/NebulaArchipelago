@@ -21,6 +21,14 @@ namespace NebulaText {
     // A talk in the game's balloon for MessageData (Nebula_<id>), its pages in the played language: AchievementLuma
     // (LumaGreeting, then LumaBoard); null for another id.
     const wchar_t* getTalk(const char* pId);
+    // The talk of a Hungry Luma of the Observatory (Archipelago): the galaxy that stands in its place (its stage name) and the
+    // Star Bits it still asks, in the played language. One text per Luma (`slot`, 0 to 7); kept while it is unchanged.
+    void setHungryTalk(s32 slot, const char* pGalaxyStage, s32 remaining, s32 total);
+    // The Luma is talking (from now until endHungryTalk): TalkTextFormer shows its text instead of the game's.
+    void beginHungryTalk(s32 slot);
+    void endHungryTalk(s32 slot);
+    // The text the talking Hungry Luma gives, or null when none is talking.
+    const wchar_t* getHungryTalk();
     // Whether pMessage is (a page of) a talk getTalk gave.
     bool isTalk(const wchar_t* pMessage);
     // TalkTextFormer, as a talk's page shows in pBox: a talk of getTalk's has its lines broken where they would run

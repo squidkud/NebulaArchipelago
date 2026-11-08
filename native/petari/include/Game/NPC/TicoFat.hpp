@@ -26,6 +26,13 @@ public:
     virtual void addStarPieceSaveData(s32);
     virtual void disappear(bool);
     virtual void appearInformation() const;
+#ifdef TARGET_PC
+    // Archipelago: the galaxy a Hungry Luma of the Observatory names (the one standing in its place); null for any other Luma.
+    virtual const char* getArchipelagoGalaxy() const {
+        return nullptr;
+    }
+    void updateArchipelagoTalk();
+#endif
 
     static void makeArchiveList(NameObjArchiveListCollector*, const JMapInfoIter&);
 

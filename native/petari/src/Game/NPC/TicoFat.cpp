@@ -36,6 +36,9 @@
 #include "Game/Util/SoundUtil.hpp"
 #include "Game/Util/StarPointerUtil.hpp"
 #include "Game/Util/TalkUtil.hpp"
+#ifdef TARGET_PC
+#include "Game/System/NebulaText.hpp"
+#endif
 #include "revolution/os.h"
 #include <cstdio>
 
@@ -304,6 +307,9 @@ void TicoFat::control() {
     }
 
     updateGoods();
+#ifdef TARGET_PC
+    updateArchipelagoTalk();
+#endif
     _204--;
     if (mStartEat) {
         if (!_1E0) {
@@ -374,6 +380,30 @@ bool TicoFat::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pRe
         return NPCActor::receiveMsgPlayerAttack(msg, pSender, pReceiver);
     }
 }
+
+#ifdef TARGET_PC
+// A Hungry Luma of the Observatory says which galaxy it opens (the one that stands in its place) and how many Star Bits it
+// still asks, in place of the game's lines (TalkTextFormer shows the text while the Luma talks in the nerves that ask for food).
+void TicoFat::updateArchipelagoTalk() {
+    const char* pGalaxy = getArchipelagoGalaxy();
+    const bool prep = isNerve(GET_NERVE(TicoFat, TicoFatNrvPrep));
+    const bool wait = isNerve(GET_NERVE(TicoFat, TicoFatNrvWait));
+
+    if (pGalaxy == nullptr || _1EC < 0 || _1E0 <= 0 || (!prep && !wait)) {
+        NebulaText::endHungryTalk(_1EC);
+        return;
+    }
+
+    const bool talking = (prep && !MR::isTalkNone(mMsgCtrl)) || (wait && !MR::isTalkNone(_16C));
+
+    if (talking) {
+        NebulaText::beginHungryTalk(_1EC);
+    } else {
+        NebulaText::endHungryTalk(_1EC);
+        NebulaText::setHungryTalk(_1EC, pGalaxy, _1E0, _1E4);
+    }
+}
+#endif
 
 void TicoFat::calcAndSetBaseMtx() {
     NPCActor::calcAndSetBaseMtx();
