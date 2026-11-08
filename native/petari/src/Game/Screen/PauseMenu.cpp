@@ -112,7 +112,7 @@ void PauseMenu::init(const JMapInfoIter& rIter) {
     }
 
 #ifdef TARGET_PC
-    // With an Archipelago game the tracker's button joins it: the two share the band, Settings on the left.
+    // With an Archipelago game the tracker's button joins it: the two share the band, the Tracker above Settings.
     const bool hasTracker = NebulaArchipelago::isActive();
     mSettingsButton = new NebulaPauseSettingsButton("NebulaPauseSettings", "SettingsTitle", hasTracker ? -1 : 0);
     mSettingsButton->initWithoutIter();
