@@ -45,7 +45,6 @@ AFTER_ENDING_KINDS = ("purple", "festival")  # the stars that open after Bowser'
 COUNTED_STARS = (POWER_STAR, GREEN_STAR, GRAND_STAR)  # the items the game's star counter holds
 GRAND_STARS_IN_POOL = 5  # the first one is given at the start (the game starts in the Observatory)
 GREEN_STARS_IN_POOL = 3
-COMET_STAR_COUNT = 13  # the stars the game asks before the Prankster Comets show up
 
 # Galaxies outside the domes (and a few inside) open with more than the stars they ask: Grand Stars, the three Green
 # Stars, or a particular star collected: only the planets of the Observatory (the four galaxies of the domes that asked a
@@ -495,11 +494,9 @@ class SMGWorld(World):
                 region.locations.append(location)
                 if star.kind in AFTER_ENDING_KINDS:
                     add_item_rule(location, lambda item: item.player != player or item.name not in COUNTED_STARS)
-                if star.kind == "comet":
-                    add_rule(location, lambda state: stars_total(state, player) >= COMET_STAR_COUNT)
-                elif star.kind == "purple":
-                    # After the ending of the character whose save it is in.
-                    add_rule(location, lambda state, event=VICTORY_LUIGI if star.character == "Luigi" else VICTORY: state.has(event, player))
+                # The comet and Purple Coin stars need nothing more than their galaxy (and their transformation, below): the star
+                # select of this port offers every star of an open galaxy, so neither the 13 stars of the comets nor the ending
+                # that the Purple Coin stars wait for in the original game are asked.
                 # Luigi's stars need nothing more than their galaxy: the game puts Luigi in the scenario of his star.
                 forms = form_requirement(star.name)
                 if forms and self.options.transformation_items:

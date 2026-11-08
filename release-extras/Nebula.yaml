@@ -34,7 +34,7 @@ game: Nebula
 requires:
   version: 0.6.9 # Version of Archipelago required for this yaml to work as expected.
   game:
-    Nebula: 0.9.32 # Version of the world required for this yaml to work as expected.
+    Nebula: 0.9.33 # Version of the world required for this yaml to work as expected.
 
 Nebula:
   ################
@@ -117,7 +117,7 @@ Nebula:
 
   include_purple_coin_stars:
     # Only used with the goal Bowser (always on with the goals Bowser And 120 Stars and 242 Stars). Whether the Purple Coin stars are locations.
-    # The game offers them after the ending, so these are only reachable once you have beaten Bowser. When off, they are
+    # In this port they can be done as soon as their galaxy is open (the logic only asks their transformation, if any). When off, they are
     # not shown in the star select either.
     'false': 50
     'true': 0
