@@ -449,6 +449,11 @@ int main() {
         expect(engine.list_value(ap::Engine::kListShopPrices, 1) == 60u, "the price of the second shelf");
         expect(engine.list_value(ap::Engine::kListShopPrices, 3) == ap::Engine::kNoCap, "no fourth shelf");
         expect(!engine.shop_bought(0) && !engine.shop_bought(1) && engine.shop_bought(2), "the shelf the server checked is bought");
+        expect(!engine.location_checked(1) && engine.location_checked(203), "a location the server checked is checked");
+        // A release: the server sends the rest of this slot's checks as a RoomUpdate.
+        engine.on_message(R"([{"cmd":"RoomUpdate","checked_locations":[)" + id(1) + "," + id(202) + R"(]}])", out);
+        expect(engine.location_checked(1), "a star released after the connection is checked");
+        expect(engine.shop_bought(1) && !engine.shop_bought(0), "a shelf released after the connection is bought");
         bool scouted = false;
         for (const std::string& message : out) {
             const json::Value command = first_command(message);

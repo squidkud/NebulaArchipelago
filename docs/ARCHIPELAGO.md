@@ -68,11 +68,11 @@ Mario Galaxy dans un multiworld. Il suppose que vous n'avez jamais compilé de p
   jeu demande au serveur ce que contient chaque lieu au moment de la connexion. Attention : c'est un petit spoiler
   voulu (on voit quelles étoiles comptent).
 - **Boutique de Star Bits** (`shop_items`, de 1 à 20, 8 par défaut ; prix de `shop_min_price` (100 par défaut) à
-  `shop_max_price` (2000 par défaut), les autres étagères en progression régulière) : le
+  `shop_max_price` (2000 par défaut), les autres étagères en progression régulière ; une fois le multiworld rempli, les prix sont distribués selon l'importance de l'objet sur l'étagère : progression = le plus cher, puis utile, puis filler, pièges = le moins cher) : le
   Luma jaune du début de l'Observatoire, celui qui ouvrait la page des succès de Nebula, ouvre à la place une
   boutique. Chaque étagère est un lieu du multiworld : elle contient un objet (de votre monde ou d'un autre, le nom
   et le joueur sont affichés une fois connecté) et coûte des Star Bits. Chaque étagère montre l'image de l'objet s'il
-  est de votre jeu (pièges compris), sinon le logo Archipelago. Pas de curseur : manette/clavier, **A** demande
+  est de votre jeu (pièges compris), sinon le logo Archipelago. Une étagère déjà cochée sur le serveur (par exemple après un release de votre jeu) compte comme achetée, et une étoile déjà cochée apparaît comme prise dans le choix des étoiles. Pas de curseur : manette/clavier, **A** demande
   « Acheter X pour N Star Bits ? » (Oui/Non, **B** annule), **B** ferme la boutique. À l'ouverture, les étagères non
   achetées sont déclarées en **hint** aux joueurs concernés. Il faut être connecté au serveur pour acheter ; un achat
   est mémorisé (par le serveur). Les prix ne sont pas pris en compte dans la logique. La boutique est obligatoire

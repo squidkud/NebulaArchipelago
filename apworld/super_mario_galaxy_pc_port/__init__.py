@@ -673,5 +673,36 @@ class SMGWorld(World):
         if self.luma_counts:
             slot_data["luma_counts"] = self.luma_counts
         if self.shop_prices:
+            self.shop_prices = self._prices_by_importance(self.shop_prices)
             slot_data["shop_prices"] = self.shop_prices
         return slot_data
+
+    def _prices_by_importance(self, prices: List[int]) -> List[int]:
+        """The same prices, dealt out after the fill so that the more important the item on a shelf, the more it costs:
+        progression (what other games, or this one, need to go on) is the dearest, then useful items, then filler, and traps
+        are the cheapest. (All the shelves stand in the Observatory, the first sphere, so the sphere itself does not tell them
+        apart: the class of the item does.) Shelves of the same class keep a random order among themselves."""
+        def weight(number: int) -> int:
+            try:
+                item = self.multiworld.get_location(shop_location_name(number), self.player).item
+            except KeyError:
+                return 1
+            if item is None:
+                return 1
+            if item.advancement:
+                return 3
+            if item.useful:
+                return 2
+            if item.trap:
+                return 0
+            return 1
+
+        numbers = list(range(1, len(prices) + 1))
+        if len({weight(number) for number in numbers}) <= 1:
+            return prices  # nothing tells the shelves apart (no item placed yet): the order stays as it is
+        self.random.shuffle(numbers)
+        numbers.sort(key=weight)  # stable: the shuffled order stays inside a class
+        dealt = [0] * len(prices)
+        for number, price in zip(numbers, sorted(prices)):
+            dealt[number - 1] = price
+        return dealt

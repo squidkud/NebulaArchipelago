@@ -1469,6 +1469,32 @@ bool NebulaArchipelago::getStarSelectSkyHueShift(f32* pDegrees) {
     return true;
 }
 
+// Whether the star's place (the current galaxy's scenario) is checked on the server: a release of another game (or a check
+// made in another way) sends it, and the star select shows such a star as taken, so that the player does not go for nothing.
+bool NebulaArchipelago::isStarReleased(s32 scenario) {
+    if (!isHostActive()) {
+        return false;
+    }
+
+    const char* pStage = MR::getCurrentStageName();
+
+    if (pStage == nullptr) {
+        return false;
+    }
+
+    for (s32 i = 0; i < cStarNum; i++) {
+        const ApStar& rStar = cApStars[i];
+
+        if (rStar.mScenario != scenario || rStar.mKind == ApKind_grand || rStar.mKind == ApKind_ending || strcmp(rStar.mStage, pStage) != 0) {
+            continue;
+        }
+
+        return __NebulaArchipelago(NEBULA_AP_LOCATION_CHECKED, i + 1 + (isLuigiSave() ? cLuigiOffset : 0)) != 0;
+    }
+
+    return false;
+}
+
 bool NebulaArchipelago::getStarColorFrame(s32 scenario, s32* pFrame) {
     if (!isHostActive() || !status().mStarColors) {
         return false;

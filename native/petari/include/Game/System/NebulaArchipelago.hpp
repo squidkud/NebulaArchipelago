@@ -90,6 +90,7 @@ namespace NebulaArchipelago {
     // the class of its item. false (frame untouched) when the option is off or the class is not known yet.
     bool getStarColorFrame(s32 scenario, s32* pFrame);
     bool areStarColorsOn();
+    bool isStarReleased(s32 scenario);
 
     // The skybox_shuffle option also recolours the nebula of the star select screen: a hue shift (degrees, 60 to 300) chosen
     // from the multiworld's seed (the same multiworld, the same colour). false when the option is off or there is no seed.
