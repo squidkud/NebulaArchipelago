@@ -579,10 +579,9 @@ namespace {
     // The connection screen after the title, and the save files of the multiworld.
     enum { GateIdle, GateOpen, GateSaves, GateDone };
     const s32 cUserFileNum = 6;        // the file select's files, numbered from 1
-    const s32 cMultiworldFile = 1;     // the one the multiworld keeps
     s32 sGateStep = GateIdle;
     u32 sGateSeed;                     // the multiworld the gate passed with
-    bool sSingleFile;
+    s32 sFileCount;                    // the files the file select offers once the gate passed: 1, or 2 with both characters; 0 else
     s32 sWipeFiles[cUserFileNum];
     s32 sWipeCount;
     s32 sWipeAt;
@@ -595,11 +594,14 @@ namespace {
         sWipeCount = 0;
         sWipeAt = 0;
         sClaim = owner != 0;
+        const bool oneCharacter = __NebulaArchipelago(NEBULA_AP_OPTION_SET, NEBULA_AP_OPT_CHARACTER) != 0 &&
+                                  __NebulaArchipelago(NEBULA_AP_OPTION, NEBULA_AP_OPT_CHARACTER) <= 1;
+        const s32 kept = oneCharacter ? 1 : 2;
         if (owner == 1 || owner == 2) {
             UserFile* pFile = new UserFile();
             for (s32 id = 1; id <= cUserFileNum; id++) {
-                if (id == cMultiworldFile && owner == 1) {
-                    continue;
+                if (id <= kept && owner == 1) {
+                    continue;  // the files the multiworld keeps: Mario's, and Luigi's when both play
                 }
                 GameSequenceFunction::restoreUserFile(pFile, id, true);
                 if (pFile->isCreated()) {
@@ -608,7 +610,7 @@ namespace {
             }
             delete pFile;
         }
-        sSingleFile = owner == 1 || owner == 2;
+        sFileCount = (owner == 1 || owner == 2) ? kept : 0;
         if (sWipeCount > 0) {
             NebulaArchipelago::logNote("Save files", "copy before clearing", "");
             (void)__NebulaArchipelago(NEBULA_AP_BACKUP_SAVES, 0);
@@ -637,7 +639,19 @@ namespace NebulaArchipelago {
     }
 
     bool isSingleSaveFile() {
-        return sSingleFile;
+        return sFileCount > 0;
+    }
+
+    s32 getSaveFileCount() {
+        return sFileCount;
+    }
+
+    s32 getFileCharacter(s32 id) {
+        if (sFileCount == 2) {
+            return id == 1 ? 0 : 1;
+        }
+
+        return getForcedCharacter();
     }
 
     bool getSlotName(u16* pName, s32 capacity) {
@@ -671,7 +685,7 @@ namespace NebulaArchipelago {
                 return true;
             }
             sGateStep = GateIdle;
-            sSingleFile = false;
+            sFileCount = 0;
             return passConnectionGate();
         case GateIdle:
             (void)__NebulaArchipelago(NEBULA_AP_GATE, 1);
