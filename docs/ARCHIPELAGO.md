@@ -313,7 +313,13 @@ Les Star Bits des Lumas ne sont pas pris en compte dans la logique (on suppose q
 
 ## 7. Dire à Nebula où se connecter
 
-**Le plus simple** : lancez le script `tools\archipelago_setup.ps1` (dans PowerShell, depuis `C:\dev\nebula` :
+**Dans le jeu** (pas testé en jeu) : ouvrez les réglages de Nebula (touche F1 ou la manette), onglet **Archipelago**. Les lignes
+**Serveur**, **Slot** et **Mot de passe** ouvrent un champ de saisie : tapez au clavier (**Ctrl+V** colle le presse-papiers),
+ou utilisez le clavier à l'écran (souris, croix et A de la manette, X efface, Y valide, B annule, LB/RB changent
+majuscules et symboles). Validez chaque champ, puis choisissez **Enregistrer** : cela écrit `archipelago.ini`. La
+connexion se fait au démarrage du jeu : **redémarrez Nebula** après avoir enregistré (la ligne « Statut » le rappelle).
+
+Sinon, **autre méthode** : lancez le script `tools\archipelago_setup.ps1` (dans PowerShell, depuis `C:\dev\nebula` :
 `.\tools\archipelago_setup.ps1`). Il vous pose 3 questions (adresse, nom du joueur, mot de passe) et écrit le fichier
 `%LOCALAPPDATA%\Nebula\archipelago.ini` avec le bon nom (si PowerShell refuse de lancer le script, tapez d'abord
 `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass`). Vous pouvez aussi le créer à la main avec le Bloc-notes :
@@ -328,7 +334,7 @@ password=
 - `slot` : exactement le `name:` de votre YAML.
 - `password` : vide si la salle n'en a pas.
 - Pour jouer sans Archipelago : renommez ou supprimez ce fichier (ou ajoutez la ligne `enabled=0`).
-- Il n'est pas encore possible de saisir l'adresse dans le jeu lui-même : la connexion se règle uniquement par ce fichier.
+- L'onglet Archipelago des réglages (voir plus haut) écrit ce même fichier ; le script et le Bloc-notes marchent toujours.
 
 Attention : le fichier doit s'appeler **`archipelago.ini`** et non `archipelago.ini.txt` (le Bloc-notes ajoute
 parfois `.txt` ; activez « Extensions de noms de fichiers » dans l'Explorateur pour le voir). Nebula accepte quand
