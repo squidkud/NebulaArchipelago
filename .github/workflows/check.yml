@@ -4,34 +4,6 @@ on:
     branches: ['ci-check']
   workflow_dispatch:
 jobs:
-  aptest:
-    runs-on: windows-2022
-    strategy:
-      fail-fast: false
-      matrix:
-        ref: ['${{ github.sha }}', 'fc1e6c1cffda8a3c6824acd23789f450d7839df5']
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ matrix.ref }}
-      - name: Tools
-        shell: pwsh
-        run: |
-          choco install ninja -y --no-progress
-          if (-not (Test-Path 'C:\Program Files\CMake\bin\cmake.exe')) { choco install cmake -y --no-progress --installargs 'ADD_CMAKE_TO_PATH=System' }
-          if (-not (Test-Path 'C:\Program Files\LLVM\bin\clang++.exe')) { choco install llvm -y --no-progress }
-      - name: Archipelago test
-        shell: pwsh
-        run: |
-          . .\tools\enter_msvc_environment.ps1
-          $cmake = 'C:\Program Files\CMake\bin\cmake.exe'
-          & $cmake -S . -B build\host -G Ninja -DCMAKE_BUILD_TYPE=Release
-          if ($LASTEXITCODE -ne 0) { throw 'cmake configure failed' }
-          & $cmake --build build\host --target galaxy_archipelago_tests
-          if ($LASTEXITCODE -ne 0) { throw 'build failed' }
-          & .\build\host\galaxy_archipelago_tests.exe
-          Write-Host "exit code: $LASTEXITCODE"
-          if ($LASTEXITCODE -ne 0) { throw 'archipelago test failed' }
   full:
     runs-on: windows-2022
     timeout-minutes: 120
