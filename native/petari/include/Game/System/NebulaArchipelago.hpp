@@ -28,8 +28,14 @@ namespace NebulaArchipelago {
     // settings folder). Called each frame the title waits; true when the game may go on (connected and the files ready, or
     // the screen skipped, or no host menu).
     bool passConnectionGate();
-    // One save file for the multiworld (the connection screen was passed connected): the file select offers file 1 only.
+    // The file select is the multiworld's (the connection screen was passed connected): it offers one save file, or two when
+    // the slot plays both characters. Copy, Icon and Erase are not there.
     bool isSingleSaveFile();
+    // How many save files the file select offers: 0 when it is the game's own (six files), 1, or 2 (file 1 is Mario's, file 2
+    // is Luigi's, each named "<player> (Mario)" and "<player> (Luigi)").
+    s32 getSaveFileCount();
+    // Who plays the file (numbered from 1): 0 Mario, 1 Luigi, -1 when the player chooses with the file select's button.
+    s32 getFileCharacter(s32 id);
     // The slot's name the client is connected with, as the 16-bit text the file select's name box takes (at most
     // capacity - 1 characters, terminated); false when there is none.
     bool getSlotName(u16* pName, s32 capacity);

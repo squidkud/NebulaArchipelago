@@ -134,7 +134,8 @@ void FileSelectItem::init(const JMapInfoIter& rIter) {
     createMii();
     createNumber();
 #ifdef TARGET_PC
-    const bool isLogoFile = NebulaArchipelago::isSingleSaveFile() && _140 == 1;
+    // The logo is the file of a slot that plays one character; with both, the files show Mario's head and Luigi's.
+    const bool isLogoFile = NebulaArchipelago::getSaveFileCount() == 1 && _140 == 1;
     if (isLogoFile) {
         mLogo = new NebulaFileLogo(this);
         mLogo->initWithoutIter();

@@ -25,7 +25,8 @@ Mario Galaxy dans un multiworld. Il suppose que vous n'avez jamais compilé de p
 - **Démarrage à l'Observatoire** dès que vous choisissez une sauvegarde, sans avoir fini le jeu.
 - **Personnage** (`character: mario`, `luigi` ou `both`, défaut `mario`) : chaque étoile existe une fois par personnage
   (« Good Egg Galaxy - Dino Piranha (Mario) » / « (Luigi) »). Avec `mario` ou `luigi`, le jeu impose ce personnage sur tous
-  les fichiers et le bouton de bascule Mario/Luigi du choix de fichier est caché ; avec `both` le bouton reste. Les deux
+  les fichiers et le bouton de bascule Mario/Luigi du choix de fichier est caché ; avec `both` le choix de fichier montre **deux fichiers côte à côte** : le 1 pour Mario (sa tête), le 2 pour Luigi (sa tête),
+  nommés « <joueur> (Mario) » et « <joueur> (Luigi) » (pas de bouton de bascule). Les deux
   sauvegardes partagent les mêmes objets reçus et le même compteur d'étoiles. Jamais essayé en jeu.
 - Les autres objets sont des bonus : champignon 1-Up ou 50 Star Bits.
 - **Les pop-ups disent d'où vient un objet** : « Power Star from Bob (Good Egg Galaxy - Dino Piranha) » (l'emplacement
@@ -327,12 +328,12 @@ page s'affiche avec « Connected » : **Continuer** suffit. **Passer** (Échap o
 Le même réglage existe dans les réglages de Nebula (touche F1 ou la manette), onglet **Archipelago**, avec le bouton
 **Connecter** : il refait la connexion en cas de problème, sans redémarrer le jeu.
 
-**Une seule sauvegarde par multiworld.** Une fois connecté, seule la **sauvegarde 1** existe : elle est affichée seule, plus
+**Une seule sauvegarde par multiworld** (deux avec `character: both`). Une fois connecté, seule la **sauvegarde 1** existe : elle est affichée seule, plus
 grande, au milieu de l'écran de choix, sans son numéro, et à la place de la tête du personnage elle montre le **logo
 d'Archipelago en 3D** (six disques arrondis qui tournent ; pas testé en jeu). Les boutons Copy, Icon et Erase n'existent
 plus (seul « Play This File » reste), la barre avec le nom et les étoiles reste en haut, et la création du fichier ne
 demande plus d'icône (c'est celle de Mario). Le nom affiché dans la barre est celui du slot (le joueur Archipelago). Le logo vient de `tools/gen_archipelago_logo_mesh.py` (relancez-le pour
-changer sa forme : `--preview image.png` en dessine un aperçu). Les sauvegardes 2 à 6 sont effacées ; si la sauvegarde 1 vient d'un autre multiworld (autre salle ou autre slot), elle l'est aussi, pour
+changer sa forme : `--preview image.png` en dessine un aperçu). Avec `character: both`, ce sont les sauvegardes 1 (Mario) et 2 (Luigi) qui existent, côte à côte, chacune avec la tête de son personnage au lieu du logo ; le Luigi d'une ancienne sauvegarde 1 n'est plus utilisé (il est dans la sauvegarde 2 désormais). Les autres sauvegardes sont effacées ; si une sauvegarde gardée vient d'un autre multiworld (autre salle ou autre slot), elle l'est aussi, pour
 repartir de zéro. Avant d'effacer quoi que ce soit, le jeu copie toutes les sauvegardes dans
 `%LOCALAPPDATA%\Nebula\saves-backup\<date>` : rien n'est perdu pour de bon. Le fichier `archipelago-saves.txt` (même
 dossier) note à quel multiworld appartiennent les sauvegardes.
