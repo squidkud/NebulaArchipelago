@@ -382,6 +382,23 @@ inline constexpr int kJoyConRightHeldBit = 8;  // its R is held
 inline constexpr int kJoyConPairedBit = 16;    // a pair was just made
 inline constexpr int kJoyConLeftPressesShift = 8;    // 4 bits: the left halves' button presses, counted round
 inline constexpr int kJoyConRightPressesShift = 12;  // 4 bits: the right halves'
+// The on-screen keyboard's keys and status_number (nebula_game_api.h's NEBULA_KEYBOARD_* and NEBULA_KEY_*, checked alike in
+// host_main.cpp): a grid of rows of columns, then the keys under it.
+inline constexpr int kKeyboardColumns = 10;
+inline constexpr int kKeyboardRows = 4;
+inline constexpr int kKeyboardLayerCount = 3;  // lower case, upper case, symbols
+inline constexpr int kKeyShift = 40;           // upper case for one letter
+inline constexpr int kKeySymbols = 41;         // the symbols layer, and back
+inline constexpr int kKeySpace = 42;
+inline constexpr int kKeyBackspace = 43;
+inline constexpr int kKeyCancel = 44;
+inline constexpr int kKeyDone = 45;
+inline constexpr int kKeyCount = 46;
+inline constexpr int kTextLayerShift = 8;
+inline constexpr int kTextMasked = 1 << 12;
+inline constexpr char kKeyboardLower[] = "1234567890" "qwertyuiop" "asdfghjkl_" "zxcvbnm.:-";
+inline constexpr char kKeyboardUpper[] = "1234567890" "QWERTYUIOP" "ASDFGHJKL_" "ZXCVBNM.:-";
+inline constexpr char kKeyboardSymbols[] = "!@#$%^&*()" "~`+=[]{}|\\" ";'\",<>/?_-" "0123456789";
 struct NativeSettingsView {
     bool open = false;
     unsigned page = 0u;

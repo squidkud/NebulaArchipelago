@@ -1860,6 +1860,16 @@ static_assert(static_cast<uint32_t>(galaxy::gx::NativeSettingsStatus::Leave) == 
               galaxy::gx::kJoyConLeftPressesShift == NEBULA_JOYCON_LEFT_PRESSES_SHIFT &&
               galaxy::gx::kJoyConRightPressesShift == NEBULA_JOYCON_RIGHT_PRESSES_SHIFT,
               "the settings statuses are numbered alike");
+static_assert(galaxy::gx::kKeyboardColumns == NEBULA_KEYBOARD_COLUMNS && galaxy::gx::kKeyboardRows == NEBULA_KEYBOARD_ROWS &&
+              galaxy::gx::kKeyboardLayerCount == NEBULA_KEYBOARD_LAYERS && galaxy::gx::kKeyShift == NEBULA_KEY_SHIFT &&
+              galaxy::gx::kKeySymbols == NEBULA_KEY_SYMBOLS && galaxy::gx::kKeySpace == NEBULA_KEY_SPACE &&
+              galaxy::gx::kKeyBackspace == NEBULA_KEY_BACKSPACE && galaxy::gx::kKeyCancel == NEBULA_KEY_CANCEL &&
+              galaxy::gx::kKeyDone == NEBULA_KEY_DONE && galaxy::gx::kKeyCount == NEBULA_KEY_COUNT &&
+              galaxy::gx::kTextLayerShift == NEBULA_TEXT_LAYER_SHIFT && galaxy::gx::kTextMasked == NEBULA_TEXT_MASKED &&
+              std::string_view(galaxy::gx::kKeyboardLower) == NEBULA_KEYBOARD_LOWER &&
+              std::string_view(galaxy::gx::kKeyboardUpper) == NEBULA_KEYBOARD_UPPER &&
+              std::string_view(galaxy::gx::kKeyboardSymbols) == NEBULA_KEYBOARD_SYMBOLS,
+              "the on-screen keyboard is laid out alike");
 static_assert(static_cast<uint32_t>(galaxy::gx::NativeSettingsInput::Open) == NEBULA_SETTINGS_OPEN &&
               static_cast<uint32_t>(galaxy::gx::NativeSettingsInput::Revert) == NEBULA_SETTINGS_REVERT &&
               static_cast<uint32_t>(galaxy::gx::NativeSettingsInput::MoveMod) == NEBULA_SETTINGS_MOVE_MOD &&
