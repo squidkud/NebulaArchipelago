@@ -136,3 +136,9 @@ void TicoGalaxy::appearInformation() const {
     MR::setInformationMessageReplaceString(MR::getGalaxyNameShortOnCurrentLanguage(mGalaxyName), 0);
 #endif
 }
+
+#ifdef TARGET_PC
+const char* TicoGalaxy::getArchipelagoGalaxy() const {
+    return NebulaArchipelago::isActive() && mGalaxyName != nullptr ? NebulaArchipelago::getShuffledGalaxy(mGalaxyName) : nullptr;
+}
+#endif

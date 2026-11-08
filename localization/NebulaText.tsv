@@ -614,3 +614,6 @@ SettingsGateTitle	Connect to Archipelago		Connexion à Archipelago	Connexion à 
 SettingsGateConnect	Connect		Connecter	Connecter
 SettingsGateContinue	Continue		Continuer	Continuer
 SettingsGateSkip	Skip		Passer	Passer
+HungryLumaFresh	Psst! Feed me {n} Star Bits and I'll take you to {galaxy}!		J'ai la dalle ! Donne-moi {n} Star Bits et je t'emmène à {galaxy} !	J'ai la dalle ! Donne-moi {n} Star Bits et je t'emmène à {galaxy} !										
+HungryLumaFed	Yum! Just {n} more Star Bits and {galaxy} is all yours!		Miam ! Encore {n} Star Bits et {galaxy} est à toi !	Miam ! Encore {n} Star Bits et {galaxy} est à toi !										
+HungryLumaOne	One last Star Bit and I'll whisk you off to {galaxy}!		Plus qu'un seul Star Bit et je t'envoie direct à {galaxy} !	Plus qu'un seul Star Bit et je t'envoie direct à {galaxy} !										
