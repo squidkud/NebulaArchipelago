@@ -1725,11 +1725,11 @@ std::string s_text_buffer;
 unsigned s_text_key = 0u;    // the keyboard's cursor: NEBULA_* place in the grid or NEBULA_KEY_*
 unsigned s_text_layer = 0u;  // 0 lower case, 1 upper case (one letter), 2 symbols
 constexpr std::size_t kTextMax = 90u;
-const char* const kKeyboardLayers[3] = {NEBULA_KEYBOARD_LOWER, NEBULA_KEYBOARD_UPPER, NEBULA_KEYBOARD_SYMBOLS};
-static_assert(sizeof(NEBULA_KEYBOARD_LOWER) == NEBULA_KEYBOARD_COLUMNS * NEBULA_KEYBOARD_ROWS + 1 &&
-                  sizeof(NEBULA_KEYBOARD_UPPER) == NEBULA_KEYBOARD_COLUMNS * NEBULA_KEYBOARD_ROWS + 1 &&
-                  sizeof(NEBULA_KEYBOARD_SYMBOLS) == NEBULA_KEYBOARD_COLUMNS * NEBULA_KEYBOARD_ROWS + 1,
-              "each keyboard layer is a grid of NEBULA_KEYBOARD_ROWS rows of NEBULA_KEYBOARD_COLUMNS keys");
+const char* const kKeyboardLayers[3] = {kKeyboardLower, kKeyboardUpper, kKeyboardSymbols};
+static_assert(sizeof(kKeyboardLower) == kKeyboardColumns * kKeyboardRows + 1 &&
+                  sizeof(kKeyboardUpper) == kKeyboardColumns * kKeyboardRows + 1 &&
+                  sizeof(kKeyboardSymbols) == kKeyboardColumns * kKeyboardRows + 1,
+              "each keyboard layer is a grid of kKeyboardRows rows of kKeyboardColumns keys");
 
 void ap_load_once() {
     if (s_ap.loaded) return;
@@ -1810,18 +1810,18 @@ void text_backspace() {
 
 // The key the cursor is on, pressed: a character, or one of the keys below the grid.
 void text_press_key(unsigned key) {
-    if (key < static_cast<unsigned>(NEBULA_KEYBOARD_COLUMNS * NEBULA_KEYBOARD_ROWS)) {
+    if (key < static_cast<unsigned>(kKeyboardColumns * kKeyboardRows)) {
         text_append_utf8(static_cast<char32_t>(static_cast<unsigned char>(kKeyboardLayers[s_text_layer % 3u][key])));
         if (s_text_layer == 1u) s_text_layer = 0u;  // the capital was for one letter
         return;
     }
     switch (key) {
-    case NEBULA_KEY_SHIFT: s_text_layer = s_text_layer == 1u ? 0u : 1u; break;
-    case NEBULA_KEY_SYMBOLS: s_text_layer = s_text_layer == 2u ? 0u : 2u; break;
-    case NEBULA_KEY_SPACE: text_append_utf8(U' '); break;
-    case NEBULA_KEY_BACKSPACE: text_backspace(); break;
-    case NEBULA_KEY_CANCEL: end_text_entry(false); break;
-    case NEBULA_KEY_DONE: end_text_entry(true); break;
+    case kKeyShift: s_text_layer = s_text_layer == 1u ? 0u : 1u; break;
+    case kKeySymbols: s_text_layer = s_text_layer == 2u ? 0u : 2u; break;
+    case kKeySpace: text_append_utf8(U' '); break;
+    case kKeyBackspace: text_backspace(); break;
+    case kKeyCancel: end_text_entry(false); break;
+    case kKeyDone: end_text_entry(true); break;
     default: break;
     }
 }
@@ -1829,9 +1829,9 @@ void text_press_key(unsigned key) {
 // The cursor one place left or right (dx) or up or down (dy), going round at the edges; the keys below the grid are
 // six, the grid's rows ten, so a move between them keeps the place's side.
 void text_move(int dx, int dy) {
-    const unsigned columns = static_cast<unsigned>(NEBULA_KEYBOARD_COLUMNS);
-    const unsigned rows = static_cast<unsigned>(NEBULA_KEYBOARD_ROWS);
-    const unsigned below = static_cast<unsigned>(NEBULA_KEY_COUNT - NEBULA_KEY_SHIFT);
+    const unsigned columns = static_cast<unsigned>(kKeyboardColumns);
+    const unsigned rows = static_cast<unsigned>(kKeyboardRows);
+    const unsigned below = static_cast<unsigned>(kKeyCount - kKeyShift);
     const bool in_grid = s_text_key < columns * rows;
     if (dx != 0) {
         if (in_grid) {
@@ -1839,8 +1839,8 @@ void text_move(int dx, int dy) {
             const unsigned column = (s_text_key % columns + columns + static_cast<unsigned>(dx)) % columns;
             s_text_key = row * columns + column;
         } else {
-            const unsigned at = (s_text_key - NEBULA_KEY_SHIFT + below + static_cast<unsigned>(dx)) % below;
-            s_text_key = static_cast<unsigned>(NEBULA_KEY_SHIFT) + at;
+            const unsigned at = (s_text_key - kKeyShift + below + static_cast<unsigned>(dx)) % below;
+            s_text_key = static_cast<unsigned>(kKeyShift) + at;
         }
     }
     if (dy != 0) {
@@ -1852,10 +1852,10 @@ void text_move(int dx, int dy) {
             } else if (dy < 0 && row > 0u) {
                 s_text_key -= columns;
             } else {
-                s_text_key = static_cast<unsigned>(NEBULA_KEY_SHIFT) + column * below / columns;
+                s_text_key = static_cast<unsigned>(kKeyShift) + column * below / columns;
             }
         } else {
-            const unsigned at = s_text_key - NEBULA_KEY_SHIFT;
+            const unsigned at = s_text_key - kKeyShift;
             const unsigned column = std::min(columns - 1u, at * columns / below);
             s_text_key = dy > 0 ? column : (rows - 1u) * columns + column;
         }
@@ -5423,8 +5423,8 @@ NativeSettingsView build_native_settings_view() {
         }
     } else if (s_text_entry) {
         view.status = NativeSettingsStatus::TextEntry;
-        view.status_number = static_cast<int>(s_text_key | (s_text_layer << NEBULA_TEXT_LAYER_SHIFT) |
-                                              (s_text_field == ApField::Password ? NEBULA_TEXT_MASKED : 0u));
+        view.status_number = static_cast<int>(s_text_key | (s_text_layer << kTextLayerShift) |
+                                              (s_text_field == ApField::Password ? kTextMasked : 0u));
         view.status_text = std::string(ap_field_name(s_text_field)) + "\n" + s_text_buffer;
     } else if (s_settings_leave_asking) {
         view.status = NativeSettingsStatus::Leave;
@@ -6075,7 +6075,7 @@ void native_settings_input(NativeSettingsInput input, int arg) {
     }
     if (s_text_entry && visible) {
         // The pointer on the on-screen keyboard: a key, or a place in the grid.
-        if (input == NativeSettingsInput::Press && arg >= 0 && arg < NEBULA_KEY_COUNT) {
+        if (input == NativeSettingsInput::Press && arg >= 0 && arg < kKeyCount) {
             s_text_key = static_cast<unsigned>(arg);
             text_press_key(static_cast<unsigned>(arg));
         }
