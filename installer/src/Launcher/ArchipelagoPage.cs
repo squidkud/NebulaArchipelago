@@ -332,12 +332,32 @@ namespace Nebula.Launcher
 
         // ---- The room (archipelago.ini) ----
 
+        // What the fields held when the room was read (or last written): "Save and play" writes the room only when the player
+        // changed it here, so that a room typed in the game itself is not overwritten by an older one on every launch.
+        private string loadedServer = "", loadedSlot = "", loadedPassword = "";
+        private bool loadedEnabled = true;
+
+        private void RememberRoom()
+        {
+            loadedServer = server.Text.Trim();
+            loadedSlot = slot.Text.Trim();
+            loadedPassword = password.Text;
+            loadedEnabled = enabled.Checked;
+        }
+
+        private bool RoomChangedHere()
+        {
+            return server.Text.Trim() != loadedServer || slot.Text.Trim() != loadedSlot || password.Text != loadedPassword ||
+                   enabled.Checked != loadedEnabled;
+        }
+
         private void LoadRoom()
         {
             string path = IniPath;
             if (!File.Exists(path))
             {
                 roomStatus.Text = "No room saved yet.";
+                RememberRoom();
                 return;
             }
             bool on = true;
@@ -362,12 +382,15 @@ namespace Nebula.Launcher
             }
             catch (IOException) { roomStatus.Text = "archipelago.ini could not be read."; return; }
             enabled.Checked = on;
+            RememberRoom();
             roomStatus.Text = "Saved in " + path;
         }
 
         /// <summary>Called by "Save" / "Save and play": writes the room when something was typed, without nagging.</summary>
         public void SaveIfFilled()
         {
+            // Nothing typed here since the room was read: the file (which the game may have changed) stays as it is.
+            if (!RoomChangedHere()) return;
             if (server.Text.Trim().Length > 0 && slot.Text.Trim().Length > 0 || !enabled.Checked) WriteRoom(false);
         }
 
@@ -409,6 +432,7 @@ namespace Nebula.Launcher
                 // A second file with the .txt extension would be read when this one is missing; keep only one.
                 string extra = path + ".txt";
                 if (File.Exists(extra)) File.Delete(extra);
+                RememberRoom();
                 roomStatus.Text = "Saved. It applies the next time the game starts.";
             }
             catch (Exception error)
