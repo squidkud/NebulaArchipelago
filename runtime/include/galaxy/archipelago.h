@@ -195,6 +195,8 @@ public:
     [[nodiscard]] std::uint32_t option_value(Option option) const;
     [[nodiscard]] std::uint32_t list_value(std::uint32_t list, std::uint32_t index) const;
     [[nodiscard]] std::uint32_t seed_id() const;
+    // This slot of this room has a state file already (an earlier start played it): false before the room's seed is known.
+    [[nodiscard]] bool has_state_file() const;
     // The oldest notice for the player (a short line); false when none waits.
     // `icon`: the number (kItem*) of the item the notice is about when one of ours was received, else 0 (the logo).
     [[nodiscard]] bool pop_notice(std::string& text, std::uint32_t* icon = nullptr);
@@ -376,6 +378,18 @@ struct Connection {
     std::string password;
 };
 [[nodiscard]] Connection saved_connection();
+// Restarts the client with archipelago.ini as it is now (the connection page writes it first): the old client stops, a new
+// one starts, in a thread of its own, and state() says Connecting meanwhile. Does nothing before start().
+void reconnect();
+// The save files and the multiworld: a game keeps one save file for the multiworld (seed and slot) it is connected to.
+enum class SaveOwner : std::uint32_t {
+    Unknown = 0,  // not connected yet: the room's seed is not known
+    Same = 1,     // the files belong to this multiworld
+    Other = 2,    // another multiworld's (or none's): the files are to be cleared
+    Adopted = 3,  // no owner was recorded (files from before this page) but an earlier start played this multiworld: they are kept as they are, and recorded
+};
+[[nodiscard]] SaveOwner save_owner() noexcept;
+void claim_saves();  // the connected multiworld is the files' owner from now on
 [[nodiscard]] bool save_connection(const Connection& connection, std::string& error);
 
 // The green spheres in the domes (a galaxy without a miniature of its own is shown as the Observatory's green sphere) crashed

@@ -589,18 +589,14 @@ S.SLOT	Slot		Slot	Slot
 S.PASSWORD	Password		Mot de passe	Mot de passe
 S.STATUS	Status		Statut	Statut
 S.(EMPTY)	(empty)		(vide)	(vide)
-S.NOT_SAVED	Not saved		Non enregistré	Non enregistré
-S.SAVED:_RESTART_TO_CONNECT	Saved: restart to connect		Enregistré : redémarrez pour se connecter	Enregistré : redémarrez pour se connecter
 S.CONNECTING	Connecting		Connexion en cours	Connexion en cours
 S.CONNECTED	Connected		Connecté	Connecté
 S.REFUSED_BY_THE_SERVER	Refused by the server		Refusé par le serveur	Refusé par le serveur
 S.NOT_AVAILABLE	Not available		Indisponible	Indisponible
-S.SAVED._RESTART_THE_GAME_TO_CONNECT	Saved. Restart the game to connect		Enregistré. Redémarrez le jeu pour vous connecter.	Enregistré. Redémarrez le jeu pour vous connecter.
 S.COULD_NOT_SAVE_THE_CONNECTION	Could not save the connection		Impossible d'enregistrer la connexion	Impossible d'enregistrer la connexion
 S.THE_MULTIWORLD'S_ADDRESS,_LIKE_ARCHIPELAGO.GG:#._PRESS_A,_ENTER_OR_RIGHT_TO_TYPE_IT	The multiworld's address, like archipelago.gg:{0}. Press A, Enter or Right to type it		L'adresse du multiworld, par exemple archipelago.gg:{0}. Appuyez sur A, Entrée ou Droite pour la saisir	L'adresse du multiworld, par exemple archipelago.gg:{0}. Appuyez sur A, Entrée ou Droite pour la saisir
 S.YOUR_SLOT'S_NAME_IN_THE_MULTIWORLD_(THE_NAME_IN_YOUR_YAML)	Your slot's name in the multiworld (the name in your YAML)		Le nom de votre slot dans le multiworld (le nom dans votre YAML)	Le nom de votre slot dans le multiworld (le nom dans votre YAML)
 S.THE_ROOM'S_PASSWORD,_OR_NOTHING_WHEN_IT_HAS_NONE	The room's password, or nothing when it has none		Le mot de passe de la salle, ou rien s'il n'y en a pas	Le mot de passe de la salle, ou rien s'il n'y en a pas
-S.WRITES_ARCHIPELAGO.INI._THE_GAME_CONNECTS_WITH_IT_AT_ITS_NEXT_START	Writes archipelago.ini. The game connects with it at its next start		Écrit archipelago.ini. Le jeu s'y connecte au prochain démarrage	Écrit archipelago.ini. Le jeu s'y connecte au prochain démarrage
 S.WHETHER_THE_GAME_IS_CONNECTED_TO_THE_MULTIWORLD	Whether the game is connected to the multiworld		Indique si le jeu est connecté au multiworld	Indique si le jeu est connecté au multiworld
 SettingsKeyShift	Shift		Maj	Maj
 SettingsKeySymbols	#+=		#+=	#+=
@@ -610,4 +606,11 @@ SettingsKeyCancel	Cancel		Annuler	Annuler
 SettingsKeyDone	Done		Valider	Valider
 SettingsKeyboardHelpKeys	Type, or paste with Ctrl+V   |   Enter: done   |   Esc: cancel		Tapez, ou collez avec Ctrl+V   |   Entrée : valider   |   Échap : annuler	Tapez, ou collez avec Ctrl+V   |   Entrée : valider   |   Échap : annuler
 SettingsKeyboardHelpPad	D-pad: move   |   A: type   |   X: delete   |   Y: done   |   B: cancel		Croix : bouger   |   A : taper   |   X : effacer   |   Y : valider   |   B : annuler	Croix : bouger   |   A : taper   |   X : effacer   |   Y : valider   |   B : annuler
-S.SAVE	Save		Enregistrer	Enregistrer
+S.CONNECT	Connect		Connecter	Connecter
+S.CHANGED:_PRESS_CONNECT	Changed: press Connect		Modifié : appuyez sur Connecter	Modifié : appuyez sur Connecter
+S.NOT_CONNECTED	Not connected		Non connecté	Non connecté
+S.SAVES_THE_CONNECTION_IN_ARCHIPELAGO.INI_AND_CONNECTS_AGAIN,_IF_THE_CONNECTION_FAILED_OR_WAS_CHANGED	Saves the connection in archipelago.ini and connects again, if the connection failed or was changed		Enregistre la connexion dans archipelago.ini et se reconnecte, si la connexion a échoué ou a été modifiée	Enregistre la connexion dans archipelago.ini et se reconnecte, si la connexion a échoué ou a été modifiée
+SettingsGateTitle	Connect to Archipelago		Connexion à Archipelago	Connexion à Archipelago
+SettingsGateConnect	Connect		Connecter	Connecter
+SettingsGateContinue	Continue		Continuer	Continuer
+SettingsGateSkip	Skip		Passer	Passer

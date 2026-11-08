@@ -313,11 +313,22 @@ Les Star Bits des Lumas ne sont pas pris en compte dans la logique (on suppose q
 
 ## 7. Dire à Nebula où se connecter
 
-**Dans le jeu** (pas testé en jeu) : ouvrez les réglages de Nebula (touche F1 ou la manette), onglet **Archipelago**. Les lignes
-**Serveur**, **Slot** et **Mot de passe** ouvrent un champ de saisie : tapez au clavier (**Ctrl+V** colle le presse-papiers),
-ou utilisez le clavier à l'écran (souris, croix et A de la manette, X efface, Y valide, B annule, LB/RB changent
-majuscules et symboles). Validez chaque champ, puis choisissez **Enregistrer** : cela écrit `archipelago.ini`. La
-connexion se fait au démarrage du jeu : **redémarrez Nebula** après avoir enregistré (la ligne « Statut » le rappelle).
+**Dans le jeu** (pas testé en jeu) : au menu titre, appuyez sur **A** : une page **Connexion à Archipelago** s'affiche avant
+le choix de la sauvegarde. Elle demande **Serveur**, **Slot** et **Mot de passe** : chaque ligne ouvre un champ de saisie
+(au clavier, **Ctrl+V** colle le presse-papiers ; sinon le clavier à l'écran : souris, croix et A de la manette, X
+efface, Y connecte, B passe, LB/RB changent majuscules et symboles). Appuyez sur **Connecter** (Entrée, ou Y sur la
+manette) : le jeu écrit `archipelago.ini`, se connecte, puis la page se ferme toute seule et la popup habituelle
+« Connected to Archipelago as … » apparaît. Si le fichier `archipelago.ini` existe déjà et que la connexion marche, la
+page s'affiche avec « Connected » : **Continuer** suffit. **Passer** (Échap ou B) entre dans le jeu sans connexion.
+
+Le même réglage existe dans les réglages de Nebula (touche F1 ou la manette), onglet **Archipelago**, avec le bouton
+**Connecter** : il refait la connexion en cas de problème, sans redémarrer le jeu.
+
+**Une seule sauvegarde par multiworld.** Une fois connecté, seule la **sauvegarde 1** peut être choisie. Les sauvegardes 2
+et 3 sont effacées ; si la sauvegarde 1 vient d'un autre multiworld (autre salle ou autre slot), elle l'est aussi, pour
+repartir de zéro. Avant d'effacer quoi que ce soit, le jeu copie toutes les sauvegardes dans
+`%LOCALAPPDATA%\Nebula\saves-backup\<date>` : rien n'est perdu pour de bon. Le fichier `archipelago-saves.txt` (même
+dossier) note à quel multiworld appartiennent les sauvegardes.
 
 Sinon, **autre méthode** : lancez le script `tools\archipelago_setup.ps1` (dans PowerShell, depuis `C:\dev\nebula` :
 `.\tools\archipelago_setup.ps1`). Il vous pose 3 questions (adresse, nom du joueur, mot de passe) et écrit le fichier

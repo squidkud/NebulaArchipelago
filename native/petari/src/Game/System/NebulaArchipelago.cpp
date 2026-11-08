@@ -7,6 +7,7 @@
 #include "Game/System/GalaxyStatusAccessor.hpp"
 #include "Game/System/GameDataFunction.hpp"
 #include "Game/System/GameSequenceFunction.hpp"
+#include "Game/System/UserFile.hpp"
 #include "Game/Util/FileUtil.hpp"
 #include "Game/Util/EventUtil.hpp"
 #include "Game/Util/JMapInfo.hpp"
@@ -114,7 +115,8 @@ namespace {
     s32 sNoticeNum;
 
     bool isHostActive() {
-        if (sActive < 0) {
+        // Asked again until the client runs: the connection screen can start it after the game did.
+        if (sActive != 1) {
             sActive = __NebulaArchipelago(NEBULA_AP_ACTIVE, 0) != 0 ? 1 : 0;
         }
 
@@ -573,9 +575,106 @@ namespace {
     }
 };  // namespace
 
+namespace {
+    // The connection screen after the title, and the save files of the multiworld.
+    enum { GateIdle, GateOpen, GateSaves, GateDone };
+    const s32 cUserFileNum = 3;        // the file select's files, numbered from 1
+    const s32 cMultiworldFile = 1;     // the one the multiworld keeps
+    s32 sGateStep = GateIdle;
+    u32 sGateSeed;                     // the multiworld the gate passed with
+    bool sSingleFile;
+    s32 sWipeFiles[cUserFileNum];
+    s32 sWipeCount;
+    s32 sWipeAt;
+    bool sClaim;
+
+    // Which files are to be cleared: the others than the multiworld's, or all of them when the files belong to another
+    // multiworld (or none). Only those that hold something; a copy of the save files first.
+    void prepareSaves() {
+        const u32 owner = __NebulaArchipelago(NEBULA_AP_SAVE_OWNER, 0);
+        sWipeCount = 0;
+        sWipeAt = 0;
+        sClaim = owner != 0;
+        if (owner == 1 || owner == 2) {
+            UserFile* pFile = new UserFile();
+            for (s32 id = 1; id <= cUserFileNum; id++) {
+                if (id == cMultiworldFile && owner == 1) {
+                    continue;
+                }
+                GameSequenceFunction::restoreUserFile(pFile, id, true);
+                if (pFile->isCreated()) {
+                    sWipeFiles[sWipeCount++] = id;
+                }
+            }
+            delete pFile;
+        }
+        sSingleFile = owner == 1 || owner == 2;
+        if (sWipeCount > 0) {
+            NebulaArchipelago::logNote("Save files", "copy before clearing", "");
+            (void)__NebulaArchipelago(NEBULA_AP_BACKUP_SAVES, 0);
+        }
+    }
+
+    // One step of clearing: the game's own delete of a file, one after the other. True when all are done.
+    bool stepSaves() {
+        if (GameSequenceFunction::isActiveSaveDataHandleSequence()) {
+            return false;
+        }
+        if (sWipeAt < sWipeCount) {
+            GameSequenceFunction::startDeleteUserFileSequence(sWipeFiles[sWipeAt++]);
+            return false;
+        }
+        if (sClaim) {
+            __NebulaArchipelago(NEBULA_AP_CLAIM_SAVES, 0);
+        }
+        return true;
+    }
+};  // namespace
+
 namespace NebulaArchipelago {
     bool isActive() {
         return isHostActive();
+    }
+
+    bool isSingleSaveFile() {
+        return sSingleFile;
+    }
+
+    bool passConnectionGate() {
+        switch (sGateStep) {
+        case GateDone:
+            // Passed with a multiworld: it stands while the client is connected to it still.
+            if (__NebulaArchipelago(NEBULA_AP_STATE, 0) == 2 && __NebulaArchipelago(NEBULA_AP_SEED, 0) == sGateSeed) {
+                return true;
+            }
+            sGateStep = GateIdle;
+            sSingleFile = false;
+            return passConnectionGate();
+        case GateIdle:
+            (void)__NebulaArchipelago(NEBULA_AP_GATE, 1);
+            sGateStep = GateOpen;
+            return false;
+        case GateOpen: {
+            const u32 result = __NebulaArchipelago(NEBULA_AP_GATE, 0);
+            if (result == 0) {
+                return false;
+            }
+            if (result != 1) {
+                sGateStep = GateIdle;  // skipped: the title goes on, and asks again the next time
+                return true;
+            }
+            prepareSaves();
+            sGateStep = GateSaves;
+            return false;
+        }
+        default:
+            if (!stepSaves()) {
+                return false;
+            }
+            sGateSeed = __NebulaArchipelago(NEBULA_AP_SEED, 0);
+            sGateStep = GateDone;
+            return true;
+        }
     }
 
     void update(bool inPlay) {

@@ -412,15 +412,25 @@ struct NativeSettingsView {
     NativeSettingsStatus status = NativeSettingsStatus::Help;
     int status_number = 0;
     std::string status_text;
+    unsigned gate = 0u;  // the connection screen after the title: 1 not connected, 2 connected; 0 the menu as usual
 };
 // The Archipelago page's connection (archipelago.ini): the host registers how to read and write it, and how the client
 // stands (galaxy::archipelago::State as a number, 0 off, 1 connecting, 2 connected, 3 refused).
 struct NativeArchipelagoHooks {
     bool (*load)(std::string& server, std::string& slot, std::string& password) = nullptr;
-    bool (*save)(const std::string& server, const std::string& slot, const std::string& password, std::string& error) = nullptr;
+    // Writes archipelago.ini with these and restarts the client with it (the connection goes on in the background).
+    bool (*connect)(const std::string& server, const std::string& slot, const std::string& password, std::string& error) = nullptr;
     unsigned (*state)() = nullptr;
 };
 void native_settings_set_archipelago_hooks(const NativeArchipelagoHooks& hooks);
+// The connection screen after the title: the settings menu opens on the Archipelago page alone (no other page, no tabs)
+// until the client is connected or the player skips it. The result: kGateOpen while it is up, then kGateConnected or
+// kGateSkipped (the game goes on either way).
+inline constexpr unsigned kGateOpen = 0u;
+inline constexpr unsigned kGateConnected = 1u;
+inline constexpr unsigned kGateSkipped = 2u;
+void native_settings_open_gate();
+[[nodiscard]] unsigned native_settings_gate_result();
 // A character the player typed (the window's WM_CHAR) and a paste (UTF-8) for the text the settings menu asks for; false
 // when none is asked for (the key is then the game's).
 bool native_settings_text_char(char32_t character);

@@ -23,6 +23,14 @@ namespace NebulaArchipelago {
     // The client runs.
     bool isActive();
 
+    // The title's A: the connection screen first (the host's settings menu on its Archipelago page, alone), then, once
+    // connected, the save files: only one is kept for the multiworld, the others are cleared (after a copy of them in the
+    // settings folder). Called each frame the title waits; true when the game may go on (connected and the files ready, or
+    // the screen skipped, or no host menu).
+    bool passConnectionGate();
+    // One save file for the multiworld (the connection screen was passed connected): the file select offers file 1 only.
+    bool isSingleSaveFile();
+
     // The star items option: the game's own logic asks these. Each returns false (and leaves its result) when the
     // game's own value stands.
     //   flag: SpecialStarGrand1 to 6 and SpecialStarGreen1 to 3 are on once that many such items came.
