@@ -16,9 +16,10 @@ namespace {
     const f32 cBandMiddle = -161.0f;
     // The button at the size of the counters beside it; two buttons share the band at a smaller size.
     const f32 cScale = 0.62f;
-    const f32 cPairScale = 0.5f;
-    // The gap between the two buttons.
-    const f32 cPairGap = 8.0f;
+    const f32 cPairScale = 0.46f;
+    // The button is about 72 layout units high at scale 1 (rim and shadow included); the gap between the two buttons.
+    const f32 cButtonHeight = 72.0f;
+    const f32 cPairGap = 3.0f;
 };  // namespace
 
 NebulaPauseSettingsButton::NebulaPauseSettingsButton(const char* pName, const char* pTextId, s32 side)
@@ -45,11 +46,11 @@ void NebulaPauseSettingsButton::init(const JMapInfoIter& rIter) {
     if (pGroup != nullptr && pLower != nullptr) {
         const f32 scale = mSide == 0 ? cScale : cPairScale;
         pGroup->mScale = nw4r::math::VEC2(scale, scale);
-        pGroup->mTranslate.y = cBandMiddle - pLower->mTranslate.y * scale;
+        // Two buttons stack in the band, about its middle: the Tracker (side 1) above, Settings (side -1) below.
+        const f32 offset = mSide == 0 ? 0.0f : mSide * (cButtonHeight * scale * 0.5f + cPairGap * 0.5f);
+        pGroup->mTranslate.y = cBandMiddle + offset - pLower->mTranslate.y * scale;
         if (mSide != 0) {
-            // Side by side about the middle, each as wide as the button is at this size.
-            const f32 offset = pLower->mSize.width * scale * 0.5f + cPairGap * 0.5f;
-            pGroup->mTranslate.x = mSide * offset - pLower->mTranslate.x * scale;
+            pGroup->mTranslate.x = -pLower->mTranslate.x * scale;
         }
     }
     wchar_t label[64];

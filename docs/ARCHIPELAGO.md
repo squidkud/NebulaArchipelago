@@ -391,7 +391,7 @@ vérifiées en test, l'affichage dans le Launcher ne l'est pas.
 
 ### Le tracker en jeu
 
-Avec une partie Archipelago, le menu **Start** a un bouton **Tracker** à côté de **Paramètres**. Il ouvre une page
+Avec une partie Archipelago, le menu **Start** a un bouton **Tracker** au-dessus de **Paramètres**. Il ouvre une page
 par-dessus le menu pause (fond étoilé de la carte des galaxies) :
 
 - **En haut, sept onglets** : les six dômes (*Terrace*, *Fountain*, *Kitchen*, *Bedroom*, *Engine Room*, *Garden*) dans
