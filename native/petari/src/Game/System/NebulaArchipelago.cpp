@@ -585,14 +585,22 @@ namespace {
     s32 sWipeFiles[cUserFileNum];
     s32 sWipeCount;
     s32 sWipeAt;
+    s32 sMakeFiles[2];                 // the files to create (the multiworld's, when they do not exist yet), each with its icon
+    s32 sMakeCount;
+    s32 sMakeAt;
+    bool sMakeIcon;                    // the file just created is given its icon next
     bool sClaim;
 
     // Which files are to be cleared: the others than the multiworld's, or all of them when the files belong to another
-    // multiworld (or none). Only those that hold something; a copy of the save files first.
+    // multiworld (or none). Only those that hold something; a copy of the save files first. The multiworld's own files are then
+    // created, so that the file select shows them ready (with the head of their character) and nothing is asked.
     void prepareSaves() {
         const u32 owner = __NebulaArchipelago(NEBULA_AP_SAVE_OWNER, 0);
         sWipeCount = 0;
         sWipeAt = 0;
+        sMakeCount = 0;
+        sMakeAt = 0;
+        sMakeIcon = false;
         sClaim = owner != 0;
         const bool oneCharacter = __NebulaArchipelago(NEBULA_AP_OPTION_SET, NEBULA_AP_OPT_CHARACTER) != 0 &&
                                   __NebulaArchipelago(NEBULA_AP_OPTION, NEBULA_AP_OPT_CHARACTER) <= 1;
@@ -600,11 +608,17 @@ namespace {
         if (owner == 1 || owner == 2) {
             UserFile* pFile = new UserFile();
             for (s32 id = 1; id <= cUserFileNum; id++) {
-                if (id <= kept && owner == 1) {
-                    continue;  // the files the multiworld keeps: Mario's, and Luigi's when both play
-                }
                 GameSequenceFunction::restoreUserFile(pFile, id, true);
-                if (pFile->isCreated()) {
+                const bool created = pFile->isCreated();
+                if (id <= kept) {
+                    // the files the multiworld keeps: Mario's, and Luigi's when both play (made again when they belong to another)
+                    if (owner == 2 && created) {
+                        sWipeFiles[sWipeCount++] = id;
+                    }
+                    if (owner == 2 || !created) {
+                        sMakeFiles[sMakeCount++] = id;
+                    }
+                } else if (created) {
                     sWipeFiles[sWipeCount++] = id;
                 }
             }
@@ -617,13 +631,29 @@ namespace {
         }
     }
 
-    // One step of clearing: the game's own delete of a file, one after the other. True when all are done.
+    // One step of clearing, then of creating: the game's own delete and create of a file, one after the other. True when all are done.
     bool stepSaves() {
         if (GameSequenceFunction::isActiveSaveDataHandleSequence()) {
             return false;
         }
         if (sWipeAt < sWipeCount) {
             GameSequenceFunction::startDeleteUserFileSequence(sWipeFiles[sWipeAt++]);
+            return false;
+        }
+        if (sMakeAt < sMakeCount) {
+            const s32 id = sMakeFiles[sMakeAt];
+
+            if (!sMakeIcon) {
+                GameSequenceFunction::startCreateUserFileSequence(id);
+                sMakeIcon = true;
+            } else {
+                // The icon is the head of the file's character (Mario 1, Luigi 2): no question is asked.
+                const u32 icon = NebulaArchipelago::getFileCharacter(id) == 1 ? 2 : 1;
+
+                GameSequenceFunction::startSetMiiOrIconIdUserFileSequence(id, nullptr, &icon);
+                sMakeIcon = false;
+                sMakeAt++;
+            }
             return false;
         }
         if (sClaim) {

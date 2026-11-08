@@ -331,8 +331,8 @@ Le même réglage existe dans les réglages de Nebula (touche F1 ou la manette),
 **Une seule sauvegarde par multiworld** (deux avec `character: both`). Une fois connecté, seule la **sauvegarde 1** existe : elle est affichée seule, plus
 grande, au milieu de l'écran de choix, sans son numéro, et à la place de la tête du personnage elle montre le **logo
 d'Archipelago en 3D** (six disques arrondis qui tournent ; pas testé en jeu). Les boutons Copy, Icon et Erase n'existent
-plus (seul « Play This File » reste), la barre avec le nom et les étoiles reste en haut, et la création du fichier ne
-demande plus d'icône (c'est celle de Mario). Le nom affiché dans la barre est celui du slot (le joueur Archipelago). Le logo vient de `tools/gen_archipelago_logo_mesh.py` (relancez-le pour
+plus (seul « Play This File » reste), la barre avec le nom et les étoiles reste en haut, et le fichier est **créé tout seul** à la connexion (rien à confirmer, pas de question d'icône : c'est la tête de
+Mario, ou de Luigi pour le fichier 2 avec `both`). Le nom affiché dans la barre est celui du slot (le joueur Archipelago). Le logo vient de `tools/gen_archipelago_logo_mesh.py` (relancez-le pour
 changer sa forme : `--preview image.png` en dessine un aperçu). Avec `character: both`, ce sont les sauvegardes 1 (Mario) et 2 (Luigi) qui existent, côte à côte, chacune avec la tête de son personnage au lieu du logo ; le Luigi d'une ancienne sauvegarde 1 n'est plus utilisé (il est dans la sauvegarde 2 désormais). Les autres sauvegardes sont effacées ; si une sauvegarde gardée vient d'un autre multiworld (autre salle ou autre slot), elle l'est aussi, pour
 repartir de zéro. Avant d'effacer quoi que ce soit, le jeu copie toutes les sauvegardes dans
 `%LOCALAPPDATA%\Nebula\saves-backup\<date>` : rien n'est perdu pour de bon. Le fichier `archipelago-saves.txt` (même
