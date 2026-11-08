@@ -83,6 +83,13 @@ namespace {
         return -1;
     }
 
+#ifdef TARGET_PC
+    // Archipelago: with one save file for the multiworld, the other files are not shown at all.
+    inline bool isHiddenFile(const FileSelectItem* pItem) {
+        return NebulaArchipelago::isSingleSaveFile() && pItem->_140 != 1;
+    }
+#endif
+
     MiiFacePartsHolder* getMiiFacePartsHolder() {
         return MR::getSceneObj< MiiFacePartsHolder >(SceneObj_MiiFacePartsHolder);
     }
@@ -324,6 +331,12 @@ void FileSelector::createFileItems() {
         pItem->setSelectDelegator(pDelegator);
         pItem->mPosition.set(_98[i]);
         mItems->registerActor(pItem);
+#ifdef TARGET_PC
+        if (::isHiddenFile(pItem)) {
+            pItem->makeActorDead();
+            pItem->invalidateSelect();
+        }
+#endif
     }
 }
 
@@ -388,7 +401,7 @@ void FileSelector::offerFilesToMenuFocus() {
     for (int i = 0; i < mItems->getObjNum(); i++) {
         FileSelectItem* pItem = static_cast< FileSelectItem* >(mItems->getActor(i));
         TVec2f screen;
-        if (!pItem->mIsInvalidateSelect && MR::calcScreenPosition(&screen, pItem->mPosition + TVec3f(0.0f, 900.0f, 0.0f))) {
+        if (!pItem->mIsInvalidateSelect && !MR::isDead(pItem) && MR::calcScreenPosition(&screen, pItem->mPosition + TVec3f(0.0f, 900.0f, 0.0f))) {
             NebulaMenuFocus::offerTarget(pItem, screen);
         }
     }
@@ -522,6 +535,11 @@ void FileSelector::createSelectEffect() {
 
 void FileSelector::appearAllItems() {
     for (int i = 0; i < mItems->getObjNum(); i++) {
+#ifdef TARGET_PC
+        if (::isHiddenFile(static_cast< FileSelectItem* >(mItems->getActor(i)))) {
+            continue;
+        }
+#endif
         mItems->getActor(i)->appear();
     }
 }
@@ -576,6 +594,11 @@ void FileSelector::updateFileInfo() {
 }
 
 void FileSelector::appearAllIndex() {
+#ifdef TARGET_PC
+    if (NebulaArchipelago::isSingleSaveFile()) {
+        return;  // the one file shows no number
+    }
+#endif
     for (int i = 0; i < mItems->getObjNum(); i++) {
         static_cast< FileSelectItem* >(mItems->getActor(i))->appearIndex();
     }
@@ -597,7 +620,7 @@ void FileSelector::validateSelectAll() {
     for (int i = 0; i < mItems->getObjNum(); i++) {
 #ifdef TARGET_PC
         // Archipelago: one save file for the multiworld, the first.
-        if (NebulaArchipelago::isSingleSaveFile() && static_cast< FileSelectItem* >(mItems->getActor(i))->_140 != 1) {
+        if (::isHiddenFile(static_cast< FileSelectItem* >(mItems->getActor(i)))) {
             continue;
         }
 #endif
@@ -853,6 +876,11 @@ void FileSelector::calcBasePos(f32 offset) {
         f32 cosTheta = MR::cos(theta);
         f32 sinTheta = MR::sin(theta);
         _98[i].set(::sItemPosRadius * cosTheta, 0.0f, ::sItemPosRadius * sinTheta);
+#ifdef TARGET_PC
+        if (NebulaArchipelago::isSingleSaveFile()) {
+            _98[i].zero();  // the one file stands in the middle
+        }
+#endif
         transform.mult(_98[i], _98[i]);
     }
 }
@@ -890,6 +918,11 @@ namespace {
 
 void FileSelector::initAllItems() {
     for (int i = 0; i < USER_FILE_NUM; i++) {
+#ifdef TARGET_PC
+        if (::isHiddenFile(static_cast< FileSelectItem* >(mItems->getActor(i)))) {
+            continue;
+        }
+#endif
         ::initFileItem(this, static_cast< FileSelectItem* >(mItems->getActor(i)));
     }
 }

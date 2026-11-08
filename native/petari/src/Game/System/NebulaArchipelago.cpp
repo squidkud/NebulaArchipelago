@@ -578,7 +578,7 @@ namespace {
 namespace {
     // The connection screen after the title, and the save files of the multiworld.
     enum { GateIdle, GateOpen, GateSaves, GateDone };
-    const s32 cUserFileNum = 3;        // the file select's files, numbered from 1
+    const s32 cUserFileNum = 6;        // the file select's files, numbered from 1
     const s32 cMultiworldFile = 1;     // the one the multiworld keeps
     s32 sGateStep = GateIdle;
     u32 sGateSeed;                     // the multiworld the gate passed with

@@ -1,3 +1,6 @@
+#ifdef TARGET_PC
+#include "Game/System/NebulaArchipelago.hpp"
+#endif
 #include "Game/Map/FIleSelectItem.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/LiveActor/PartsModel.hpp"
@@ -397,13 +400,19 @@ void FileSelectItem::control() {
 
     mScaleCtrl->updateNerve();
 
-    mPlanetMapObj->mScale.setAll< f32 >(30.0f * mScaleCtrl->getScale());
+#ifdef TARGET_PC
+    // Archipelago: the one save file is shown larger.
+    const f32 bigger = NebulaArchipelago::isSingleSaveFile() ? 1.6f : 1.0f;
+#else
+    const f32 bigger = 1.0f;
+#endif
+    mPlanetMapObj->mScale.setAll< f32 >(30.0f * mScaleCtrl->getScale() * bigger);
 
     for (s32 i = 0; i < 5; i++) {
-        mModels[i]->mScale.setAll< f32 >(30.0f * mScaleCtrl->getScale());
+        mModels[i]->mScale.setAll< f32 >(30.0f * mScaleCtrl->getScale() * bigger);
     }
 
-    mFaceParts->mScale.setAll< f32 >(27.0f * mScaleCtrl->getScale());
+    mFaceParts->mScale.setAll< f32 >(27.0f * mScaleCtrl->getScale() * bigger);
 
     mBlinkCtrl->updateNerve();
 

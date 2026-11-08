@@ -3648,8 +3648,9 @@ int main(int argc, char** argv) {
 
     boot_mark("settings and mods");
 #if defined(NEBULA_HOST_RENDERER)
-    // Archipelago: starts only when archipelago.ini (next to the settings) names a server and a slot.
-    galaxy::archipelago::start(galaxy::runtime_settings_folder(), [](const char* text) { log_line("archipelago:", text); });
+    // Archipelago: reads archipelago.ini (next to the settings).
+    // It does not connect at the start: the connection screen after the title does (the room is not known before).
+    galaxy::archipelago::start(galaxy::runtime_settings_folder(), [](const char* text) { log_line("archipelago:", text); }, false);
     // The settings menu's ARCHIPELAGO page reads and writes archipelago.ini through these.
     {
         galaxy::gx::NativeArchipelagoHooks hooks;
@@ -3659,6 +3660,9 @@ int main(int argc, char** argv) {
             slot = connection.slot;
             password = connection.password;
             return true;
+        };
+        hooks.save = [](const std::string& server, const std::string& slot, const std::string& password, std::string& error) {
+            return galaxy::archipelago::save_connection({server, slot, password}, error);
         };
         hooks.connect = [](const std::string& server, const std::string& slot, const std::string& password, std::string& error) {
             if (!galaxy::archipelago::save_connection({server, slot, password}, error)) return false;

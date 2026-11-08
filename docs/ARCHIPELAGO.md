@@ -316,7 +316,10 @@ Les Star Bits des Lumas ne sont pas pris en compte dans la logique (on suppose q
 **Dans le jeu** (pas testé en jeu) : au menu titre, appuyez sur **A** : une page **Connexion à Archipelago** s'affiche avant
 le choix de la sauvegarde. Elle demande **Serveur**, **Slot** et **Mot de passe** : chaque ligne ouvre un champ de saisie
 (au clavier, **Ctrl+V** colle le presse-papiers ; sinon le clavier à l'écran : souris, croix et A de la manette, X
-efface, Y connecte, B passe, LB/RB changent majuscules et symboles). Appuyez sur **Connecter** (Entrée, ou Y sur la
+efface, Y connecte, B passe, LB/RB changent majuscules et symboles). Chaque champ validé est **écrit tout de suite** dans
+`archipelago.ini` : si vous fermez le jeu avant de connecter, la salle saisie est retrouvée au lancement suivant. Le jeu ne
+se connecte **pas** au lancement (la salle n'est pas encore connue, donc pas de message d'échec) : la page s'affiche à
+chaque lancement, avec les valeurs du fichier, et un appui sur **Connecter** suffit. Appuyez sur **Connecter** (Entrée, ou Y sur la
 manette) : le jeu écrit `archipelago.ini`, se connecte, puis la page se ferme toute seule et la popup habituelle
 « Connected to Archipelago as … » apparaît. Si le fichier `archipelago.ini` existe déjà et que la connexion marche, la
 page s'affiche avec « Connected » : **Continuer** suffit. **Passer** (Échap ou B) entre dans le jeu sans connexion.
@@ -324,8 +327,8 @@ page s'affiche avec « Connected » : **Continuer** suffit. **Passer** (Échap o
 Le même réglage existe dans les réglages de Nebula (touche F1 ou la manette), onglet **Archipelago**, avec le bouton
 **Connecter** : il refait la connexion en cas de problème, sans redémarrer le jeu.
 
-**Une seule sauvegarde par multiworld.** Une fois connecté, seule la **sauvegarde 1** peut être choisie. Les sauvegardes 2
-et 3 sont effacées ; si la sauvegarde 1 vient d'un autre multiworld (autre salle ou autre slot), elle l'est aussi, pour
+**Une seule sauvegarde par multiworld.** Une fois connecté, seule la **sauvegarde 1** existe : elle est affichée seule, plus
+grande, au milieu de l'écran de choix, sans son numéro. Les sauvegardes 2 à 6 sont effacées ; si la sauvegarde 1 vient d'un autre multiworld (autre salle ou autre slot), elle l'est aussi, pour
 repartir de zéro. Avant d'effacer quoi que ce soit, le jeu copie toutes les sauvegardes dans
 `%LOCALAPPDATA%\Nebula\saves-backup\<date>` : rien n'est perdu pour de bon. Le fichier `archipelago-saves.txt` (même
 dossier) note à quel multiworld appartiennent les sauvegardes.

@@ -343,7 +343,8 @@ private:
 // Starts writing archipelago.log in `settings_folder` (it says what was looked for and found), reads archipelago.ini
 // (or archipelago.ini.txt, which Windows makes of a file saved as .txt) there, and starts the client when it names a
 // server and a slot. `log` receives one line at a time as well. Calling it again does nothing.
-void start(const std::filesystem::path& settings_folder, LogFn log);
+// With connect_now false the client is not started: only the settings are read, the connection comes with reconnect().
+void start(const std::filesystem::path& settings_folder, LogFn log, bool connect_now = true);
 [[nodiscard]] bool active() noexcept;  // the client was started
 [[nodiscard]] State state() noexcept;
 [[nodiscard]] std::uint32_t goal_option() noexcept;
