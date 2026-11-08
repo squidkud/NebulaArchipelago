@@ -76,7 +76,7 @@ void NebulaFileLogo::init(const JMapInfoIter& rIter) {
 }
 
 void NebulaFileLogo::draw() const {
-    if (!MR::isValidDraw(this) || mHost == nullptr || MR::isDead(mHost)) {
+    if (!MR::isValidDraw(this) || mHost == nullptr || MR::isDead(mHost) || !mHost->mLogoOn) {
         return;
     }
 
