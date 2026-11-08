@@ -1,0 +1,33 @@
+name: check
+on:
+  push:
+    branches: ['ci-check']
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tools
+        shell: pwsh
+        run: |
+          choco install ninja -y --no-progress
+          if (-not (Test-Path 'C:\Program Files\CMake\bin\cmake.exe')) { choco install cmake -y --no-progress --installargs 'ADD_CMAKE_TO_PATH=System' }
+          if (-not (Test-Path 'C:\Program Files\LLVM\bin\clang++.exe')) { choco install llvm -y --no-progress }
+      - name: Host and tests
+        shell: pwsh
+        run: |
+          . .\tools\enter_msvc_environment.ps1
+          $cmake = 'C:\Program Files\CMake\bin\cmake.exe'
+          & $cmake -S . -B build\host -G Ninja -DCMAKE_BUILD_TYPE=Release
+          if ($LASTEXITCODE -ne 0) { throw 'cmake configure failed' }
+          & $cmake --build build\host --target NebulaNative galaxy_native_settings_overlay_tests galaxy_archipelago_tests
+          if ($LASTEXITCODE -ne 0) { throw 'host build failed' }
+          & "C:\Program Files\CMake\bin\ctest.exe" --test-dir build\host -R "native_settings_overlay|archipelago" --output-on-failure
+          if ($LASTEXITCODE -ne 0) { throw 'tests failed' }
+      - name: Game module
+        shell: pwsh
+        run: |
+          .\native\build.ps1 -Petari native\petari -Build build\game
+          if ($LASTEXITCODE -ne 0) { throw 'game build failed' }
