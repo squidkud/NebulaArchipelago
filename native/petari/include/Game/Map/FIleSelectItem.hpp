@@ -10,6 +10,7 @@ class FileSelectItemDelegatorBase;
 class FileSelectModel;
 class FileSelectNumber;
 class MiiFaceParts;
+class NebulaFileLogo;
 class PartsModel;
 
 namespace FileSelectItemSub {
@@ -95,6 +96,11 @@ public:
     /* 0x167 */ u8 _167;
     /* 0x168 */ s32 _168;
     /* 0x16C */ s32 _16C;
+#ifdef TARGET_PC
+    // Archipelago: the one save file shows the Archipelago logo in 3D where the head would be.
+    f32 getLogoScale() const;
+    /* 0x170 */ NebulaFileLogo* mLogo;
+#endif
 };
 
 namespace FileSelectItemSub {

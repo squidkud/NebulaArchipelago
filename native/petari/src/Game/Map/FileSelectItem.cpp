@@ -1,4 +1,5 @@
 #ifdef TARGET_PC
+#include "Game/Map/NebulaFileLogo.hpp"
 #include "Game/System/NebulaArchipelago.hpp"
 #endif
 #include "Game/Map/FIleSelectItem.hpp"
@@ -115,6 +116,9 @@ FileSelectItem::FileSelectItem(s32 a1, bool a2, const FileSelectIconID& rID, con
     _D4.identity();
     _104.identity();
 
+#ifdef TARGET_PC
+    mLogo = nullptr;
+#endif
     mModels = new FileSelectModel*[5];
 
     for (u32 i = 0; i < 5; i++) {
@@ -129,7 +133,16 @@ void FileSelectItem::init(const JMapInfoIter& rIter) {
     createFellows();
     createMii();
     createNumber();
+#ifdef TARGET_PC
+    const bool isLogoFile = NebulaArchipelago::isSingleSaveFile() && _140 == 1;
+    if (isLogoFile) {
+        mLogo = new NebulaFileLogo(this);
+        mLogo->initWithoutIter();
+    }
+    MR::initStarPointerTarget(this, isLogoFile ? 1700.0f : 1000.0f, TVec3f(0.0f, 900.0f, 0.0f));
+#else
     MR::initStarPointerTarget(this, 1000.0f, TVec3f(0.0f, 900.0f, 0.0f));
+#endif
     MR::invalidateClipping(this);
     initNerve(GET_NERVE_ANON(FileSelectItemNrvNewWait));
     MR::createCenterScreenBlur();
@@ -401,8 +414,8 @@ void FileSelectItem::control() {
     mScaleCtrl->updateNerve();
 
 #ifdef TARGET_PC
-    // Archipelago: the one save file is shown larger.
-    const f32 bigger = NebulaArchipelago::isSingleSaveFile() ? 1.6f : 1.0f;
+    // Archipelago: the one save file shows the logo (see NebulaFileLogo) and the game's own models are made too small to see.
+    const f32 bigger = mLogo != nullptr ? 0.001f : 1.0f;
 #else
     const f32 bigger = 1.0f;
 #endif
@@ -964,3 +977,10 @@ void FileSelectItem::exeNewWait() {
 
 FileSelectItem::~FileSelectItem() {
 }
+
+#ifdef TARGET_PC
+// The logo's size: that of the file when pointed at (it swells) times how much larger the one file is shown.
+f32 FileSelectItem::getLogoScale() const {
+    return mScaleCtrl->getScale() * 1.6f;
+}
+#endif

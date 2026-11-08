@@ -70,6 +70,19 @@ namespace {
     static const s32 sIndexOrder[USER_FILE_NUM] = {1, 2, 4, 6, 5, 3};
 };  // namespace
 
+#ifdef TARGET_PC
+namespace {
+    // The icon the file takes: the player's choice, or Mario's when the one Archipelago save file is not asked for one.
+    inline void getChosenIcon(MiiSelect* pMiiSelect, FileSelectIconID* pIconId) {
+        if (NebulaArchipelago::isSingleSaveFile()) {
+            pIconId->setFellowID(FileSelectIconID::Mario);
+        } else {
+            pMiiSelect->getSelectedID(pIconId);
+        }
+    }
+};  // namespace
+#endif
+
 namespace {
     inline int getItemArrayIndex(s32 id) {
         const s32* pIndexOrder = sIndexOrder;
@@ -1304,6 +1317,10 @@ void FileSelector::exeFileConfirm() {
             mFileInfo->forceChange();
         }
 
+#ifdef TARGET_PC
+        // Archipelago: without the Copy, Icon and Erase buttons, the information stays up where it is.
+        if (!NebulaArchipelago::isSingleSaveFile())
+#endif
         mFileInfo->slide();
     }
 
@@ -1429,6 +1446,13 @@ void FileSelector::exeCreate() {
 
     if (GameSequenceFunction::isSuccessSaveDataHandleSequence()) {
         restoreUserFile();
+#ifdef TARGET_PC
+        // Archipelago: the one save file is not asked for an icon (it shows the logo): it takes Mario's.
+        if (NebulaArchipelago::isSingleSaveFile()) {
+            setNerve(GET_NERVE(FileSelector, FileSelectorNrvMiiCreateWait));
+            return;
+        }
+#endif
         setNerve(GET_NERVE(FileSelector, FileSelectorNrvMiiSelectStartFirst));
     } else {
         clearPointing();
@@ -1799,7 +1823,11 @@ void FileSelector::exeMiiCreateWait() {
     if (MR::isFirstStep(this)) {
         FileSelectIconID iconId = FileSelectIconID();
 
-        mMiiSelect->getSelectedID(&iconId);
+        #ifdef TARGET_PC
+    ::getChosenIcon(mMiiSelect, &iconId);
+#else
+    mMiiSelect->getSelectedID(&iconId);
+#endif
         storeSetMiiIdUserFile(_B4->_140, iconId);
 
         mIsMiiSelectStartFirst = false;
@@ -1819,7 +1847,11 @@ void FileSelector::exeMiiCreateDemo() {
         s32 id = _B4->_140;
         FileSelectIconID iconId = FileSelectIconID();
 
-        mMiiSelect->getSelectedID(&iconId);
+        #ifdef TARGET_PC
+    ::getChosenIcon(mMiiSelect, &iconId);
+#else
+    mMiiSelect->getSelectedID(&iconId);
+#endif
         _B4->change(iconId, _CC[id - 1]);
         setFileInfo(id);
     }
@@ -1830,7 +1862,11 @@ void FileSelector::exeMiiCreateDemo() {
 
     FileSelectIconID iconId = FileSelectIconID();
 
+    #ifdef TARGET_PC
+    ::getChosenIcon(mMiiSelect, &iconId);
+#else
     mMiiSelect->getSelectedID(&iconId);
+#endif
 
     if (iconId.isMii()) {
         setNerve(GET_NERVE(FileSelector, FileSelectorNrvMiiCaution));
