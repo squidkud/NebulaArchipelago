@@ -145,6 +145,8 @@ SettingsRow button_row(std::string label, std::vector<std::string> buttons, std:
 std::vector<SettingsRow> settings_page(unsigned tab, const RenderConfig& draft, const RuntimeSettings& runtime,
                                        const RenderFeatureCaps& caps);
 bool settings_page_tab(unsigned tab) { return tab != 2u && tab != 3u; }
+std::vector<SettingsRow> archipelago_page();
+void text_entry_reset();
 
 // The temporal upscaler this configuration runs (2 FSR 3, 3 DLSS), 0 none.
 unsigned temporal_upscaler(const RenderConfig& render) {
@@ -334,7 +336,7 @@ bool s_settings_leave_asking = false;
 std::atomic<bool> s_mods_restart_ask{false};
 // The pages, in order.
 constexpr const char* kNativeSettingsTabNames[] = {"DISPLAY", "GRAPHICS", "CONTROLS", "AUDIO", "GENERAL", "MODS", "SYSTEM",
-                                                   "ADVANCED"};
+                                                   "ADVANCED", "ARCHIPELAGO"};
 
 // Settings menu draft. Display and graphics rows edit s_settings_draft, the game's settings (the audio mix, text
 // speed, button icons, language, Discord status) s_runtime_draft; Enter (Y on a controller) applies them, Backspace
@@ -397,7 +399,8 @@ unsigned s_settings_first_row = 0u;
 // The window thread's left/right-resolved code for the key being handled.
 std::uint32_t s_handled_key_normalized = 0u;
 
-constexpr unsigned kNativeSettingsTabCount = 8;
+constexpr unsigned kNativeSettingsTabCount = 9;
+constexpr unsigned kArchipelagoTab = 8u;
 
 // The GENERAL page's languages, in the order LEFT/RIGHT steps through them.
 constexpr GameLanguage kGameLanguages[] = {GameLanguage::English, GameLanguage::French, GameLanguage::Spanish};
@@ -1488,6 +1491,7 @@ void set_native_settings_visible(bool visible) {
         // Closing discards an unapplied draft, an unconfirmed display and an
         // unanswered DLSS question.
         close_joycon_pairing();
+        text_entry_reset();
         dlss_dismiss_prompt();
         revert_display_settings();
         s_settings_draft = get_render_config();
@@ -1702,6 +1706,227 @@ void set_slider(unsigned target) {
     }
 }
 
+// ---- The ARCHIPELAGO page: the connection (server, slot, password) typed with the keyboard, pasted, or picked on an
+// on-screen keyboard with a controller or the pointer (NEBULA_SETTINGS_STATUS_TEXT). The file is written by SAVE and the
+// game connects at its next start. All under s_native_settings_mutex.
+NativeArchipelagoHooks s_ap_hooks{};
+struct ApConnection {
+    bool loaded = false;
+    bool dirty = false;  // changed since it was read or saved
+    bool saved = false;  // saved this run: the game connects with it at its next start
+    std::string server;
+    std::string slot;
+    std::string password;
+} s_ap;
+enum class ApField : unsigned { Server, Slot, Password };
+bool s_text_entry = false;
+ApField s_text_field = ApField::Server;
+std::string s_text_buffer;
+unsigned s_text_key = 0u;    // the keyboard's cursor: NEBULA_* place in the grid or NEBULA_KEY_*
+unsigned s_text_layer = 0u;  // 0 lower case, 1 upper case (one letter), 2 symbols
+constexpr std::size_t kTextMax = 90u;
+const char* const kKeyboardLayers[3] = {NEBULA_KEYBOARD_LOWER, NEBULA_KEYBOARD_UPPER, NEBULA_KEYBOARD_SYMBOLS};
+static_assert(sizeof(NEBULA_KEYBOARD_LOWER) == NEBULA_KEYBOARD_COLUMNS * NEBULA_KEYBOARD_ROWS + 1 &&
+                  sizeof(NEBULA_KEYBOARD_UPPER) == NEBULA_KEYBOARD_COLUMNS * NEBULA_KEYBOARD_ROWS + 1 &&
+                  sizeof(NEBULA_KEYBOARD_SYMBOLS) == NEBULA_KEYBOARD_COLUMNS * NEBULA_KEYBOARD_ROWS + 1,
+              "each keyboard layer is a grid of NEBULA_KEYBOARD_ROWS rows of NEBULA_KEYBOARD_COLUMNS keys");
+
+void ap_load_once() {
+    if (s_ap.loaded) return;
+    s_ap.loaded = true;
+    if (s_ap_hooks.load != nullptr) {
+        (void)s_ap_hooks.load(s_ap.server, s_ap.slot, s_ap.password);
+    }
+}
+
+std::string& ap_field(ApField field) {
+    return field == ApField::Server ? s_ap.server : field == ApField::Slot ? s_ap.slot : s_ap.password;
+}
+
+const char* ap_field_name(ApField field) {
+    return field == ApField::Server ? "SERVER" : field == ApField::Slot ? "SLOT" : "PASSWORD";
+}
+
+void text_entry_reset() {
+    s_text_entry = false;
+}
+
+void begin_text_entry(ApField field) {
+    ap_load_once();
+    s_text_entry = true;
+    s_text_field = field;
+    s_text_buffer = ap_field(field);
+    s_text_key = 0u;
+    s_text_layer = 0u;
+}
+
+void end_text_entry(bool keep) {
+    if (!s_text_entry) return;
+    s_text_entry = false;
+    if (!keep) return;
+    // The file trims its values: so does the text.
+    std::size_t begin = 0u;
+    std::size_t end = s_text_buffer.size();
+    while (begin < end && s_text_buffer[begin] == ' ') ++begin;
+    while (end > begin && s_text_buffer[end - 1u] == ' ') --end;
+    const std::string text = s_text_buffer.substr(begin, end - begin);
+    if (text != ap_field(s_text_field)) {
+        ap_field(s_text_field) = text;
+        s_ap.dirty = true;
+        s_ap.saved = false;
+    }
+}
+
+void text_append_utf8(char32_t character) {
+    if (character < 0x20u || character == 0x7Fu || (character >= 0x80u && character < 0xA0u) ||
+        (character >= 0xD800u && character < 0xE000u) || character > 0x10FFFFu) {
+        return;
+    }
+    char encoded[4];
+    std::size_t length = 0u;
+    if (character < 0x80u) {
+        encoded[length++] = static_cast<char>(character);
+    } else if (character < 0x800u) {
+        encoded[length++] = static_cast<char>(0xC0u | (character >> 6u));
+        encoded[length++] = static_cast<char>(0x80u | (character & 0x3Fu));
+    } else if (character < 0x10000u) {
+        encoded[length++] = static_cast<char>(0xE0u | (character >> 12u));
+        encoded[length++] = static_cast<char>(0x80u | ((character >> 6u) & 0x3Fu));
+        encoded[length++] = static_cast<char>(0x80u | (character & 0x3Fu));
+    } else {
+        return;  // beyond the 16-bit text the game draws
+    }
+    if (s_text_buffer.size() + length > kTextMax) return;
+    s_text_buffer.append(encoded, length);
+}
+
+void text_backspace() {
+    while (!s_text_buffer.empty()) {
+        const bool continuation = (static_cast<unsigned char>(s_text_buffer.back()) & 0xC0u) == 0x80u;
+        s_text_buffer.pop_back();
+        if (!continuation) break;
+    }
+}
+
+// The key the cursor is on, pressed: a character, or one of the keys below the grid.
+void text_press_key(unsigned key) {
+    if (key < static_cast<unsigned>(NEBULA_KEYBOARD_COLUMNS * NEBULA_KEYBOARD_ROWS)) {
+        text_append_utf8(static_cast<char32_t>(static_cast<unsigned char>(kKeyboardLayers[s_text_layer % 3u][key])));
+        if (s_text_layer == 1u) s_text_layer = 0u;  // the capital was for one letter
+        return;
+    }
+    switch (key) {
+    case NEBULA_KEY_SHIFT: s_text_layer = s_text_layer == 1u ? 0u : 1u; break;
+    case NEBULA_KEY_SYMBOLS: s_text_layer = s_text_layer == 2u ? 0u : 2u; break;
+    case NEBULA_KEY_SPACE: text_append_utf8(U' '); break;
+    case NEBULA_KEY_BACKSPACE: text_backspace(); break;
+    case NEBULA_KEY_CANCEL: end_text_entry(false); break;
+    case NEBULA_KEY_DONE: end_text_entry(true); break;
+    default: break;
+    }
+}
+
+// The cursor one place left or right (dx) or up or down (dy), going round at the edges; the keys below the grid are
+// six, the grid's rows ten, so a move between them keeps the place's side.
+void text_move(int dx, int dy) {
+    const unsigned columns = static_cast<unsigned>(NEBULA_KEYBOARD_COLUMNS);
+    const unsigned rows = static_cast<unsigned>(NEBULA_KEYBOARD_ROWS);
+    const unsigned below = static_cast<unsigned>(NEBULA_KEY_COUNT - NEBULA_KEY_SHIFT);
+    const bool in_grid = s_text_key < columns * rows;
+    if (dx != 0) {
+        if (in_grid) {
+            const unsigned row = s_text_key / columns;
+            const unsigned column = (s_text_key % columns + columns + static_cast<unsigned>(dx)) % columns;
+            s_text_key = row * columns + column;
+        } else {
+            const unsigned at = (s_text_key - NEBULA_KEY_SHIFT + below + static_cast<unsigned>(dx)) % below;
+            s_text_key = static_cast<unsigned>(NEBULA_KEY_SHIFT) + at;
+        }
+    }
+    if (dy != 0) {
+        if (in_grid) {
+            const unsigned row = s_text_key / columns;
+            const unsigned column = s_text_key % columns;
+            if (dy > 0 && row + 1u < rows) {
+                s_text_key += columns;
+            } else if (dy < 0 && row > 0u) {
+                s_text_key -= columns;
+            } else {
+                s_text_key = static_cast<unsigned>(NEBULA_KEY_SHIFT) + column * below / columns;
+            }
+        } else {
+            const unsigned at = s_text_key - NEBULA_KEY_SHIFT;
+            const unsigned column = std::min(columns - 1u, at * columns / below);
+            s_text_key = dy > 0 ? column : (rows - 1u) * columns + column;
+        }
+    }
+}
+
+// Controller and keyboard keys while a text is asked for: the arrows move over the keys, A (the accept key) and Enter on
+// the keyboard... see below; every key is the keyboard's, so none reaches the page or the game.
+bool text_entry_key(WPARAM key, bool accept, bool was_down, bool from_pad) {
+    if (accept) {
+        if (!was_down) text_press_key(s_text_key);
+        return true;
+    }
+    switch (key) {
+    case VK_LEFT: text_move(-1, 0); break;
+    case VK_RIGHT: text_move(1, 0); break;
+    case VK_UP: text_move(0, -1); break;
+    case VK_DOWN: text_move(0, 1); break;
+    case VK_BACK: text_backspace(); break;  // also held down; X on a controller
+    case VK_ESCAPE:
+    case VK_F1:
+        if (!was_down) end_text_entry(false);
+        break;
+    case VK_RETURN:
+        if (!was_down) end_text_entry(true);  // Enter, and Y on a controller: done
+        break;
+    case VK_PRIOR:
+    case VK_NEXT:
+        if (!was_down) s_text_layer = s_text_layer == 0u ? 1u : s_text_layer == 1u ? 2u : 0u;  // LB and RB
+        break;
+    case VK_TAB:
+    case VK_SPACE:
+        break;  // a space is typed by WM_CHAR
+    default:
+        break;
+    }
+    (void)from_pad;
+    return true;
+}
+
+// The whole of the clipboard's text, as UTF-8 ("" when it holds none).
+std::string clipboard_text() {
+    std::string out;
+    if (!OpenClipboard(nullptr)) return out;
+    if (HANDLE data = GetClipboardData(CF_UNICODETEXT)) {
+        if (const wchar_t* wide = static_cast<const wchar_t*>(GlobalLock(data))) {
+            const int bytes = WideCharToMultiByte(CP_UTF8, 0, wide, -1, nullptr, 0, nullptr, nullptr);
+            if (bytes > 1) {
+                out.assign(static_cast<std::size_t>(bytes), '\0');
+                WideCharToMultiByte(CP_UTF8, 0, wide, -1, out.data(), bytes, nullptr, nullptr);
+                out.resize(static_cast<std::size_t>(bytes) - 1u);
+            }
+            GlobalUnlock(data);
+        }
+    }
+    CloseClipboard();
+    return out;
+}
+
+// What the field shows: the password as stars.
+std::string ap_shown(ApField field) {
+    const std::string& text = ap_field(field);
+    if (text.empty()) return "(EMPTY)";
+    if (field != ApField::Password) return text;
+    std::size_t letters = 0u;
+    for (const char c : text) {
+        if ((static_cast<unsigned char>(c) & 0xC0u) != 0x80u) ++letters;
+    }
+    return std::string(std::min<std::size_t>(letters, 24u), '*');
+}
+
 // Closing: at once, or with changes not applied, after asking (apply them, discard them, or stay).
 void request_native_settings_close() {
     const std::lock_guard<std::recursive_mutex> lock(s_native_settings_mutex);
@@ -1737,6 +1962,28 @@ bool handle_native_settings_key(WPARAM key, bool was_down, bool from_pad = false
             close_joycon_pairing();
         }
         return true;
+    }
+    if (s_text_entry && s_native_settings_visible.load(std::memory_order_relaxed)) {
+        if (key == 'V' && !from_pad && (GetKeyState(VK_CONTROL) & 0x8000) != 0) {
+            if (!was_down) {
+                const std::string pasted = clipboard_text();
+                for (std::size_t at = 0u; at < pasted.size();) {
+                    // One character at a time, so that a long text is cut between two of them.
+                    char32_t character = static_cast<unsigned char>(pasted[at]);
+                    std::size_t length = 1u;
+                    if (character >= 0xF0u) { length = 4u; character &= 0x07u; }
+                    else if (character >= 0xE0u) { length = 3u; character &= 0x0Fu; }
+                    else if (character >= 0xC0u) { length = 2u; character &= 0x1Fu; }
+                    for (std::size_t i = 1u; i < length && at + i < pasted.size(); ++i) {
+                        character = (character << 6u) | (static_cast<unsigned char>(pasted[at + i]) & 0x3Fu);
+                    }
+                    text_append_utf8(character);
+                    at += length;
+                }
+            }
+            return true;
+        }
+        return text_entry_key(key, accept, was_down, from_pad);
     }
     if (s_settings_leave_asking && s_native_settings_visible.load(std::memory_order_relaxed)) {
         // Changes not applied: Enter, Space or Y applies them and closes, Backspace or X discards them and closes,
@@ -2742,6 +2989,51 @@ std::vector<SettingsRow> graphics_page(const RenderConfig& render) {
     return rows;
 }
 
+// ARCHIPELAGO: the connection archipelago.ini holds, edited here. A row's change (Left, Right, A, a click on its arrows)
+// asks for its text; SAVE writes the file.
+std::vector<SettingsRow> archipelago_page() {
+    ap_load_once();
+    std::vector<SettingsRow> rows;
+    rows.push_back({"CONNECTION", {}, nullptr, {}, true});
+    const auto field_row = [](const char* label, ApField field, const char* help) {
+        return SettingsRow{label, ap_shown(field), [field](RenderConfig&, int) { begin_text_entry(field); }, help};
+    };
+    rows.push_back(field_row("SERVER", ApField::Server, "THE MULTIWORLD'S ADDRESS, LIKE ARCHIPELAGO.GG:38281. PRESS A, ENTER OR RIGHT TO TYPE IT"));
+    rows.push_back(field_row("SLOT", ApField::Slot, "YOUR SLOT'S NAME IN THE MULTIWORLD (THE NAME IN YOUR YAML)"));
+    rows.push_back(field_row("PASSWORD", ApField::Password, "THE ROOM'S PASSWORD, OR NOTHING WHEN IT HAS NONE"));
+    rows.push_back(button_row("SAVE", {"SAVE"},
+                              [](RenderConfig&, unsigned) {
+                                  if (s_ap_hooks.save == nullptr) {
+                                      show_controls_message("NOT AVAILABLE");
+                                      return;
+                                  }
+                                  std::string error;
+                                  if (s_ap_hooks.save(s_ap.server, s_ap.slot, s_ap.password, error)) {
+                                      s_ap.dirty = false;
+                                      s_ap.saved = true;
+                                      show_controls_message("SAVED. RESTART THE GAME TO CONNECT");
+                                  } else {
+                                      show_controls_message("COULD NOT SAVE THE CONNECTION");
+                                  }
+                              },
+                              "WRITES ARCHIPELAGO.INI. THE GAME CONNECTS WITH IT AT ITS NEXT START"));
+    std::string state = "OFF";
+    if (s_ap.dirty) {
+        state = "NOT SAVED";
+    } else if (s_ap.saved) {
+        state = "SAVED: RESTART TO CONNECT";
+    } else if (s_ap_hooks.state != nullptr) {
+        switch (s_ap_hooks.state()) {
+        case 1u: state = "CONNECTING"; break;
+        case 2u: state = "CONNECTED"; break;
+        case 3u: state = "REFUSED BY THE SERVER"; break;
+        default: break;
+        }
+    }
+    rows.push_back({"STATUS", state, nullptr, "WHETHER THE GAME IS CONNECTED TO THE MULTIWORLD"});
+    return rows;
+}
+
 // GAME > GALAXY SELECT: the galaxy and star the TRAVEL row goes to.
 std::size_t s_galaxy_select_stage = 0u;
 std::uint32_t s_galaxy_select_star = 1u;
@@ -3641,6 +3933,7 @@ std::vector<SettingsRow> settings_page(unsigned tab, const RenderConfig& draft, 
     case 5: return mods_page(draft);
     case 6: return system_page(caps);
     case 7: return advanced_page();
+    case 8: return archipelago_page();
     default: return {};
     }
 }
@@ -4436,6 +4729,11 @@ LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                                     std::memory_order_release);
         seed_pointer_from_client(hwnd, false);
     }
+    if (msg == WM_CHAR && native_settings_text_active()) {
+        // A letter typed while the settings menu asks for a text. (Ctrl+V and the other control characters are not text.)
+        (void)native_settings_text_char(static_cast<char32_t>(wp));
+        return 0;
+    }
     if (msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN) {
         // Alt+Space belongs to the native system menu, not the game's A key.
         if (msg == WM_SYSKEYDOWN && wp == VK_SPACE) {
@@ -5123,6 +5421,11 @@ NativeSettingsView build_native_settings_view() {
         if (s_joycon_paired_ms != 0u && now_ms - s_joycon_paired_ms >= kJoyConPairedShowMs) {
             close_joycon_pairing();
         }
+    } else if (s_text_entry) {
+        view.status = NativeSettingsStatus::TextEntry;
+        view.status_number = static_cast<int>(s_text_key | (s_text_layer << NEBULA_TEXT_LAYER_SHIFT) |
+                                              (s_text_field == ApField::Password ? NEBULA_TEXT_MASKED : 0u));
+        view.status_text = std::string(ap_field_name(s_text_field)) + "\n" + s_text_buffer;
     } else if (s_settings_leave_asking) {
         view.status = NativeSettingsStatus::Leave;
         view.status_number = static_cast<int>(pending_settings_changes());
@@ -5719,6 +6022,33 @@ bool native_settings_handle_window_key(
         was_down);
 }
 
+void native_settings_set_archipelago_hooks(const NativeArchipelagoHooks& hooks) {
+    const std::lock_guard<std::recursive_mutex> lock(s_native_settings_mutex);
+    s_ap_hooks = hooks;
+    s_ap.loaded = false;
+}
+
+bool native_settings_text_active() {
+    const std::lock_guard<std::recursive_mutex> lock(s_native_settings_mutex);
+    return s_text_entry && s_native_settings_visible.load(std::memory_order_relaxed);
+}
+
+bool native_settings_text_char(char32_t character) {
+    const std::lock_guard<std::recursive_mutex> lock(s_native_settings_mutex);
+    if (!s_text_entry || !s_native_settings_visible.load(std::memory_order_relaxed)) return false;
+    text_append_utf8(character);
+    return true;
+}
+
+bool native_settings_text_paste(const std::string& text) {
+    const std::lock_guard<std::recursive_mutex> lock(s_native_settings_mutex);
+    if (!s_text_entry || !s_native_settings_visible.load(std::memory_order_relaxed)) return false;
+    for (const char c : text) {
+        if (static_cast<unsigned char>(c) < 0x80u) text_append_utf8(static_cast<char32_t>(c));
+    }
+    return true;
+}
+
 NativeSettingsView native_settings_view() {
     s_settings_drawn_by_game.store(true, std::memory_order_release);
     return host_window::build_native_settings_view();
@@ -5742,6 +6072,14 @@ void native_settings_input(NativeSettingsInput input, int arg) {
         return;
     default:
         break;
+    }
+    if (s_text_entry && visible) {
+        // The pointer on the on-screen keyboard: a key, or a place in the grid.
+        if (input == NativeSettingsInput::Press && arg >= 0 && arg < NEBULA_KEY_COUNT) {
+            s_text_key = static_cast<unsigned>(arg);
+            text_press_key(static_cast<unsigned>(arg));
+        }
+        return;
     }
     // The page and its rows wait while a question is up (keep the display? leave without applying?).
     if (!visible || s_settings_leave_asking || s_joycon_pairing || settings_display_confirming() ||
@@ -5869,6 +6207,8 @@ void native_settings_post_key(std::uintptr_t virtual_key) noexcept {
 }
 
 void native_settings_reset_overlay_state_for_tests() noexcept {
+    s_text_entry = false;
+    s_ap = {};
     s_display_confirm_deadline_ms = 0u;
     s_settings_leave_asking = false;
     s_settings_drawn_by_game.store(false, std::memory_order_relaxed);

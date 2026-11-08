@@ -124,7 +124,7 @@ int main() {
     passed &= expect(!snapshot.visible, "overlay starts hidden");
     passed &= expect(!snapshot.dirty, "overlay starts clean");
     passed &= expect(!snapshot.save_error, "overlay starts without a save error");
-    passed &= expect(snapshot.tab_count == 8u, "display/graphics/controls/audio/game/mods/system/advanced tabs exist");
+    passed &= expect(snapshot.tab_count == 9u, "display/graphics/controls/audio/game/mods/system/advanced/archipelago tabs exist");
     passed &= expect(snapshot.tab == 0u && snapshot.row == 1u, "the first setting row (below its heading) is selected");
     passed &= expect(
         snapshot.row_count == 9u,
@@ -713,7 +713,7 @@ int main() {
         // The view: every page, rows split into label and value, headings, and the pointer's choices.
         passed &= expect(key(VK_F1), "the menu opens for the view checks");
         galaxy::gx::NativeSettingsView view = galaxy::gx::native_settings_view();
-        passed &= expect(view.open && view.pages.size() == 8u && view.pages[0] == "DISPLAY" && view.controls_page == 2u,
+        passed &= expect(view.open && view.pages.size() == 9u && view.pages[0] == "DISPLAY" && view.controls_page == 2u,
                          "the view lists the seven pages and the controls page");
         passed &= expect(!view.rows.empty() && view.rows[0].heading && !view.rows[view.selected].heading,
                          "a page starts with a heading; the selection is never one");
@@ -941,6 +941,7 @@ int main() {
         unsigned sliders = 0u;
         const std::size_t pages = galaxy::gx::native_settings_view().pages.size();
         for (unsigned page = 0; page < pages; ++page) {
+            if (page == 8u) continue;  // ARCHIPELAGO: its rows ask for a text (checked below)
             galaxy::gx::native_settings_input(NativeSettingsInput::SelectPage, static_cast<int>(page));
             for (unsigned i = 0; i < galaxy::gx::native_settings_view().rows.size(); ++i) {
                 const galaxy::gx::NativeSettingsViewRow row = galaxy::gx::native_settings_view().rows[i];
@@ -969,6 +970,51 @@ int main() {
                 }
             }
             galaxy::gx::native_settings_input(NativeSettingsInput::Revert, 0);
+        }
+        // The ARCHIPELAGO page: a row asks for a text, typed and picked on the on-screen keyboard.
+        {
+            static std::string s_saved_server;
+            galaxy::gx::NativeArchipelagoHooks hooks;
+            hooks.load = [](std::string& server, std::string& slot, std::string& password) {
+                server = "old:1";
+                slot = "S";
+                password.clear();
+                return true;
+            };
+            hooks.save = [](const std::string& server, const std::string&, const std::string&, std::string&) {
+                s_saved_server = server;
+                return true;
+            };
+            galaxy::gx::native_settings_set_archipelago_hooks(hooks);
+            galaxy::gx::native_settings_input(NativeSettingsInput::SelectPage, 8);
+            const galaxy::gx::NativeSettingsView page = galaxy::gx::native_settings_view();
+            passed &= expect(page.pages.size() == 9u && page.pages[8] == "ARCHIPELAGO" && page.rows.size() >= 5u &&
+                                 page.rows[1].label == "SERVER" && page.rows[1].value == "old:1",
+                             "the ARCHIPELAGO page shows the connection the file has");
+            galaxy::gx::native_settings_input(NativeSettingsInput::SelectRow, 1);
+            galaxy::gx::native_settings_input(NativeSettingsInput::Change, 1);
+            passed &= expect(galaxy::gx::native_settings_text_active() &&
+                                 galaxy::gx::native_settings_view().status == galaxy::gx::NativeSettingsStatus::TextEntry &&
+                                 galaxy::gx::native_settings_view().status_text == "SERVER\nold:1",
+                             "a row asks for its text, which starts as it is");
+            passed &= expect(galaxy::gx::native_settings_text_char(U'x') &&
+                                 galaxy::gx::native_settings_view().status_text == "SERVER\nold:1x",
+                             "a typed letter is added");
+            galaxy::gx::native_settings_input(NativeSettingsInput::Press, 43);  // NEBULA_KEY_BACKSPACE
+            galaxy::gx::native_settings_input(NativeSettingsInput::Press, 11);  // the grid's 'w' (lower case)
+            passed &= expect(galaxy::gx::native_settings_view().status_text == "SERVER\nold:1w",
+                             "the on-screen keyboard's keys type and its backspace erases");
+            galaxy::gx::native_settings_input(NativeSettingsInput::Press, 45);  // NEBULA_KEY_DONE
+            passed &= expect(!galaxy::gx::native_settings_text_active() && galaxy::gx::native_settings_view().rows[1].value == "old:1w",
+                             "DONE keeps the text");
+            galaxy::gx::native_settings_input(NativeSettingsInput::Change, 1);
+            (void)galaxy::gx::native_settings_text_char(U'z');
+            galaxy::gx::native_settings_input(NativeSettingsInput::Press, 44);  // NEBULA_KEY_CANCEL
+            passed &= expect(galaxy::gx::native_settings_view().rows[1].value == "old:1w", "CANCEL leaves the text as it was");
+            galaxy::gx::native_settings_input(NativeSettingsInput::SelectRow, 4);
+            galaxy::gx::native_settings_input(NativeSettingsInput::Press, 0);
+            passed &= expect(s_saved_server == "old:1w", "SAVE hands the connection to be written");
+            galaxy::gx::native_settings_set_archipelago_hooks({});
         }
         std::cerr << "pointer checks: " << lists << " lists, " << sliders << " sliders\n";
         passed &= expect(lists >= 20u && sliders >= 8u, "every page's lists and sliders were checked");

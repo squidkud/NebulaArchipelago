@@ -198,7 +198,7 @@ typedef struct NebulaFsRequest {
    The host keeps the settings, their pages, the draft and its apply, and takes the keyboard and controllers while the
    menu is open; the game shows it (and takes the pointer, settings_input). Texts are the host's own, in English
    (UTF-8): the game names each in the played language (NebulaSettingsMenu). */
-#define NEBULA_SETTINGS_PAGES 8
+#define NEBULA_SETTINGS_PAGES 9
 #define NEBULA_SETTINGS_ROWS 96
 
 enum {
@@ -279,7 +279,32 @@ enum {
     NEBULA_SETTINGS_STATUS_LEAVE,            /* leaving with changes not applied: apply them or discard them? */
     NEBULA_SETTINGS_STATUS_MODS_RESTART_ASK, /* mod changes applied: restart now? yes: APPLY, later: CLOSE */
     NEBULA_SETTINGS_STATUS_JOYCON,           /* Pair Joy-Con: `status_number` NEBULA_JOYCON_* bits; CLOSE leaves */
+    NEBULA_SETTINGS_STATUS_TEXT,             /* a text is typed (the Archipelago page): the on-screen keyboard, see NEBULA_TEXT_* */
 };
+/* The text entry's on-screen keyboard (NEBULA_SETTINGS_STATUS_TEXT). `status_text` is the field's name, a line break and
+   the text so far; `status_number` is the key the cursor is on (NEBULA_KEY_*, or a place in the grid), the layer
+   (NEBULA_KEYBOARD_LAYERS: lower case, upper case, symbols) shifted by NEBULA_TEXT_LAYER_SHIFT, and NEBULA_TEXT_MASKED
+   when the text is a password. A key pressed with the pointer is NEBULA_SETTINGS_PRESS with the key as `arg`; the keyboard
+   and the controllers are the host's. The grid is NEBULA_KEYBOARD_ROWS rows of NEBULA_KEYBOARD_COLUMNS keys, a place
+   being row * NEBULA_KEYBOARD_COLUMNS + column, in the characters of the layer's string; below it NEBULA_KEY_SHIFT to
+   NEBULA_KEY_DONE in a row. */
+enum {
+    NEBULA_KEYBOARD_COLUMNS = 10,
+    NEBULA_KEYBOARD_ROWS = 4,
+    NEBULA_KEYBOARD_LAYERS = 3,
+    NEBULA_KEY_SHIFT = 40, /* upper case for one letter */
+    NEBULA_KEY_SYMBOLS,    /* the symbols layer, and back */
+    NEBULA_KEY_SPACE,
+    NEBULA_KEY_BACKSPACE,
+    NEBULA_KEY_CANCEL,
+    NEBULA_KEY_DONE,
+    NEBULA_KEY_COUNT,
+    NEBULA_TEXT_LAYER_SHIFT = 8,
+    NEBULA_TEXT_MASKED = 1 << 12,
+};
+#define NEBULA_KEYBOARD_LOWER "1234567890" "qwertyuiop" "asdfghjkl_" "zxcvbnm.:-"
+#define NEBULA_KEYBOARD_UPPER "1234567890" "QWERTYUIOP" "ASDFGHJKL_" "ZXCVBNM.:-"
+#define NEBULA_KEYBOARD_SYMBOLS "!@#$%^&*()" "~`+=[]{}|\\" ";'\",<>/?_-" "0123456789"
 /* The Pair Joy-Con screen's halves (NEBULA_SETTINGS_STATUS_JOYCON). */
 enum {
     NEBULA_JOYCON_LEFT = 1,       /* a left half is connected */

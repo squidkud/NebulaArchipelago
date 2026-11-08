@@ -119,6 +119,22 @@ int main() {
         expect(!ap::parse_config("server=a:1\n").enabled, "no slot leaves it off");
         expect(!ap::parse_config("").enabled, "an empty file leaves it off");
         expect(ap::parse_config("server=a:1\nslot=b\nenabled=yes\n").enabled, "enabled=yes");
+        {
+            const std::string kept = "# my notes\nname = Old\nserver=old:1\noption.star_colors=1\npassword=x\nenabled=0\nserver=dup:2\n";
+            const std::string out = ap::rewrite_connection(kept, "archipelago.gg:38281", "Mario", "s\r\ne");
+            const ap::Config c = ap::parse_config(out);
+            expect(c.server == "archipelago.gg:38281" && c.slot == "Mario" && c.password == "se" && c.enabled,
+                   "rewrite_connection sets the three lines and switches the client on");
+            expect(out.find("# my notes\n") == 0 && out.find("option.star_colors=1\n") != std::string::npos,
+                   "rewrite_connection keeps the other lines");
+            expect(out.find("old:1") == std::string::npos && out.find("dup:2") == std::string::npos && out.find("Old") == std::string::npos,
+                   "rewrite_connection drops the old and repeated lines");
+            expect(ap::rewrite_connection(out, "archipelago.gg:38281", "Mario", "se") == ap::rewrite_connection("\xEF\xBB\xBF" + out, "archipelago.gg:38281", "Mario", "se"),
+                   "rewrite_connection reads past a byte-order mark and is stable");
+            const ap::Config fresh = ap::parse_config(ap::rewrite_connection("", "h:1", "S", ""));
+            expect(fresh.enabled && fresh.server == "h:1" && fresh.slot == "S" && fresh.password.empty(),
+                   "rewrite_connection makes a file from nothing");
+        }
     }
 
     ap::Config config;

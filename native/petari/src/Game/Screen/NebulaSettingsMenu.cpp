@@ -81,6 +81,13 @@ namespace {
     const f32 cJoyConLetterGap = 6.0f;          // the letters' feet to the shoulders' tops, menu units
     const u32 cJoyConPaintAhead = 1500;         // painting the pictures a frame, us: on the Controls page
     const u32 cJoyConPaintShown = 6000;         // and on the Pair Joy-Con screen
+    // The on-screen keyboard (NEBULA_SETTINGS_STATUS_TEXT): the field over the grid of keys, the keys below it.
+    const f32 cKbWidth = 560.0f;
+    const f32 cKbGap = 5.0f;
+    const f32 cKbFieldHeight = 34.0f;
+    const f32 cKbKeySize = 14.0f;
+    const f32 cKbSpace = 3.0f;  // the Space key's width in the function row's units (the others: 1)
+    const s32 cKbFieldChars = 200;
     const f32 cHomeWidth = 340.0f;  // the HOME Menu's window: its title over its buttons, one above the other
     const f32 cHomeButtonWidth = 250.0f;
     const f32 cHomeGap = 12.0f;
@@ -160,6 +167,11 @@ namespace {
          {"SettingsBack", nullptr, nullptr},
          {NEBULA_SETTINGS_CLOSE, 0, 0},
          {KeyBack, 0, 0}},
+        // The on-screen keyboard: its keys are the pointer's, its title the field's name (fillKeyboard).
+        {NEBULA_SETTINGS_STATUS_TEXT, "SettingsKeyboardHelpKeys", "SettingsKeyboardHelpKeys", 0,
+         {nullptr, nullptr, nullptr},
+         {0, 0, 0},
+         {0, 0, 0}},
     };
     const s32 cQuestionNum = sizeof(cQuestions) / sizeof(cQuestions[0]);
 
@@ -715,6 +727,9 @@ private:
     void fitStatus(f32 room);
     void place(const NebulaSettingsView& rView);
     void placeHome();
+    void fillKeyboard(const NebulaSettingsView& rView);
+    void placeKeyboard(const NebulaSettingsView& rView);
+    void readKeyboardPointer(f32 x, f32 y);
 
     NebulaPaneKit mModalKit;   // SysInfoWindow: the quit question's dimmer, window and shadow
     NebulaPaneKit mTextKit;    // InformationWindow: the game's message font
@@ -780,6 +795,15 @@ private:
     Button mChoices[ChoiceNum];
     s32 mChoiceCount;
     Pane* mJoyCon;  // the Pair Joy-Con picture
+    Pane* mKb;      // the on-screen keyboard: the field, the keys, its help
+    Window* mKbField;
+    TextBox* mKbFieldText;
+    TextBox* mKbHelp;
+    Chip mKbKeys[NEBULA_KEY_COUNT];  // the grid's 40, then Shift, Symbols, Space, Backspace, Cancel, Done
+    s32 mKbCursor;                   // the key the host's cursor is on
+    s32 mKbLayer;                    // 0 lower case, 1 upper case, 2 symbols
+    s32 mKbHover;                    // the key under the pointer; -1 none
+    f32 mKbHelpWidth;
     JoyConHalf mHalves[2];
     bool mJoyConPaired;  // the pair's chime played
     s32 mJoyConBits;     // the Pair Joy-Con screen's status_number this frame (NEBULA_JOYCON_*)
@@ -847,7 +871,8 @@ NebulaSettingsScreen::NebulaSettingsScreen()
     : LayoutActor("NebulaSettingsMenu", true), mBuilt(false), mRoot(nullptr), mDim(nullptr), mMenu(nullptr), mPage(nullptr), mShadow(nullptr),
       mPanel(nullptr), mTitle(nullptr), mList(nullptr), mHighlight(nullptr), mTrack(nullptr), mThumb(nullptr), mStatus(nullptr),
       mStatusWidth(0.0f), mStatusRoom(-1.0f), mQuestion(nullptr), mQuestionDim(nullptr), mQuestionShadow(nullptr), mQuestionPanel(nullptr),
-      mQuestionText(nullptr), mChoiceCount(0), mJoyCon(nullptr), mJoyConPaired(false), mJoyConBits(0), mQuestionInk(0.0f), mOpen(0.0f), mClosing(false), mQuestionShown(-1), mHome(false), mHomeView(-1),
+      mQuestionText(nullptr), mChoiceCount(0), mJoyCon(nullptr), mKb(nullptr), mKbField(nullptr), mKbFieldText(nullptr), mKbHelp(nullptr),
+      mKbCursor(0), mKbLayer(0), mKbHover(-1), mKbHelpWidth(0.0f), mJoyConPaired(false), mJoyConBits(0), mQuestionInk(0.0f), mOpen(0.0f), mClosing(false), mQuestionShown(-1), mHome(false), mHomeView(-1),
       mFocusButton(nullptr), mFrame(0), mScroll(0.0f),
       mScrollTarget(0.0f), mHighlightY(0.0f), mPointerMode(false), mPointerX(0.0f), mPointerY(0.0f), mPointerRow(-1), mHoverRow(-1),
       mHoverTab(-1), mPressing(false), mPressRow(-1), mPressY(0.0f), mPressScroll(0.0f), mScrollDrag(false), mDraggedAt(-1), mHoverArrow(0),
@@ -888,6 +913,7 @@ NebulaSettingsScreen::NebulaSettingsScreen()
     memset(mHints, 0, sizeof(mHints));
     memset(mFooter, 0, sizeof(mFooter));
     memset(mChoices, 0, sizeof(mChoices));
+    memset(mKbKeys, 0, sizeof(mKbKeys));
     memset(&mShown, 0, sizeof(mShown));
     mKits.mText = &mTextKit;
     mKits.mWindow = &mWindowKit;
@@ -1112,6 +1138,27 @@ bool NebulaSettingsScreen::build() {
         mHalves[half].mPresses = -1;
     }
     mJoyCon->SetVisible(false);
+    mKb = makeGroup(mQuestion, "NsKb");
+    if (mKb == nullptr) {
+        return false;
+    }
+    mKbField = makeWindow(mKits, mKb, "NsKbField");
+    mKbFieldText = makeText(mKits, mKb, "NsKbText", cKbFieldChars + 8);
+    mKbHelp = makeText(mKits, mKb, "NsKbHelp", 256);
+    if (mKbField == nullptr || mKbFieldText == nullptr || mKbHelp == nullptr) {
+        return false;
+    }
+    paint(mKbField, cFrameFill, cFrameRing);
+    setTextStyle(mKbFieldText, cTextSize + 1.0f, cText, cText, 3);
+    setTextStyle(mKbHelp, cFooterSize, cSubText, cSubText, 4);
+    for (s32 i = 0; i < NEBULA_KEY_COUNT; i++) {
+        char name[16];
+        snprintf(name, sizeof(name), "NsKbKey%d", static_cast< int >(i));
+        if (!makeChip(mKits, mKb, &mKbKeys[i], name, false, cKbKeySize, cButtonText)) {
+            return false;
+        }
+    }
+    mKb->SetVisible(false);
     mQuestion->SetVisible(false);
     setInfluencedAlphaRecursive(mRoot, 0);
     return true;
@@ -1362,6 +1409,10 @@ void NebulaSettingsScreen::fillTexts(const NebulaSettingsView& rView, const Nebu
         return;
     }
     const Question& rQuestion = cQuestions[question];
+    if (rView.status == NEBULA_SETTINGS_STATUS_TEXT) {
+        fillKeyboard(rView);
+        return;
+    }
     const char* pText = rView.status_number == 1 ? rQuestion.mTextOne : rQuestion.mText;
     if (rView.status == NEBULA_SETTINGS_STATUS_JOYCON) {
         // Paired, both halves here (hold L and R), or one missing (connect them).
@@ -1416,6 +1467,8 @@ void NebulaSettingsScreen::setQuestion(s32 question) {
     }
     mQuestion->SetVisible(question >= 0);
     mJoyCon->SetVisible(question >= 0 && cQuestions[question].mStatus == NEBULA_SETTINGS_STATUS_JOYCON);
+    mKb->SetVisible(question >= 0 && cQuestions[question].mStatus == NEBULA_SETTINGS_STATUS_TEXT);
+    mKbHover = -1;
     mJoyConPaired = false;
     for (s32 half = 0; half < 2; half++) {
         mHalves[half].mPresses = -1;
@@ -1464,6 +1517,153 @@ void NebulaSettingsScreen::fillHome(s32 homeView) {
     mFocusButton = selected < mChoiceCount ? &mChoices[selected] : nullptr;
 }
 
+// The on-screen keyboard as the host has it: the field's name for the title, what is typed in the field (a password as
+// stars, its end in view when it is long), the keys of the layer, and the help for what the player last used.
+void NebulaSettingsScreen::fillKeyboard(const NebulaSettingsView& rView) {
+    const char* pBreak = strchr(rView.status_text, '\n');
+    const s32 nameLength = pBreak != nullptr ? static_cast< s32 >(pBreak - rView.status_text) : static_cast< s32 >(strlen(rView.status_text));
+    char name[64];
+    snprintf(name, sizeof(name), "%.*s", static_cast< int >(nameLength), rView.status_text);
+    wchar_t title[96];
+    translate(title, 96, name, true);
+    setTextSize(mQuestionText, cTextSize + 1.0f);
+    setText(mQuestionText, title);
+    f32 width = 0.0f;
+    f32 height = 0.0f;
+    measure(mQuestionText, 4000.0f, &width, &height);
+    mQuestionInk = height - (cCapTop + 1.0f - cBaseline) * (cTextSize + 1.0f);
+
+    const s32 cursor = static_cast< s32 >(rView.status_number & 0xFF);
+    if (cursor != mKbCursor) {
+        mPointerMode = false;  // the keys or a controller moved it: the pointer waits until it moves
+    }
+    mKbCursor = cursor < NEBULA_KEY_COUNT ? cursor : 0;
+    mKbLayer = static_cast< s32 >(rView.status_number >> NEBULA_TEXT_LAYER_SHIFT & 0xF) % NEBULA_KEYBOARD_LAYERS;
+    const bool masked = (rView.status_number & NEBULA_TEXT_MASKED) != 0;
+
+    // The field: the text and a bar after it, the start cut off (with dots) when it does not fit.
+    wchar_t text[cKbFieldChars];
+    fromUtf8(text, cKbFieldChars - 2, pBreak != nullptr ? pBreak + 1 : "");
+    if (masked) {
+        for (wchar_t* p = text; *p != 0; p++) {
+            *p = L'*';
+        }
+    }
+    s32 length = 0;
+    while (text[length] != 0) {
+        length++;
+    }
+    text[length] = L'|';
+    text[length + 1] = 0;
+    const f32 room = (mPanelWidth - 40.0f < cKbWidth ? mPanelWidth - 40.0f : cKbWidth) - cQuestionMargin * 2.0f - 28.0f;
+    setText(mKbFieldText, text);
+    measure(mKbFieldText, 4000.0f, &width, &height);
+    s32 cut = 0;
+    while (width > room && cut < length) {
+        cut++;
+        wchar_t shown[cKbFieldChars];
+        s32 out = 0;
+        shown[out++] = L'.';
+        shown[out++] = L'.';
+        shown[out++] = L'.';
+        for (s32 i = cut; text[i] != 0 && out + 1 < cKbFieldChars; i++) {
+            shown[out++] = text[i];
+        }
+        shown[out] = 0;
+        setText(mKbFieldText, shown);
+        measure(mKbFieldText, 4000.0f, &width, &height);
+    }
+
+    // The keys.
+    static const char* const cLayers[NEBULA_KEYBOARD_LAYERS] = {NEBULA_KEYBOARD_LOWER, NEBULA_KEYBOARD_UPPER, NEBULA_KEYBOARD_SYMBOLS};
+    static const char* const cWords[NEBULA_KEY_COUNT - NEBULA_KEY_SHIFT] = {"SettingsKeyShift", "SettingsKeySymbols", "SettingsKeySpace",
+                                                                          "SettingsKeyDelete", "SettingsKeyCancel", "SettingsKeyDone"};
+    for (s32 i = 0; i < NEBULA_KEY_COUNT; i++) {
+        Chip& rKey = mKbKeys[i];
+        wchar_t label[64];
+        if (i < NEBULA_KEYBOARD_COLUMNS * NEBULA_KEYBOARD_ROWS) {
+            label[0] = static_cast< wchar_t >(cLayers[mKbLayer][i]);
+            label[1] = 0;
+        } else {
+            NebulaText::get(label, 64, cWords[i - NEBULA_KEY_SHIFT]);
+        }
+        setText(rKey.mText, label);
+        measure(rKey.mText, 4000.0f, &rKey.mText->mSize.width, &height);
+        const bool lit = (i == NEBULA_KEY_SHIFT && mKbLayer == 1) || (i == NEBULA_KEY_SYMBOLS && mKbLayer == 2);
+        setTextColor(rKey.mText, lit ? cAccent : cButtonText, lit ? cAccent : cButtonText);
+    }
+
+    // The help: the keyboard's keys, or the controller's.
+    wchar_t help[256];
+    NebulaText::get(help, 256, rView.input == NEBULA_SETTINGS_INPUT_KEYBOARD ? "SettingsKeyboardHelpKeys" : "SettingsKeyboardHelpPad");
+    setText(mKbHelp, help);
+    measure(mKbHelp, 4000.0f, &mKbHelpWidth, &height);
+}
+
+// The keyboard's keys under the pointer (the chips as placed): the one it is over, -1 for none.
+void NebulaSettingsScreen::readKeyboardPointer(f32 x, f32 y) {
+    mKbHover = -1;
+    for (s32 i = 0; i < NEBULA_KEY_COUNT; i++) {
+        const Chip& rKey = mKbKeys[i];
+        if (isOnButton(x, y, rKey.mX, rKey.mRoot->mTranslate.y, rKey.mWidth, rKey.mHeight, cKbGap)) {
+            mKbHover = i;
+        }
+    }
+}
+
+// The keyboard centred on the window: its title, the field, the grid of keys, the row under it (Shift, Symbols, Space,
+// Delete, Cancel, Done) and the help at the foot.
+void NebulaSettingsScreen::placeKeyboard(const NebulaSettingsView& rView) {
+    (void)rView;
+    mQuestionDim->mAlpha = 96;
+    const f32 panelWidth = mPanelWidth - 40.0f < cKbWidth ? mPanelWidth - 40.0f : cKbWidth;
+    const f32 inner = panelWidth - cQuestionMargin * 2.0f;
+    const f32 keyHeight = cButtonHeight;
+    const f32 titleHeight = cTextSize + 1.0f;
+    const f32 height = cQuestionMargin * 2.0f + titleHeight + 8.0f + cKbFieldHeight + 12.0f +
+                       (NEBULA_KEYBOARD_ROWS + 1) * keyHeight + NEBULA_KEYBOARD_ROWS * cKbGap + 12.0f + cFooterLine;
+    mQuestionPanel->mSize = nw4r::lyt::Size(panelWidth, height);
+    mQuestionShadow->mSize = nw4r::lyt::Size(panelWidth, height);
+    const f32 top = height * 0.5f - cQuestionMargin;
+    mQuestionText->mTranslate = nw4r::math::VEC3(0.0f, textCentre(top - titleHeight * 0.5f, cTextSize + 1.0f), 0.0f);
+
+    const f32 fieldY = top - titleHeight - 8.0f - cKbFieldHeight * 0.5f;
+    mKbField->mSize = nw4r::lyt::Size(inner, cKbFieldHeight);
+    mKbField->mTranslate = nw4r::math::VEC3(0.0f, fieldY, 0.0f);
+    mKbFieldText->mTranslate = nw4r::math::VEC3(-inner * 0.5f + 14.0f, textCentre(fieldY, cTextSize + 1.0f), 0.0f);
+
+    const f32 keyWidth = (inner - cKbGap * (NEBULA_KEYBOARD_COLUMNS - 1)) / NEBULA_KEYBOARD_COLUMNS;
+    const f32 firstRowY = fieldY - cKbFieldHeight * 0.5f - 12.0f - keyHeight * 0.5f;
+    for (s32 i = 0; i < NEBULA_KEYBOARD_COLUMNS * NEBULA_KEYBOARD_ROWS; i++) {
+        const s32 row = i / NEBULA_KEYBOARD_COLUMNS;
+        const s32 column = i % NEBULA_KEYBOARD_COLUMNS;
+        const f32 x = -inner * 0.5f + keyWidth * 0.5f + column * (keyWidth + cKbGap);
+        const f32 y = firstRowY - row * (keyHeight + cKbGap);
+        Chip& rKey = mKbKeys[i];
+        placeChip(rKey, x, y, keyWidth, keyHeight, (i == mKbCursor && !mPointerMode) || i == mKbHover);
+        rKey.mText->mScale = nw4r::math::VEC2(1.0f, 1.0f);
+        rKey.mText->mTranslate = nw4r::math::VEC3(0.0f, textCentre(0.0f, cKbKeySize), 0.0f);
+    }
+    // The row under the grid: Space three times as wide as the others.
+    const s32 below = NEBULA_KEY_COUNT - NEBULA_KEY_SHIFT;
+    const f32 unit = (inner - cKbGap * (below - 1)) / (below - 1 + cKbSpace);
+    const f32 rowY = firstRowY - NEBULA_KEYBOARD_ROWS * (keyHeight + cKbGap);
+    f32 x = -inner * 0.5f;
+    for (s32 i = NEBULA_KEY_SHIFT; i < NEBULA_KEY_COUNT; i++) {
+        const f32 width = i == NEBULA_KEY_SPACE ? unit * cKbSpace : unit;
+        Chip& rKey = mKbKeys[i];
+        placeChip(rKey, x + width * 0.5f, rowY, width, keyHeight, (i == mKbCursor && !mPointerMode) || i == mKbHover);
+        const f32 word = rKey.mText->mSize.width;
+        const f32 room = width - 20.0f;
+        rKey.mText->mScale = nw4r::math::VEC2(word > room && word > 0.0f ? clamp(room / word, cMinSqueeze, 1.0f) : 1.0f, 1.0f);
+        rKey.mText->mTranslate = nw4r::math::VEC3(0.0f, textCentre(0.0f, cKbKeySize), 0.0f);
+        x += width + cKbGap;
+    }
+    const f32 helpRoom = inner;
+    mKbHelp->mScale = nw4r::math::VEC2(mKbHelpWidth > helpRoom && mKbHelpWidth > 0.0f ? clamp(helpRoom / mKbHelpWidth, 0.5f, 1.0f) : 1.0f, 1.0f);
+    mKbHelp->mTranslate = nw4r::math::VEC3(0.0f, textCentre(-height * 0.5f + cQuestionMargin + cFooterLine * 0.5f - 4.0f, cFooterSize), 0.0f);
+}
+
 // The pointer, in the menu's units: over a page's button, a row (its buttons, its arrows, its slider), the footer's
 // buttons or the question's. Moving it picks the row under it; A chooses what it is over.
 void NebulaSettingsScreen::readPointer(const NebulaSettingsView& rView) {
@@ -1474,6 +1674,7 @@ void NebulaSettingsScreen::readPointer(const NebulaSettingsView& rView) {
     mHoverSlider = false;
     mHoverButton = nullptr;
     mHoverModButton = -1;
+    mKbHover = -1;
     // A binding that waits for an input takes the mouse's buttons itself, wherever the pointer is.
     if (!MR::isStarPointerInScreen(WPAD_CHAN0) || rView.status == NEBULA_SETTINGS_STATUS_CAPTURE_KEY ||
         rView.status == NEBULA_SETTINGS_STATUS_CAPTURE_PAD) {
@@ -1500,7 +1701,9 @@ void NebulaSettingsScreen::readPointer(const NebulaSettingsView& rView) {
         return;
     }
 
-    if (mQuestionShown >= 0) {
+    if (mQuestionShown >= 0 && rView.status == NEBULA_SETTINGS_STATUS_TEXT) {
+        readKeyboardPointer(x, y);
+    } else if (mQuestionShown >= 0) {
         for (s32 i = 0; i < mChoiceCount; i++) {
             const Chip& rChip = mChoices[i].mChip;
             if (isOnButton(x, y, rChip.mX, rChip.mRoot->mTranslate.y, rChip.mWidth, cButtonHeight, cButtonGap)) {
@@ -1590,7 +1793,11 @@ void NebulaSettingsScreen::readPointer(const NebulaSettingsView& rView) {
     if (!MR::testCorePadTriggerA(WPAD_CHAN0)) {
         return;
     }
-    if (mHoverButton != nullptr) {
+    if (mKbHover >= 0) {
+        // A key of the on-screen keyboard: the host types it.
+        mPointerMode = true;
+        __NebulaSettingsInput(NEBULA_SETTINGS_PRESS, mKbHover);
+    } else if (mHoverButton != nullptr) {
         __NebulaSettingsInput(mHoverButton->mAction, 0);
     } else if (mHoverTab >= 0) {
         __NebulaSettingsInput(NEBULA_SETTINGS_SELECT_PAGE, mHoverTab);
@@ -2299,7 +2506,9 @@ void NebulaSettingsScreen::place(const NebulaSettingsView& rView) {
     }
 
     // The question, centred on the window, its answers along its foot; Pair Joy-Con's picture over its text.
-    if (asking) {
+    if (asking && rView.status == NEBULA_SETTINGS_STATUS_TEXT) {
+        placeKeyboard(rView);
+    } else if (asking) {
         mQuestionDim->mAlpha = 96;
         // Pair Joy-Con: from the top, the letters, the halves, the text and the answer, each as far from the next as
         // the answer is from the window's ring (the text by its capitals' tops and its baseline).

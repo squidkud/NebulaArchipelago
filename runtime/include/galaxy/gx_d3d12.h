@@ -371,6 +371,8 @@ enum class NativeSettingsStatus : unsigned {
     Leave,            // leaving with changes not applied: apply or discard them first
     ModsRestartAsk,   // mod changes applied: restart now? (yes: Apply, later: Close)
     JoyCon,           // Pair Joy-Con: status_number has the halves (kJoyCon* bits); Close leaves
+    TextEntry,        // a text is typed (the Archipelago page): status_text the field's name, a line break and the text so far
+                      // (status_number: nebula_game_api.h's NEBULA_KEY_*, NEBULA_TEXT_*)
 };
 // The Pair Joy-Con screen's status_number (nebula_game_api.h's NEBULA_JOYCON_*, checked alike in host_main.cpp).
 inline constexpr int kJoyConLeftBit = 1;       // a left half is connected
@@ -394,6 +396,20 @@ struct NativeSettingsView {
     int status_number = 0;
     std::string status_text;
 };
+// The Archipelago page's connection (archipelago.ini): the host registers how to read and write it, and how the client
+// stands (galaxy::archipelago::State as a number, 0 off, 1 connecting, 2 connected, 3 refused).
+struct NativeArchipelagoHooks {
+    bool (*load)(std::string& server, std::string& slot, std::string& password) = nullptr;
+    bool (*save)(const std::string& server, const std::string& slot, const std::string& password, std::string& error) = nullptr;
+    unsigned (*state)() = nullptr;
+};
+void native_settings_set_archipelago_hooks(const NativeArchipelagoHooks& hooks);
+// A character the player typed (the window's WM_CHAR) and a paste (UTF-8) for the text the settings menu asks for; false
+// when none is asked for (the key is then the game's).
+bool native_settings_text_char(char32_t character);
+bool native_settings_text_paste(const std::string& text);
+// The settings menu asks for a text now.
+[[nodiscard]] bool native_settings_text_active();
 // The menu as it stands. The first call hands the drawing to the game: the overlay draws nothing of its own after.
 [[nodiscard]] NativeSettingsView native_settings_view();
 // The pointer's input to the menu (the game's own menu takes the pointer; the window thread the keyboard and pads).

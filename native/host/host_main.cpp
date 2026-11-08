@@ -1852,6 +1852,7 @@ static_assert(static_cast<uint32_t>(galaxy::gx::NativeSettingsStatus::Leave) == 
               static_cast<uint32_t>(galaxy::gx::NativeSettingsStatus::ModsRestartAsk) == NEBULA_SETTINGS_STATUS_MODS_RESTART_ASK &&
               static_cast<uint32_t>(galaxy::gx::NativeSettingsStatus::KeepDisplay) == NEBULA_SETTINGS_STATUS_KEEP_DISPLAY &&
               static_cast<uint32_t>(galaxy::gx::NativeSettingsStatus::JoyCon) == NEBULA_SETTINGS_STATUS_JOYCON &&
+              static_cast<uint32_t>(galaxy::gx::NativeSettingsStatus::TextEntry) == NEBULA_SETTINGS_STATUS_TEXT &&
               galaxy::gx::kJoyConLeftBit == NEBULA_JOYCON_LEFT && galaxy::gx::kJoyConRightBit == NEBULA_JOYCON_RIGHT &&
               galaxy::gx::kJoyConLeftHeldBit == NEBULA_JOYCON_LEFT_HELD &&
               galaxy::gx::kJoyConRightHeldBit == NEBULA_JOYCON_RIGHT_HELD &&
@@ -3597,6 +3598,22 @@ int main(int argc, char** argv) {
 #if defined(NEBULA_HOST_RENDERER)
     // Archipelago: starts only when archipelago.ini (next to the settings) names a server and a slot.
     galaxy::archipelago::start(galaxy::runtime_settings_folder(), [](const char* text) { log_line("archipelago:", text); });
+    // The settings menu's ARCHIPELAGO page reads and writes archipelago.ini through these.
+    {
+        galaxy::gx::NativeArchipelagoHooks hooks;
+        hooks.load = [](std::string& server, std::string& slot, std::string& password) {
+            const galaxy::archipelago::Connection connection = galaxy::archipelago::saved_connection();
+            server = connection.server;
+            slot = connection.slot;
+            password = connection.password;
+            return true;
+        };
+        hooks.save = [](const std::string& server, const std::string& slot, const std::string& password, std::string& error) {
+            return galaxy::archipelago::save_connection({server, slot, password}, error);
+        };
+        hooks.state = []() { return static_cast<unsigned>(galaxy::archipelago::state()); };
+        galaxy::gx::native_settings_set_archipelago_hooks(hooks);
+    }
 #endif
 
     static NebulaHostServices services{};

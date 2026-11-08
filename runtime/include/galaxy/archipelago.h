@@ -141,6 +141,11 @@ struct Config {
 // file. A file without server or slot leaves it off. A byte-order mark (Notepad adds one) is ignored, and a file saved
 // as UTF-16 is read as text.
 [[nodiscard]] Config parse_config(std::string_view text);
+// archipelago.ini with its server, slot and password lines set to these (and `enabled` on): every other line stays as it
+// is, a missing line is added, a repeated one dropped. Line breaks in a value are removed. Used by the connection page of
+// the settings menu.
+[[nodiscard]] std::string rewrite_connection(std::string_view text, std::string_view server, std::string_view slot,
+                                             std::string_view password);
 // Why parse_config left the client off ("" when it is on): for the log.
 [[nodiscard]] std::string config_problem(std::string_view text);
 
@@ -361,6 +366,17 @@ void game_log(const char* text);
 // The oldest notice; the length copied into `buffer` (always terminated), 0 when none waits.
 [[nodiscard]] std::size_t pop_notice(char* buffer, std::size_t capacity);
 void stop();
+
+// The connection page of the settings menu: archipelago.ini's server, slot and password as the file has them now (empty
+// before start() or without a file), and the file written with new ones (the game connects at its next start). `error`
+// says why a write failed.
+struct Connection {
+    std::string server;
+    std::string slot;
+    std::string password;
+};
+[[nodiscard]] Connection saved_connection();
+[[nodiscard]] bool save_connection(const Connection& connection, std::string& error);
 
 // The green spheres in the domes (a galaxy without a miniature of its own is shown as the Observatory's green sphere) crashed
 // the game once. They are on unless archipelago.ini says `green_spheres=0` or the last run stopped while they were on screen:

@@ -219,6 +219,55 @@ Config parse_config(std::string_view raw) {
     return config;
 }
 
+std::string rewrite_connection(std::string_view raw, std::string_view server, std::string_view slot, std::string_view password) {
+    const auto one_line = [](std::string_view value) {
+        std::string out;
+        for (const char c : value) {
+            if (c != '\r' && c != '\n') out += c;
+        }
+        return out;
+    };
+    const std::string server_line = "server=" + one_line(server) + "\n";
+    const std::string slot_line = "slot=" + one_line(slot) + "\n";
+    const std::string password_line = "password=" + one_line(password) + "\n";
+    bool has_server = false;
+    bool has_slot = false;
+    bool has_password = false;
+    bool has_enabled = false;
+    std::string out;
+    std::istringstream stream{normalize_text(raw)};
+    std::string line;
+    while (std::getline(stream, line)) {
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        const std::string trimmed = trim(line);
+        const std::size_t equals = trimmed.find('=');
+        if (trimmed.empty() || trimmed.front() == '#' || trimmed.front() == ';' || equals == std::string::npos) {
+            out += line + "\n";
+            continue;
+        }
+        const std::string key = lower(trim(std::string_view(trimmed).substr(0, equals)));
+        if (key == "server") {
+            if (!has_server) out += server_line;
+            has_server = true;
+        } else if (key == "slot" || key == "name") {
+            if (!has_slot) out += slot_line;
+            has_slot = true;
+        } else if (key == "password") {
+            if (!has_password) out += password_line;
+            has_password = true;
+        } else if (key == "enabled") {
+            if (!has_enabled) out += "enabled=1\n";
+            has_enabled = true;
+        } else {
+            out += line + "\n";
+        }
+    }
+    if (!has_server) out += server_line;
+    if (!has_slot) out += slot_line;
+    if (!has_password) out += password_line;
+    return out;
+}
+
 std::string config_problem(std::string_view raw) {
     const Config config = parse_config(raw);
     if (config.enabled) return std::string();
@@ -1247,6 +1296,7 @@ void Client::run() {
 namespace {
 std::mutex g_mutex;
 std::filesystem::path g_settings_folder;  // set by start()
+std::filesystem::path g_ini_path;         // the archipelago.ini start() read (empty: none was found)
 std::atomic<bool> g_spheres_allowed{true};
 std::atomic<bool> g_guard_exit_registered{false};
 Client* g_client = nullptr;  // never destroyed: its thread may still run when the process ends
@@ -1360,6 +1410,7 @@ void start(const std::filesystem::path& settings_folder, LogFn log) {
             }
         }
     }
+    g_ini_path = found;
     Config config = parse_config(text);
     config.path = found.string();
     if (!config.enabled) {
@@ -1522,6 +1573,47 @@ std::size_t pop_notice(char* buffer, std::size_t capacity) {
 
 void stop() {
     if (Client* c = client()) c->stop();
+}
+
+namespace {
+// The file the connection is read from and written to: the one start() found, else archipelago.ini in the settings folder.
+std::filesystem::path connection_file() {
+    const std::lock_guard<std::mutex> lock(g_mutex);
+    if (!g_ini_path.empty()) return g_ini_path;
+    if (g_settings_folder.empty()) return {};
+    return g_settings_folder / "archipelago.ini";
+}
+}  // namespace
+
+Connection saved_connection() {
+    Connection connection;
+    const std::filesystem::path path = connection_file();
+    std::string text;
+    if (path.empty() || !read_file(path, text)) return connection;
+    const Config config = parse_config(text);
+    connection.server = config.server;
+    connection.slot = config.slot;
+    connection.password = config.password;
+    return connection;
+}
+
+bool save_connection(const Connection& connection, std::string& error) {
+    const std::filesystem::path path = connection_file();
+    if (path.empty()) {
+        error = "no settings folder";
+        return false;
+    }
+    std::string text;
+    (void)read_file(path, text);
+    const std::string written = rewrite_connection(text, connection.server, connection.slot, connection.password);
+    if (!galaxy::io::write_text_file_atomically(path, written)) {
+        error = "could not write " + path.string();
+        return false;
+    }
+    log_sink(("connection saved to " + path.string() + ": server " + connection.server + ", slot \"" + connection.slot +
+              "\", password " + (connection.password.empty() ? "none" : "set") + " (used at the next start)")
+                 .c_str());
+    return true;
 }
 
 }  // namespace galaxy::archipelago
