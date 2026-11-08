@@ -1240,10 +1240,10 @@ const NebulaTextRow cNebulaTextRows[] = {
     {"SettingsGateSkip",
      {L"Skip", nullptr, L"Passer", L"Passer", nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr}},
     {"HungryLumaFresh",
-     {L"Psst! Feed me {n} Star Bits and I'll take you to {galaxy}!", nullptr, L"J'ai la dalle ! Donne-moi {n} Star Bits et je t'emm\u00E8ne \u00E0 {galaxy} !", L"J'ai la dalle ! Donne-moi {n} Star Bits et je t'emm\u00E8ne \u00E0 {galaxy} !", nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr}},
+     {L"Psst! Feed me {red}{n} {icon} Star Bits{/red} and I'll take you to {galaxy}!", nullptr, L"J'ai la dalle ! Donne-moi {red}{n} {icon} Star Bits{/red} et je t'emm\u00E8ne \u00E0 {galaxy} !", L"J'ai la dalle ! Donne-moi {red}{n} {icon} Star Bits{/red} et je t'emm\u00E8ne \u00E0 {galaxy} !", nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr}},
     {"HungryLumaFed",
-     {L"Yum! Just {n} more Star Bits and {galaxy} is all yours!", nullptr, L"Miam ! Encore {n} Star Bits et {galaxy} est \u00E0 toi !", L"Miam ! Encore {n} Star Bits et {galaxy} est \u00E0 toi !", nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr}},
+     {L"Yum! Just {red}{n} {icon} Star Bits{/red} more and {galaxy} is all yours!", nullptr, L"Miam ! Encore {red}{n} {icon} Star Bits{/red} et {galaxy} est \u00E0 toi !", L"Miam ! Encore {red}{n} {icon} Star Bits{/red} et {galaxy} est \u00E0 toi !", nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr}},
     {"HungryLumaOne",
-     {L"One last Star Bit and I'll whisk you off to {galaxy}!", nullptr, L"Plus qu'un seul Star Bit et je t'envoie direct \u00E0 {galaxy} !", L"Plus qu'un seul Star Bit et je t'envoie direct \u00E0 {galaxy} !", nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr}},
+     {L"One last {red}1 {icon} Star Bit{/red} and I'll whisk you off to {galaxy}!", nullptr, L"Plus qu'{red}1 {icon} Star Bit{/red} et je t'envoie direct \u00E0 {galaxy} !", L"Plus qu'{red}1 {icon} Star Bit{/red} et je t'envoie direct \u00E0 {galaxy} !", nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr}},
 };
 // clang-format on

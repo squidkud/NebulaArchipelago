@@ -129,7 +129,7 @@ void TalkTextFormer::formMessage(const wchar_t* pMessage, s32 mode) {
 #ifdef TARGET_PC
     // A Hungry Luma of the Observatory talking (Archipelago): the galaxy that stands in its place and the Star Bits it
     // asks, instead of the game's lines about transforming.
-    if (const wchar_t* pHungry = NebulaText::getHungryTalk()) {
+    if (const wchar_t* pHungry = NebulaText::getHungryTalk(pMessage)) {
         pMessage = pHungry;
     }
 #endif

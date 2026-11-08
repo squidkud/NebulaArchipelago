@@ -27,8 +27,9 @@ namespace NebulaText {
     // The Luma is talking (from now until endHungryTalk): TalkTextFormer shows its text instead of the game's.
     void beginHungryTalk(s32 slot);
     void endHungryTalk(s32 slot);
-    // The text the talking Hungry Luma gives, or null when none is talking.
-    const wchar_t* getHungryTalk();
+    // The talking Hungry Luma's text for the game's message `pVanilla` (one that asks for a number of Star Bits): its tags
+    // (the red, the Star Bit picture) are the game's own. Given once a talk; null for any other message or when none talks.
+    const wchar_t* getHungryTalk(const wchar_t* pVanilla);
     // Whether pMessage is (a page of) a talk getTalk gave.
     bool isTalk(const wchar_t* pMessage);
     // TalkTextFormer, as a talk's page shows in pBox: a talk of getTalk's has its lines broken where they would run

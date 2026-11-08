@@ -614,6 +614,6 @@ SettingsGateTitle	Connect to Archipelago		Connexion à Archipelago	Connexion à 
 SettingsGateConnect	Connect		Connecter	Connecter
 SettingsGateContinue	Continue		Continuer	Continuer
 SettingsGateSkip	Skip		Passer	Passer
-HungryLumaFresh	Psst! Feed me {n} Star Bits and I'll take you to {galaxy}!		J'ai la dalle ! Donne-moi {n} Star Bits et je t'emmène à {galaxy} !	J'ai la dalle ! Donne-moi {n} Star Bits et je t'emmène à {galaxy} !										
-HungryLumaFed	Yum! Just {n} more Star Bits and {galaxy} is all yours!		Miam ! Encore {n} Star Bits et {galaxy} est à toi !	Miam ! Encore {n} Star Bits et {galaxy} est à toi !										
-HungryLumaOne	One last Star Bit and I'll whisk you off to {galaxy}!		Plus qu'un seul Star Bit et je t'envoie direct à {galaxy} !	Plus qu'un seul Star Bit et je t'envoie direct à {galaxy} !										
+HungryLumaFresh	Psst! Feed me {red}{n} {icon} Star Bits{/red} and I'll take you to {galaxy}!		J'ai la dalle ! Donne-moi {red}{n} {icon} Star Bits{/red} et je t'emmène à {galaxy} !	J'ai la dalle ! Donne-moi {red}{n} {icon} Star Bits{/red} et je t'emmène à {galaxy} !										
+HungryLumaFed	Yum! Just {red}{n} {icon} Star Bits{/red} more and {galaxy} is all yours!		Miam ! Encore {red}{n} {icon} Star Bits{/red} et {galaxy} est à toi !	Miam ! Encore {red}{n} {icon} Star Bits{/red} et {galaxy} est à toi !										
+HungryLumaOne	One last {red}1 {icon} Star Bit{/red} and I'll whisk you off to {galaxy}!		Plus qu'{red}1 {icon} Star Bit{/red} et je t'envoie direct à {galaxy} !	Plus qu'{red}1 {icon} Star Bit{/red} et je t'envoie direct à {galaxy} !										
