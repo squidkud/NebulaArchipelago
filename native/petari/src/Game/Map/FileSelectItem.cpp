@@ -118,6 +118,7 @@ FileSelectItem::FileSelectItem(s32 a1, bool a2, const FileSelectIconID& rID, con
 
 #ifdef TARGET_PC
     mLogo = nullptr;
+    mLogoOn = false;
 #endif
     mModels = new FileSelectModel*[5];
 
@@ -134,12 +135,15 @@ void FileSelectItem::init(const JMapInfoIter& rIter) {
     createMii();
     createNumber();
 #ifdef TARGET_PC
-    // The logo is the file of a slot that plays one character; with both, the files show Mario's head and Luigi's.
-    const bool isLogoFile = NebulaArchipelago::getSaveFileCount() == 1 && _140 == 1;
-    if (isLogoFile) {
+    // The logo is the file of a slot that plays one character; with both, the files show Mario's head and Luigi's. It is made
+    // with the first file at the build of the scene (an actor made later is not drawn) and hidden until the connection says
+    // the one file is the multiworld's (enableLogo).
+    if (_140 == 1) {
         mLogo = new NebulaFileLogo(this);
         mLogo->initWithoutIter();
     }
+    const bool isLogoFile = NebulaArchipelago::getSaveFileCount() == 1 && _140 == 1;
+    mLogoOn = isLogoFile;
     MR::initStarPointerTarget(this, isLogoFile ? 1700.0f : 1000.0f, TVec3f(0.0f, 900.0f, 0.0f));
 #else
     MR::initStarPointerTarget(this, 1000.0f, TVec3f(0.0f, 900.0f, 0.0f));
@@ -416,7 +420,7 @@ void FileSelectItem::control() {
 
 #ifdef TARGET_PC
     // Archipelago: the one save file shows the logo (see NebulaFileLogo) and the game's own models are made too small to see.
-    const f32 bigger = mLogo != nullptr ? 0.001f : 1.0f;
+    const f32 bigger = mLogoOn ? 0.001f : 1.0f;
 #else
     const f32 bigger = 1.0f;
 #endif
@@ -986,10 +990,7 @@ f32 FileSelectItem::getLogoScale() const {
 }
 
 void FileSelectItem::enableLogo() {
-    if (mLogo == nullptr) {
-        mLogo = new NebulaFileLogo(this);
-        mLogo->initWithoutIter();
-    }
+    mLogoOn = mLogo != nullptr;
 
     if (MR::isExistStarPointerTarget(this)) {
         MR::setStarPointerTargetRadius3d(this, 1700.0f);

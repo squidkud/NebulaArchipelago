@@ -101,7 +101,8 @@ public:
     f32 getLogoScale() const;
     // The file select is built before the connection: once connected, the one file takes its logo.
     void enableLogo();
-    /* 0x170 */ NebulaFileLogo* mLogo;
+    /* 0x170 */ NebulaFileLogo* mLogo;  // made with the first file, whatever the game is (the file select is built before the connection)
+    bool mLogoOn;  // the logo is shown (and the game's own models are made too small to see): the one Archipelago file
 #endif
 };
 
