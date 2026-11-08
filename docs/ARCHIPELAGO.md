@@ -15,7 +15,7 @@ Mario Galaxy dans un multiworld. Il suppose que vous n'avez jamais compilé de p
 - **Chaque étoile a son nom** : « Good Egg Galaxy - Dino Piranha », « Honeyhive Galaxy - Bee Mario Takes Flight », etc.
   (les étoiles du jeu en anglais, dont les étoiles vertes et celles des comètes). Collecter une étoile envoie un
   objet à quelqu'un dans le multiworld. Les étoiles des comètes sont facultatives, de même que les étoiles à pièces
-  violettes (après la fin du jeu) et la cache-cache de Luigi (expérimental).
+  violettes (faisables dès que leur galaxie est ouverte) et la cache-cache de Luigi (expérimental).
 - **Les étoiles sont des objets** : **Étoiles de Puissance, Étoiles Vertes et Grandes Étoiles** arrivent du multiworld
   (comme dans l'APWorld Dolphin). Le compteur d'étoiles du jeu, les étoiles demandées par chaque galaxie et les
   événements « Grande Étoile » / « Étoile Verte » lisent ces objets, pas les étoiles que vous avez ramassées.
@@ -301,7 +301,7 @@ Options du YAML (toutes facultatives) :
 | `goal` (`bowser`, `bowser_and_120_stars` ou `242_stars`) | `bowser` : l'étoile de Bowser ; `bowser_and_120_stars` : Bowser **et** les 120 étoiles de chaque personnage (pourpres comprises, sans la Star Festival, la 121e) ; `242_stars` : toutes les étoiles, pourpres comprises, du ou des personnages ; la dernière de chaque personnage est l'étoile « Grand Finale Galaxy - The Star Festival » (la 121e, un lieu seulement avec ce but) : l'entrée du jeu n'est pas modifiée (elle n'apparaît que quand Mario **et** Luigi ont chacun leurs 120 étoiles) ; on peut aussi y aller à tout moment par le menu ADVANCED du choix de galaxie des réglages; avec `both`, le but part quand le second personnage prend la sienne. Avec les deux derniers, les trois options qui suivent sont **ignorées** (tout est activé) |
 | `stars_to_finish` (10 à 120, défaut 50) | **seulement avec le but `bowser`** : nombre d'étoiles pour ouvrir le Réacteur de Bowser (avec `bowser_and_120_stars` le Réacteur demande toujours 120 étoiles, avec `242_stars` les 60 du jeu) ; aucune Power, Green ou Grand Star n'est jamais derrière la fin (les étoiles pourpres n'en contiennent pas) : avec d'autres joueurs dans le multiworld le Réacteur demande toujours 120 (le shop reçoit des étagères en plus, jusqu'à 20, si le pool en a besoin) ; seul, ce sont les places avant la fin qui limitent : le shop reçoit des étagères, et avec un seul personnage et les transformations en objets le Réacteur demande un peu moins (environ 104) |
 | `include_comet_stars` (défaut oui) | **seulement avec le but `bowser`** : les étoiles des comètes sont des lieux ; sinon elles n'apparaissent pas non plus dans le choix d'étoile du jeu |
-| `include_purple_coin_stars` (défaut non) | **seulement avec le but `bowser`** : les étoiles à pièces violettes (après la fin) ; sinon elles n'apparaissent pas dans le choix d'étoile du jeu |
+| `include_purple_coin_stars` (défaut non) | **seulement avec le but `bowser`** : les étoiles à pièces violettes (dès que leur galaxie est ouverte) ; sinon elles n'apparaissent pas dans le choix d'étoile du jeu |
 | *(supprimées)* | `power_star_percentage`, `include_luigi_stars`, `one_up_percentage`, `rainbow_star_percentage`, `star_bit_pack_percentage`, `one_up_burst_percentage`, `full_heal_percentage` n'existent plus (remplissage fixe, personnage via `character`) ; une ligne qui les cite dans un YAML est ignorée |
 | `star_requirements` (`vanilla` ou `dome_offsets`, défaut `vanilla`) | `dome_offsets` : les étoiles demandées par chaque galaxie des dômes viennent des options `dome_*_counts` |
 | `dome_one_counts` … `dome_six_counts` | pour chaque « orbite » (First à Fifth Orbit) : combien d'étoiles de plus que l'orbite précédente (0 à 8, 10 pour les dômes 2 à 5, 20 pour le dôme 6) ; la 1re orbite d'un dôme s'ajoute au plus grand nombre du dôme précédent ; le total est plafonné par `stars_to_finish`. Accepte `random` et `random-range-1-5` |
@@ -420,7 +420,7 @@ vérifiées en test, l'affichage dans le Launcher ne l'est pas.
 - **Départ à l'Observatoire** : les cinématiques d'introduction de l'histoire sont sautées, et certaines scènes du
   type « vous venez d'obtenir une Grande Étoile » peuvent ne pas se jouer, puisque les étoiles viennent des objets.
 - **Étoiles des comètes** : elles se choisissent directement dans le choix des étoiles (plus de comètes aléatoires). Les étoiles à pièces
-  violettes ne sont accessibles qu'après la fin du jeu.
+  violettes se font dès que leur galaxie est ouverte (ni les 13 étoiles des comètes, ni la fin du jeu ne sont demandées ; seule la transformation, s'il y en a une).
 - **Cache-cache de Luigi** : les étoiles de Luigi se choisissent comme les autres ; Luigi apparaît dans la galaxie dès
   que vous choisissez son étoile. Le jeu peut quand même lui faire quitter l'Observatoire et envoyer sa lettre : ça ne
   change rien à ces étoiles.

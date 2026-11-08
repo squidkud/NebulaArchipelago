@@ -90,7 +90,7 @@ class IncludeCometStars(Toggle):
 
 class IncludePurpleCoinStars(Toggle):
     """Only used with the goal Bowser (always on with the goals Bowser And 120 Stars and 242 Stars). Whether the Purple Coin stars are locations.
-    The game offers them after the ending, so these are only reachable once you have beaten Bowser. When off, they are
+    In this port they can be done as soon as their galaxy is open (the logic only asks their transformation, if any). When off, they are
     not shown in the star select either."""
     display_name = "Include Purple Coin Stars"
     default = 0
