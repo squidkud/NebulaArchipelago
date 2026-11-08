@@ -569,12 +569,14 @@ int main() {
     snapshot = galaxy::gx::native_settings_overlay_snapshot();
     passed &= expect(snapshot.tab == 7u && snapshot.row_count == 5u,
                      "advanced page has the galaxy select heading, galaxy, star and its two buttons");
+    passed &= expect(key(VK_TAB) && galaxy::gx::native_settings_overlay_snapshot().tab == 8u,
+                     "Tab enters the Archipelago page");
     passed &= expect(key(VK_TAB), "Tab navigation wraps");
     passed &= expect(
         galaxy::gx::native_settings_overlay_snapshot().tab == 0u,
         "Tab wraps back to video");
     passed &= expect(
-        key(VK_PRIOR) && galaxy::gx::native_settings_overlay_snapshot().tab == 7u,
+        key(VK_PRIOR) && galaxy::gx::native_settings_overlay_snapshot().tab == 8u,
         "Page Up (controller LB) selects the previous page, wrapping");
     passed &= expect(
         key(VK_NEXT) && galaxy::gx::native_settings_overlay_snapshot().tab == 0u,
