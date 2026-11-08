@@ -1852,6 +1852,69 @@ namespace NebulaArchipelago {
         return false;
     }
 
+    s32 getTrackerGalaxyNum() {
+        return cGalaxyNum;
+    }
+
+    bool getTrackerGalaxy(s32 index, TrackerGalaxy* pOut) {
+        if (pOut == nullptr || index < 0 || index >= cGalaxyNum || !isHostActive()) {
+            return false;
+        }
+
+        if (!sValidChecked) {
+            checkStars();
+        }
+
+        const ApGalaxy& rGalaxy = cApGalaxies[index];
+        pOut->mStage = rGalaxy.mName;
+        pOut->mDome = rGalaxy.mDome;
+        pOut->mTotal = 0;
+        pOut->mChecked = 0;
+        pOut->mMissingNum = 0;
+        const u32 locationOffset = isLuigiSave() ? cLuigiOffset : 0;
+
+        for (s32 i = 0; i < cStarNum && i < 256; i++) {
+            const ApStar& rStar = cApStars[i];
+
+            if (!sValid[i] || strcmp(rStar.mStage, rGalaxy.mName) != 0 || isScenarioHidden(rStar.mStage, rStar.mScenario)) {
+                continue;
+            }
+
+            const u32 location = i + 1 + locationOffset;
+
+            if (__NebulaArchipelago(NEBULA_AP_LOCATION_VALID, location) == 0) {
+                continue;  // not a location of this slot
+            }
+
+            pOut->mTotal++;
+
+            if (GameDataFunction::hasPowerStar(rStar.mStage, rStar.mScenario) || __NebulaArchipelago(NEBULA_AP_LOCATION_CHECKED, location) != 0) {
+                pOut->mChecked++;
+                continue;
+            }
+
+            bool listed = false;
+
+            for (s32 k = 0; k < pOut->mMissingNum; k++) {
+                listed = listed || pOut->mMissing[k] == rStar.mScenario;
+            }
+
+            if (!listed && pOut->mMissingNum < cTrackerMissingMax) {
+                pOut->mMissing[pOut->mMissingNum++] = rStar.mScenario;
+            }
+        }
+
+        return pOut->mTotal > 0;
+    }
+
+    s32 getReceivedCount(s32 item) {
+        return isHostActive() ? static_cast< s32 >(__NebulaArchipelago(NEBULA_AP_ITEM_COUNT, item)) : 0;
+    }
+
+    s32 getSlotOption(s32 option) {
+        return isHostActive() ? static_cast< s32 >(__NebulaArchipelago(NEBULA_AP_OPTION, option)) : 0;
+    }
+
     bool isSkillLocked(s32 skill) {
         if (skill < 0 || skill > 5 || !isHostActive()) {
             return false;

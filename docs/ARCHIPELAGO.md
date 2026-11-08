@@ -389,6 +389,15 @@ logique est reconstruite à partir des données de la partie (mélanges, ordre d
 Je n'ai pas pu ouvrir la fenêtre graphique ici (pas d'écran) : les commandes et la reconstruction de la logique sont
 vérifiées en test, l'affichage dans le Launcher ne l'est pas.
 
+### Le tracker en jeu
+
+Avec une partie Archipelago, le menu **Start** a un bouton **Tracker** à côté de **Paramètres**. Il ouvre une page
+par-dessus le menu pause : une carte par galaxie (celles où le slot a des étoiles), avec les étoiles faites sur le
+total, une barre, et les premières étoiles qui manquent. L'en-tête compte toutes les étoiles faites (les libérations du
+serveur comptent), et la ligne sous l'en-tête donne le compteur d'étoiles et, si les transformations sont des objets,
+les formes reçues. Comme le tracker PopTracker, il n'a pas de logique (il ne dit pas ce qui est faisable). B ferme.
+Le jeu n'a pas été lancé ici : l'affichage n'est pas testé.
+
 ## Options du mélange
 
 À mettre dans votre YAML, comme les autres options :

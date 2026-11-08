@@ -10,6 +10,7 @@
 #include "Game/NPC/NebulaAchievementLuma.hpp"
 #include "Game/Screen/NebulaAchievementBoard.hpp"
 #include "Game/Screen/NebulaAchievementToast.hpp"
+#include "Game/System/NebulaArchipelago.hpp"
 #include "Game/Screen/NoteCounter.hpp"
 #include "Game/Screen/OneUpBoard.hpp"
 #include "Game/Screen/PurpleCoinCounter.hpp"
@@ -60,7 +61,8 @@ GameSceneLayoutHolder::GameSceneLayoutHolder()
     mSaveIndicator = new NebulaAchievementToast(true);
     mSaveIndicator->initWithoutIter();
     mAchievementBoard = nullptr;
-    if (NebulaAchievementLuma::isHere()) {
+    // The Observatory's Achievement Luma opens it; with an Archipelago game the pause menu's tracker does in every stage.
+    if (NebulaAchievementLuma::isHere() || NebulaArchipelago::isActive()) {
         mAchievementBoard = new NebulaAchievementBoard();
         mAchievementBoard->initWithoutIter();
     }

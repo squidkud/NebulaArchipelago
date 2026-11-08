@@ -406,6 +406,7 @@ enum {
     NEBULA_AP_CLAIM_SAVES,  /* the connected multiworld owns the save files from now on; -> 0 */
     NEBULA_AP_BACKUP_SAVES, /* the save files are copied to saves-backup\<date> in the settings folder; -> 1 done, 0 failed */
     NEBULA_AP_LOCATION_CHECKED, /* value: a location number: 1 when it is checked (by this game, or on the server: a release), else 0 */
+    NEBULA_AP_LOCATION_VALID,   /* value: a location number: 1 when the slot has it (comets, Purple Coin stars... may be off), else 0 */
 };
 enum {
     NEBULA_AP_CLASS_FILLER = 0,

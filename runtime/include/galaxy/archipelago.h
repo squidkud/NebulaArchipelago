@@ -366,6 +366,8 @@ void report_death();
 [[nodiscard]] bool take_death();
 [[nodiscard]] bool shop_bought(std::uint32_t item);
 [[nodiscard]] bool location_checked(std::uint32_t number);
+// The slot has this location (it is in the room's checked or missing locations); true for every one before the server spoke.
+[[nodiscard]] bool location_valid(std::uint32_t number);
 [[nodiscard]] std::string shop_label(std::uint32_t item);
 [[nodiscard]] std::uint32_t shop_icon(std::uint32_t item);
 void request_shop_hints();
