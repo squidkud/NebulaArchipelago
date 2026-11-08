@@ -70,6 +70,7 @@ inline int64_t perf_hint_retrace() noexcept { return 0; }
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <ctime>
 #include <cmath>
 #include <condition_variable>
 #include <csignal>
@@ -1737,10 +1738,37 @@ static_assert(NEBULA_AP_ITEM_ONE_UP == galaxy::archipelago::kItemOneUp &&
               "nebula_game_api.h and galaxy/archipelago.h number the Archipelago items, goals and options alike");
 #endif
 
+#if defined(NEBULA_HOST_RENDERER)
+// The save files copied to saves-backup\<date> in the settings folder, before the game clears the ones that do not belong
+// to the multiworld it is connected to.
+bool backup_save_files() {
+    fs::path from;
+    if (gSaveDataPath.empty() || !nand_path(gSaveDataPath.c_str(), &from)) return false;
+    const fs::path settings = galaxy::runtime_settings_folder();
+    std::error_code error;
+    if (settings.empty() || !fs::is_directory(from, error)) return false;
+    const std::time_t now = std::time(nullptr);
+    char stamp[32];
+    std::tm local{};
+#if defined(_WIN32)
+    localtime_s(&local, &now);
+#else
+    localtime_r(&now, &local);
+#endif
+    std::strftime(stamp, sizeof(stamp), "%Y-%m-%d_%H-%M-%S", &local);
+    const fs::path to = settings / "saves-backup" / stamp;
+    fs::create_directories(to, error);
+    if (error) return false;
+    fs::copy(from, to, fs::copy_options::recursive | fs::copy_options::overwrite_existing, error);
+    log_line("archipelago:", error ? "could not back up the save files" : "save files backed up before they are cleared");
+    return !error;
+}
+#endif
+
 uint32_t svc_archipelago(void*, uint32_t what, uint32_t value) {
 #if !defined(NEBULA_HOST_RENDERER)
-    (void)what, (void)value;
-    return 0u;
+    (void)value;
+    return what == NEBULA_AP_GATE && value == 0u ? 2u : 0u;  // no menu to ask: the gate is skipped
 #else
     switch (what) {
     case NEBULA_AP_ACTIVE:
@@ -1787,6 +1815,10 @@ uint32_t svc_archipelago(void*, uint32_t what, uint32_t value) {
         return galaxy::archipelago::list_value(galaxy::archipelago::Engine::kListShopPrices, value);
     case NEBULA_AP_SHOP_BOUGHT:
         return galaxy::archipelago::shop_bought(value) ? 1u : 0u;
+    case NEBULA_AP_LOCATION_CHECKED:
+        return galaxy::archipelago::location_checked(value) ? 1u : 0u;
+    case NEBULA_AP_LOCATION_VALID:
+        return galaxy::archipelago::location_valid(value) ? 1u : 0u;
     case NEBULA_AP_SHOP_BUY:
         galaxy::archipelago::report_location(galaxy::archipelago::kShopFirst + value);
         return 0u;
@@ -1800,6 +1832,19 @@ uint32_t svc_archipelago(void*, uint32_t what, uint32_t value) {
         if (value == 1u) galaxy::archipelago::sphere_guard_begin();
         if (value == 2u) galaxy::archipelago::sphere_guard_end();
         return 0u;
+    case NEBULA_AP_GATE:
+        if (value == 1u) {
+            galaxy::gx::native_settings_open_gate();
+            return 0u;
+        }
+        return galaxy::gx::native_settings_gate_result();
+    case NEBULA_AP_SAVE_OWNER:
+        return static_cast<uint32_t>(galaxy::archipelago::save_owner());  // SaveOwner's numbers are NEBULA_AP_SAVE_OWNER's
+    case NEBULA_AP_CLAIM_SAVES:
+        galaxy::archipelago::claim_saves();
+        return 0u;
+    case NEBULA_AP_BACKUP_SAVES:
+        return backup_save_files() ? 1u : 0u;
     default:
         return 0u;
     }
@@ -1824,6 +1869,13 @@ uint32_t svc_archipelago_text(void*, uint32_t what, char* buffer, uint32_t size)
         const std::string label = galaxy::archipelago::shop_label(static_cast<uint32_t>(std::strtoul(buffer, nullptr, 10)));
         const std::size_t length = std::min<std::size_t>(label.size(), size - 1u);
         std::memcpy(buffer, label.data(), length);
+        buffer[length] = '\0';
+        return static_cast<uint32_t>(length);
+    }
+    case NEBULA_AP_TEXT_SLOT: {
+        const std::string slot = galaxy::archipelago::saved_connection().slot;
+        const std::size_t length = std::min<std::size_t>(slot.size(), size - 1u);
+        std::memcpy(buffer, slot.data(), length);
         buffer[length] = '\0';
         return static_cast<uint32_t>(length);
     }
@@ -1852,6 +1904,7 @@ static_assert(static_cast<uint32_t>(galaxy::gx::NativeSettingsStatus::Leave) == 
               static_cast<uint32_t>(galaxy::gx::NativeSettingsStatus::ModsRestartAsk) == NEBULA_SETTINGS_STATUS_MODS_RESTART_ASK &&
               static_cast<uint32_t>(galaxy::gx::NativeSettingsStatus::KeepDisplay) == NEBULA_SETTINGS_STATUS_KEEP_DISPLAY &&
               static_cast<uint32_t>(galaxy::gx::NativeSettingsStatus::JoyCon) == NEBULA_SETTINGS_STATUS_JOYCON &&
+              static_cast<uint32_t>(galaxy::gx::NativeSettingsStatus::TextEntry) == NEBULA_SETTINGS_STATUS_TEXT &&
               galaxy::gx::kJoyConLeftBit == NEBULA_JOYCON_LEFT && galaxy::gx::kJoyConRightBit == NEBULA_JOYCON_RIGHT &&
               galaxy::gx::kJoyConLeftHeldBit == NEBULA_JOYCON_LEFT_HELD &&
               galaxy::gx::kJoyConRightHeldBit == NEBULA_JOYCON_RIGHT_HELD &&
@@ -1859,6 +1912,16 @@ static_assert(static_cast<uint32_t>(galaxy::gx::NativeSettingsStatus::Leave) == 
               galaxy::gx::kJoyConLeftPressesShift == NEBULA_JOYCON_LEFT_PRESSES_SHIFT &&
               galaxy::gx::kJoyConRightPressesShift == NEBULA_JOYCON_RIGHT_PRESSES_SHIFT,
               "the settings statuses are numbered alike");
+static_assert(galaxy::gx::kKeyboardColumns == NEBULA_KEYBOARD_COLUMNS && galaxy::gx::kKeyboardRows == NEBULA_KEYBOARD_ROWS &&
+              galaxy::gx::kKeyboardLayerCount == NEBULA_KEYBOARD_LAYERS && galaxy::gx::kKeyShift == NEBULA_KEY_SHIFT &&
+              galaxy::gx::kKeySymbols == NEBULA_KEY_SYMBOLS && galaxy::gx::kKeySpace == NEBULA_KEY_SPACE &&
+              galaxy::gx::kKeyBackspace == NEBULA_KEY_BACKSPACE && galaxy::gx::kKeyCancel == NEBULA_KEY_CANCEL &&
+              galaxy::gx::kKeyDone == NEBULA_KEY_DONE && galaxy::gx::kKeyCount == NEBULA_KEY_COUNT &&
+              galaxy::gx::kTextLayerShift == NEBULA_TEXT_LAYER_SHIFT && galaxy::gx::kTextMasked == NEBULA_TEXT_MASKED &&
+              std::string_view(galaxy::gx::kKeyboardLower) == NEBULA_KEYBOARD_LOWER &&
+              std::string_view(galaxy::gx::kKeyboardUpper) == NEBULA_KEYBOARD_UPPER &&
+              std::string_view(galaxy::gx::kKeyboardSymbols) == NEBULA_KEYBOARD_SYMBOLS,
+              "the on-screen keyboard is laid out alike");
 static_assert(static_cast<uint32_t>(galaxy::gx::NativeSettingsInput::Open) == NEBULA_SETTINGS_OPEN &&
               static_cast<uint32_t>(galaxy::gx::NativeSettingsInput::Revert) == NEBULA_SETTINGS_REVERT &&
               static_cast<uint32_t>(galaxy::gx::NativeSettingsInput::MoveMod) == NEBULA_SETTINGS_MOVE_MOD &&
@@ -1880,6 +1943,7 @@ void svc_settings_view(void*, NebulaSettingsView* view) {
     }
     view->controls_page = source.controls_page;
     view->input = source.input;
+    view->gate = source.gate;
     // A long page (many mods) is sent in part: the rows around the selection, more than the menu shows at once.
     const std::size_t total = source.rows.size();
     const std::size_t selected = std::min<std::size_t>(source.selected, total == 0u ? 0u : total - 1u);
@@ -1902,7 +1966,7 @@ void svc_settings_view(void*, NebulaSettingsView* view) {
                               (row.mod_list == 1u ? NEBULA_SETTINGS_ROW_MOD_OFF : 0u) |
                               (row.mod_list == 2u ? NEBULA_SETTINGS_ROW_MOD_ON : 0u) | (row.held ? NEBULA_SETTINGS_ROW_HELD : 0u) |
                               (row.slider_steps != 0u ? NEBULA_SETTINGS_ROW_SLIDER : 0u) |
-                              (row.inputs ? NEBULA_SETTINGS_ROW_BINDING : 0u);
+                              (row.inputs ? NEBULA_SETTINGS_ROW_BINDING : 0u) | (row.text ? NEBULA_SETTINGS_ROW_TEXT : 0u);
         view->rows[i].slider_steps = static_cast<uint16_t>(row.slider_steps);
         view->rows[i].slider_at = static_cast<uint16_t>(row.slider_at);
     }
@@ -3595,8 +3659,30 @@ int main(int argc, char** argv) {
 
     boot_mark("settings and mods");
 #if defined(NEBULA_HOST_RENDERER)
-    // Archipelago: starts only when archipelago.ini (next to the settings) names a server and a slot.
-    galaxy::archipelago::start(galaxy::runtime_settings_folder(), [](const char* text) { log_line("archipelago:", text); });
+    // Archipelago: reads archipelago.ini (next to the settings).
+    // It does not connect at the start: the connection screen after the title does (the room is not known before).
+    galaxy::archipelago::start(galaxy::runtime_settings_folder(), [](const char* text) { log_line("archipelago:", text); }, false);
+    // The settings menu's ARCHIPELAGO page reads and writes archipelago.ini through these.
+    {
+        galaxy::gx::NativeArchipelagoHooks hooks;
+        hooks.load = [](std::string& server, std::string& slot, std::string& password) {
+            const galaxy::archipelago::Connection connection = galaxy::archipelago::saved_connection();
+            server = connection.server;
+            slot = connection.slot;
+            password = connection.password;
+            return true;
+        };
+        hooks.save = [](const std::string& server, const std::string& slot, const std::string& password, std::string& error) {
+            return galaxy::archipelago::save_connection({server, slot, password}, error);
+        };
+        hooks.connect = [](const std::string& server, const std::string& slot, const std::string& password, std::string& error) {
+            if (!galaxy::archipelago::save_connection({server, slot, password}, error)) return false;
+            galaxy::archipelago::reconnect();
+            return true;
+        };
+        hooks.state = []() { return static_cast<unsigned>(galaxy::archipelago::state()); };
+        galaxy::gx::native_settings_set_archipelago_hooks(hooks);
+    }
 #endif
 
     static NebulaHostServices services{};

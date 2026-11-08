@@ -219,6 +219,55 @@ Config parse_config(std::string_view raw) {
     return config;
 }
 
+std::string rewrite_connection(std::string_view raw, std::string_view server, std::string_view slot, std::string_view password) {
+    const auto one_line = [](std::string_view value) {
+        std::string out;
+        for (const char c : value) {
+            if (c != '\r' && c != '\n') out += c;
+        }
+        return out;
+    };
+    const std::string server_line = "server=" + one_line(server) + "\n";
+    const std::string slot_line = "slot=" + one_line(slot) + "\n";
+    const std::string password_line = "password=" + one_line(password) + "\n";
+    bool has_server = false;
+    bool has_slot = false;
+    bool has_password = false;
+    bool has_enabled = false;
+    std::string out;
+    std::istringstream stream{normalize_text(raw)};
+    std::string line;
+    while (std::getline(stream, line)) {
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        const std::string trimmed = trim(line);
+        const std::size_t equals = trimmed.find('=');
+        if (trimmed.empty() || trimmed.front() == '#' || trimmed.front() == ';' || equals == std::string::npos) {
+            out += line + "\n";
+            continue;
+        }
+        const std::string key = lower(trim(std::string_view(trimmed).substr(0, equals)));
+        if (key == "server") {
+            if (!has_server) out += server_line;
+            has_server = true;
+        } else if (key == "slot" || key == "name") {
+            if (!has_slot) out += slot_line;
+            has_slot = true;
+        } else if (key == "password") {
+            if (!has_password) out += password_line;
+            has_password = true;
+        } else if (key == "enabled") {
+            if (!has_enabled) out += "enabled=1\n";
+            has_enabled = true;
+        } else {
+            out += line + "\n";
+        }
+    }
+    if (!has_server) out += server_line;
+    if (!has_slot) out += slot_line;
+    if (!has_password) out += password_line;
+    return out;
+}
+
 std::string config_problem(std::string_view raw) {
     const Config config = parse_config(raw);
     if (config.enabled) return std::string();
@@ -326,6 +375,7 @@ void Engine::forget_slot_locked() {
     galaxy_shuffle_.clear();
     shop_prices_.clear();
     checked_shop_.clear();
+    checked_all_.clear();
     valid_.clear();
     have_valid_ = false;
     seed_id_ = 0;
@@ -559,7 +609,11 @@ void Engine::handle_connected(const json::Value& command, std::vector<std::strin
                 have_valid_ = true;
                 for (const json::Value& id : list->items()) {
                     const std::int64_t number = id.as_int(0) - static_cast<std::int64_t>(kLocationBase);
-                    if (number >= 1 && number <= static_cast<std::int64_t>(kLocationLast)) valid_.insert(static_cast<std::uint32_t>(number));
+                    if (number >= 1 && number <= static_cast<std::int64_t>(kLocationLast)) {
+                        valid_.insert(static_cast<std::uint32_t>(number));
+                        if (std::string_view(key) == "checked_locations") checked_all_.insert(static_cast<std::uint32_t>(number));
+                        else checked_all_.erase(static_cast<std::uint32_t>(number));
+                    }
                     if (number >= static_cast<std::int64_t>(kShopFirst) && number <= static_cast<std::int64_t>(kShopLast)) {
                         if (std::string_view(key) == "checked_locations") checked_shop_.insert(static_cast<std::uint32_t>(number));
                         else checked_shop_.erase(static_cast<std::uint32_t>(number));
@@ -789,6 +843,27 @@ void Engine::handle_command(const json::Value& command, std::vector<std::string>
             }
         }
         log("the classes of " + std::to_string(count) + " items of the stars are known");
+        return;
+    }
+
+    if (cmd == "RoomUpdate") {
+        // Locations checked while we play (another player's release sends the whole rest of this slot's checks): the shelves
+        // and the stars they stand for count as done.
+        if (const json::Value* list = command.find("checked_locations")) {
+            const std::lock_guard<std::mutex> lock(mutex_);
+            std::size_t added = 0;
+            bool shop_changed = false;
+            for (const json::Value& id : list->items()) {
+                const std::int64_t number = id.as_int(0) - static_cast<std::int64_t>(kLocationBase);
+                if (number < 1 || number > static_cast<std::int64_t>(kLocationLast)) continue;
+                if (checked_all_.insert(static_cast<std::uint32_t>(number)).second) ++added;
+                if (number >= static_cast<std::int64_t>(kShopFirst) && number <= static_cast<std::int64_t>(kShopLast)) {
+                    shop_changed = checked_shop_.insert(static_cast<std::uint32_t>(number)).second || shop_changed;
+                }
+            }
+            if (shop_changed) save_cache_locked();
+            if (added > 0) log(std::to_string(added) + " more locations are checked on the server (a release, or another way)");
+        }
         return;
     }
 
@@ -1028,6 +1103,13 @@ std::uint32_t Engine::seed_id() const {
     return seed_id_;
 }
 
+bool Engine::has_state_file() const {
+    const std::lock_guard<std::mutex> lock(mutex_);
+    if (state_folder_.empty() || seed_name_.empty()) return false;
+    std::error_code error;
+    return std::filesystem::exists(state_path_locked(), error);
+}
+
 State Engine::state() const {
     const std::lock_guard<std::mutex> lock(mutex_);
     return state_;
@@ -1071,6 +1153,12 @@ bool Engine::shop_bought(std::uint32_t item) const {
     const std::uint32_t number = kShopFirst + item;
     if (number > kLocationLast) return false;
     return found_flags_[number] || checked_shop_.count(number) != 0u;
+}
+
+bool Engine::location_checked(std::uint32_t number) const {
+    const std::lock_guard<std::mutex> lock(mutex_);
+    if (number == 0u || number > kLocationLast) return false;
+    return found_flags_[number] || checked_all_.count(number) != 0u || checked_shop_.count(number) != 0u;
 }
 
 std::string Engine::shop_label(std::uint32_t item) const {
@@ -1247,8 +1335,11 @@ void Client::run() {
 namespace {
 std::mutex g_mutex;
 std::filesystem::path g_settings_folder;  // set by start()
+std::filesystem::path g_ini_path;         // the archipelago.ini start() read (empty: none was found)
 std::atomic<bool> g_spheres_allowed{true};
 std::atomic<bool> g_guard_exit_registered{false};
+std::atomic<bool> g_reconnecting{false};  // reconnect() is replacing the client
+std::vector<Client*> g_retired;           // clients that were stopped: kept, the game's thread may still hold one
 Client* g_client = nullptr;  // never destroyed: its thread may still run when the process ends
 
 std::mutex g_log_mutex;
@@ -1289,7 +1380,7 @@ bool read_file(const std::filesystem::path& path, std::string& text) {
 }
 }  // namespace
 
-void start(const std::filesystem::path& settings_folder, LogFn log) {
+void start(const std::filesystem::path& settings_folder, LogFn log, bool connect_now) {
     const std::lock_guard<std::mutex> lock(g_mutex);
     if (g_client != nullptr || settings_folder.empty()) return;
     g_user_log = log;
@@ -1360,6 +1451,11 @@ void start(const std::filesystem::path& settings_folder, LogFn log) {
             }
         }
     }
+    g_ini_path = found;
+    if (!connect_now) {
+        log_sink("the Archipelago client waits for the connection screen (it is not started yet)");
+        return;
+    }
     Config config = parse_config(text);
     config.path = found.string();
     if (!config.enabled) {
@@ -1413,6 +1509,7 @@ bool active() noexcept {
 }
 
 State state() noexcept {
+    if (g_reconnecting.load()) return State::Connecting;
     Client* c = client();
     return c != nullptr ? c->engine().state() : State::Off;
 }
@@ -1473,6 +1570,16 @@ bool take_death() {
     return c != nullptr && c->engine().take_death();
 }
 
+bool location_checked(std::uint32_t number) {
+    Client* c = client();
+    return c != nullptr && c->engine().location_checked(number);
+}
+
+bool location_valid(std::uint32_t number) {
+    Client* c = client();
+    return c != nullptr && c->engine().location_valid(number);
+}
+
 std::uint32_t star_class(std::uint32_t index) noexcept {
     Client* c = client();
     return c != nullptr ? c->engine().star_class(index) : Engine::kClassUnknown;
@@ -1522,6 +1629,138 @@ std::size_t pop_notice(char* buffer, std::size_t capacity) {
 
 void stop() {
     if (Client* c = client()) c->stop();
+}
+
+namespace {
+// The file the connection is read from and written to: the one start() found, else archipelago.ini in the settings folder.
+std::filesystem::path connection_file() {
+    const std::lock_guard<std::mutex> lock(g_mutex);
+    if (!g_ini_path.empty()) return g_ini_path;
+    if (g_settings_folder.empty()) return {};
+    return g_settings_folder / "archipelago.ini";
+}
+}  // namespace
+
+Connection saved_connection() {
+    Connection connection;
+    const std::filesystem::path path = connection_file();
+    std::string text;
+    if (path.empty() || !read_file(path, text)) return connection;
+    const Config config = parse_config(text);
+    connection.server = config.server;
+    connection.slot = config.slot;
+    connection.password = config.password;
+    log_sink(("connection read from " + path.string() + ": server " + connection.server + ", slot \"" + connection.slot + "\"").c_str());
+    return connection;
+}
+
+bool save_connection(const Connection& connection, std::string& error) {
+    const std::filesystem::path path = connection_file();
+    if (path.empty()) {
+        error = "no settings folder";
+        return false;
+    }
+    std::string text;
+    (void)read_file(path, text);
+    const std::string written = rewrite_connection(text, connection.server, connection.slot, connection.password);
+    // The atomic replace can be refused on Windows (the file open somewhere for a moment): tried again, then written in
+    // place, and what is on disk is read back to be sure it is what was meant.
+    bool done = false;
+    for (int attempt = 0; attempt < 3 && !done; attempt++) {
+        done = galaxy::io::write_text_file_atomically(path, written);
+        if (!done) {
+            log_sink(("writing " + path.string() + " failed (attempt " + std::to_string(attempt + 1) + ")").c_str());
+            std::this_thread::sleep_for(std::chrono::milliseconds(60));
+        }
+    }
+    if (!done) {
+        std::ofstream direct(path, std::ios::binary | std::ios::trunc);
+        direct << written;
+        done = direct.good();
+    }
+    std::string check;
+    if (done && (!read_file(path, check) || parse_config(check).server != connection.server)) {
+        log_sink(("what is in " + path.string() + " is not what was written").c_str());
+        std::ofstream direct(path, std::ios::binary | std::ios::trunc);
+        direct << written;
+        done = direct.good() && read_file(path, check) && parse_config(check).server == connection.server;
+    }
+    if (!done) {
+        error = "could not write " + path.string();
+        log_sink(error.c_str());
+        return false;
+    }
+    log_sink(("connection saved to " + path.string() + ": server " + connection.server + ", slot \"" + connection.slot +
+              "\", password " + (connection.password.empty() ? "none" : "set") + " (used at the next start)")
+                 .c_str());
+    return true;
+}
+
+void reconnect() {
+    std::filesystem::path folder;
+    {
+        const std::lock_guard<std::mutex> lock(g_mutex);
+        folder = g_settings_folder;
+    }
+    if (folder.empty() || g_reconnecting.exchange(true)) return;
+    std::thread([folder] {
+        const std::filesystem::path path = connection_file();
+        Client* old = client();
+        log_sink("reconnecting with archipelago.ini as it is now");
+        if (old != nullptr) old->stop();
+        std::string text;
+        Client* fresh = nullptr;
+        if (read_file(path, text)) {
+            Config config = parse_config(text);
+            config.path = path.string();
+            if (config.enabled) {
+                log_sink(("server " + config.server + ", slot \"" + config.slot + "\", password " + (config.password.empty() ? "none" : "set")).c_str());
+                fresh = new Client(config, folder / "archipelago", &log_sink);
+            } else {
+                log_sink(("the Archipelago client stays off: " + config_problem(text)).c_str());
+            }
+        } else {
+            log_sink(("no archipelago.ini at " + path.string()).c_str());
+        }
+        {
+            const std::lock_guard<std::mutex> lock(g_mutex);
+            if (old != nullptr) g_retired.push_back(old);
+            g_client = fresh;
+            if (g_ini_path.empty()) g_ini_path = path;
+        }
+        if (fresh != nullptr) fresh->start();
+        g_reconnecting.store(false);
+    }).detach();
+}
+
+namespace {
+std::filesystem::path owner_file() {
+    const std::lock_guard<std::mutex> lock(g_mutex);
+    return g_settings_folder.empty() ? std::filesystem::path() : g_settings_folder / "archipelago-saves.txt";
+}
+}  // namespace
+
+SaveOwner save_owner() noexcept {
+    Client* c = client();
+    const std::uint32_t id = c != nullptr ? c->engine().seed_id() : 0u;
+    if (id == 0u) return SaveOwner::Unknown;
+    const std::filesystem::path path = owner_file();
+    std::string text;
+    if (!path.empty() && read_file(path, text)) {
+        const std::size_t equals = text.find('=');
+        const std::string value = trim(equals == std::string::npos ? std::string_view(text) : std::string_view(text).substr(equals + 1u));
+        return value == std::to_string(id) ? SaveOwner::Same : SaveOwner::Other;
+    }
+    // No owner recorded (saves from before this page): a multiworld an earlier start played keeps its files.
+    return c->engine().has_state_file() ? SaveOwner::Adopted : SaveOwner::Other;
+}
+
+void claim_saves() {
+    Client* c = client();
+    const std::uint32_t id = c != nullptr ? c->engine().seed_id() : 0u;
+    const std::filesystem::path path = owner_file();
+    if (id == 0u || path.empty()) return;
+    (void)galaxy::io::write_text_file_atomically(path, "seed_id=" + std::to_string(id) + "\n");
 }
 
 }  // namespace galaxy::archipelago

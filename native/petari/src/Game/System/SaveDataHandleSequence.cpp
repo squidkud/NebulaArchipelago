@@ -117,6 +117,16 @@ void SaveDataHandleSequence::startPreLoad() {
     setNerve(GET_NERVE_ANON(SaveDataHandleSequencePreLoad));
 }
 
+#ifdef TARGET_PC
+namespace {
+    bool sQuiet = false;
+};  // namespace
+
+void SaveDataHandleSequence::setQuiet(bool quiet) {
+    sQuiet = quiet;
+}
+#endif
+
 void SaveDataHandleSequence::startCreateUserFile(int index) {
 #ifdef TARGET_PC
     mAutoSave = false;
@@ -126,6 +136,13 @@ void SaveDataHandleSequence::startCreateUserFile(int index) {
     mCurrentUserFile->setCreated();
     mCurrentUserFile->updateLastModified();
     mSaveDataHandler->initializeUserFileMemory(index, mCurrentUserFile);
+#ifdef TARGET_PC
+    if (sQuiet) {
+        NebulaArchipelago::beginSaveIndicator();
+        setNerve(GET_NERVE_ANON(SaveDataHandleSequenceSaveAllWithoutWindow));
+        return;
+    }
+#endif
     setNerve(GET_NERVE_ANON(SaveDataHandleSequenceSaveAllWithoutKeyWait));
 }
 
@@ -136,6 +153,13 @@ void SaveDataHandleSequence::startDeleteUserFile(int index) {
     restoreUserFile(mCurrentUserFile, index, true);
     mCurrentUserFile->resetAllData();
     mSaveDataHandler->initializeUserFileMemory(index, mCurrentUserFile);
+#ifdef TARGET_PC
+    if (sQuiet) {
+        NebulaArchipelago::beginSaveIndicator();
+        setNerve(GET_NERVE_ANON(SaveDataHandleSequenceSaveAllWithoutWindow));
+        return;
+    }
+#endif
     setNerve(GET_NERVE_ANON(SaveDataHandleSequenceSaveAllWithoutKeyWait));
 }
 
@@ -180,6 +204,11 @@ void SaveDataHandleSequence::startSaveAuto(bool backup) {
 void SaveDataHandleSequence::startSaveAll() {
 #ifdef TARGET_PC
     mAutoSave = false;
+    if (sQuiet) {
+        NebulaArchipelago::beginSaveIndicator();
+        setNerve(GET_NERVE_ANON(SaveDataHandleSequenceSaveAllWithoutWindow));
+        return;
+    }
 #endif
     setNerve(GET_NERVE_ANON(SaveDataHandleSequenceSaveAllWithoutKeyWait));
 }
@@ -626,9 +655,14 @@ void SaveDataHandleSequence::restoreUserFileConfigData(UserFile* pUserFile, int 
 
 void SaveDataHandleSequence::restoreUserFileGameData(UserFile* pUserFile, int index, bool isPlayerMario) {
 #ifdef TARGET_PC
-    // Archipelago: a slot that plays one character has only that character's saves.
-    if (NebulaArchipelago::getForcedCharacter() >= 0) {
-        isPlayerMario = NebulaArchipelago::getForcedCharacter() == 0;
+    // Archipelago: a slot that plays one character has only that character's saves; with both, file 1 is Mario's and file 2
+    // Luigi's.
+    {
+        const s32 character = NebulaArchipelago::getFileCharacter(index);
+
+        if (character >= 0) {
+            isPlayerMario = character == 0;
+        }
     }
 #endif
     char dataName[16];

@@ -11,6 +11,7 @@ class MissLayout;
 #ifdef TARGET_PC
 class NebulaAchievementBoard;
 class NebulaAchievementToast;
+class NebulaTracker;
 #endif
 class NoteCounter;
 class OneUpBoard;
@@ -61,6 +62,8 @@ public:
     NebulaAchievementToast* mSaveIndicator;
     // Nebula's achievement board, in the Observatory (its Luma opens it); null elsewhere.
     NebulaAchievementBoard* mAchievementBoard;
+    // The Archipelago tracker, opened by the pause menu's Tracker button; null without an Archipelago game.
+    NebulaTracker* mTracker;
 #endif
 };
 

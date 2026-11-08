@@ -7,6 +7,8 @@
 #include "Game/System/GalaxyStatusAccessor.hpp"
 #include "Game/System/GameDataFunction.hpp"
 #include "Game/System/GameSequenceFunction.hpp"
+#include "Game/System/SaveDataHandleSequence.hpp"
+#include "Game/System/UserFile.hpp"
 #include "Game/Util/FileUtil.hpp"
 #include "Game/Util/EventUtil.hpp"
 #include "Game/Util/JMapInfo.hpp"
@@ -43,6 +45,8 @@ namespace {
         const char* mStage;
         s32 mScenario;
         s32 mKind;
+        s32 mFormA;  // the forms the star asks for with the transformation items: two groups, each the bits of the forms
+        s32 mFormB;  // of which one is needed (1 Bee, 2 Boo, 4 Spring, 8 Fire, 16 Ice, 32 Flying)
     };
 
 // cApGalaxies and cApStars, written by tools/gen_archipelago_stars.py from the APWorld's StarData.py.
@@ -114,7 +118,8 @@ namespace {
     s32 sNoticeNum;
 
     bool isHostActive() {
-        if (sActive < 0) {
+        // Asked again until the client runs: the connection screen can start it after the game did.
+        if (sActive != 1) {
             sActive = __NebulaArchipelago(NEBULA_AP_ACTIVE, 0) != 0 ? 1 : 0;
         }
 
@@ -573,9 +578,180 @@ namespace {
     }
 };  // namespace
 
+namespace {
+    // The connection screen after the title, and the save files of the multiworld.
+    enum { GateIdle, GateOpen, GateSaves, GateDone };
+    const s32 cUserFileNum = 6;        // the file select's files, numbered from 1
+    s32 sGateStep = GateIdle;
+    u32 sGateSeed;                     // the multiworld the gate passed with
+    s32 sFileCount;                    // the files the file select offers once the gate passed: 1, or 2 with both characters; 0 else
+    s32 sWipeFiles[cUserFileNum];
+    s32 sWipeCount;
+    s32 sWipeAt;
+    s32 sMakeFiles[2];                 // the files to create (the multiworld's, when they do not exist yet), each with its icon
+    s32 sMakeCount;
+    s32 sMakeAt;
+    bool sMakeIcon;                    // the file just created is given its icon next
+    bool sClaim;
+
+    // Which files are to be cleared: the others than the multiworld's, or all of them when the files belong to another
+    // multiworld (or none). Only those that hold something; a copy of the save files first. The multiworld's own files are then
+    // created, so that the file select shows them ready (with the head of their character) and nothing is asked.
+    void prepareSaves() {
+        const u32 owner = __NebulaArchipelago(NEBULA_AP_SAVE_OWNER, 0);
+        sWipeCount = 0;
+        sWipeAt = 0;
+        sMakeCount = 0;
+        sMakeAt = 0;
+        sMakeIcon = false;
+        sClaim = owner != 0;
+        // Two files only when the slot says both, explicitly; a slot that does not say plays Mario (the option's default).
+        const bool optionSet = __NebulaArchipelago(NEBULA_AP_OPTION_SET, NEBULA_AP_OPT_CHARACTER) != 0;
+        const u32 optionValue = __NebulaArchipelago(NEBULA_AP_OPTION, NEBULA_AP_OPT_CHARACTER);
+        const s32 kept = (optionSet && optionValue == 2) ? 2 : 1;
+        writeLog("save files: owner %d, character option %d (set: %d)", static_cast< s32 >(owner), static_cast< s32 >(optionValue),
+                 optionSet ? 1 : 0);
+        if (owner >= 1 && owner <= 3) {
+            UserFile* pFile = new UserFile();
+            for (s32 id = 1; id <= cUserFileNum; id++) {
+                GameSequenceFunction::restoreUserFile(pFile, id, true);
+                const bool created = pFile->isCreated();
+                if (id <= kept) {
+                    // the files the multiworld keeps: Mario's, and Luigi's when both play (made again when they belong to another)
+                    if (owner == 2 && created) {
+                        sWipeFiles[sWipeCount++] = id;
+                    }
+                    if (owner == 2 || !created) {
+                        sMakeFiles[sMakeCount++] = id;
+                    }
+                } else if (created && owner != 3) {
+                    sWipeFiles[sWipeCount++] = id;
+                }
+            }
+            delete pFile;
+        }
+        sFileCount = (owner >= 1 && owner <= 3) ? kept : 0;
+        writeLog("save files: %d shown, %d to clear, %d to create", sFileCount, sWipeCount, sMakeCount);
+        // Written without the system window: the small "Saving..." of the automatic save says it.
+        SaveDataHandleSequence::setQuiet(true);
+        if (sWipeCount > 0) {
+            NebulaArchipelago::logNote("Save files", "copy before clearing", "");
+            (void)__NebulaArchipelago(NEBULA_AP_BACKUP_SAVES, 0);
+        }
+    }
+
+    // One step of clearing, then of creating: the game's own delete and create of a file, one after the other. True when all are done.
+    bool stepSaves() {
+        if (GameSequenceFunction::isActiveSaveDataHandleSequence()) {
+            return false;
+        }
+        if (sWipeAt < sWipeCount) {
+            GameSequenceFunction::startDeleteUserFileSequence(sWipeFiles[sWipeAt++]);
+            return false;
+        }
+        if (sMakeAt < sMakeCount) {
+            const s32 id = sMakeFiles[sMakeAt];
+
+            if (!sMakeIcon) {
+                GameSequenceFunction::startCreateUserFileSequence(id);
+                sMakeIcon = true;
+            } else {
+                // The icon is the head of the file's character (Mario 1, Luigi 2): no question is asked.
+                const u32 icon = NebulaArchipelago::getFileCharacter(id) == 1 ? 2 : 1;
+
+                GameSequenceFunction::startSetMiiOrIconIdUserFileSequence(id, nullptr, &icon);
+                sMakeIcon = false;
+                sMakeAt++;
+            }
+            return false;
+        }
+        SaveDataHandleSequence::setQuiet(false);
+        if (sClaim) {
+            __NebulaArchipelago(NEBULA_AP_CLAIM_SAVES, 0);
+        }
+        return true;
+    }
+};  // namespace
+
 namespace NebulaArchipelago {
     bool isActive() {
         return isHostActive();
+    }
+
+    bool isSingleSaveFile() {
+        return sFileCount > 0;
+    }
+
+    s32 getSaveFileCount() {
+        return sFileCount;
+    }
+
+    s32 getFileCharacter(s32 id) {
+        if (sFileCount == 2) {
+            return id == 1 ? 0 : 1;
+        }
+
+        return getForcedCharacter();
+    }
+
+    bool getSlotName(u16* pName, s32 capacity) {
+        char text[96];
+        text[0] = 0;
+        if (__NebulaArchipelagoText(NEBULA_AP_TEXT_SLOT, text, sizeof(text)) == 0) {
+            return false;
+        }
+        s32 length = 0;
+        const u8* p = reinterpret_cast< const u8* >(text);
+        while (*p != 0 && length + 1 < capacity) {
+            u32 c = *p++;
+            if (c >= 0xE0 && p[0] != 0 && p[1] != 0) {
+                c = ((c & 0x0F) << 12) | ((p[0] & 0x3F) << 6) | (p[1] & 0x3F);
+                p += 2;
+            } else if (c >= 0xC0 && p[0] != 0) {
+                c = ((c & 0x1F) << 6) | (p[0] & 0x3F);
+                p += 1;
+            }
+            pName[length++] = static_cast< u16 >(c);
+        }
+        pName[length] = 0;
+        return length > 0;
+    }
+
+    bool passConnectionGate() {
+        switch (sGateStep) {
+        case GateDone:
+            // Passed with a multiworld: it stands while the client is connected to it still.
+            if (__NebulaArchipelago(NEBULA_AP_STATE, 0) == 2 && __NebulaArchipelago(NEBULA_AP_SEED, 0) == sGateSeed) {
+                return true;
+            }
+            sGateStep = GateIdle;
+            sFileCount = 0;
+            return passConnectionGate();
+        case GateIdle:
+            (void)__NebulaArchipelago(NEBULA_AP_GATE, 1);
+            sGateStep = GateOpen;
+            return false;
+        case GateOpen: {
+            const u32 result = __NebulaArchipelago(NEBULA_AP_GATE, 0);
+            if (result == 0) {
+                return false;
+            }
+            if (result != 1) {
+                sGateStep = GateIdle;  // skipped: the title goes on, and asks again the next time
+                return true;
+            }
+            prepareSaves();
+            sGateStep = GateSaves;
+            return false;
+        }
+        default:
+            if (!stepSaves()) {
+                return false;
+            }
+            sGateSeed = __NebulaArchipelago(NEBULA_AP_SEED, 0);
+            sGateStep = GateDone;
+            return true;
+        }
     }
 
     void update(bool inPlay) {
@@ -1295,6 +1471,32 @@ bool NebulaArchipelago::getStarSelectSkyHueShift(f32* pDegrees) {
     return true;
 }
 
+// Whether the star's place (the current galaxy's scenario) is checked on the server: a release of another game (or a check
+// made in another way) sends it, and the star select shows such a star as taken, so that the player does not go for nothing.
+bool NebulaArchipelago::isStarReleased(s32 scenario) {
+    if (!isHostActive()) {
+        return false;
+    }
+
+    const char* pStage = MR::getCurrentStageName();
+
+    if (pStage == nullptr) {
+        return false;
+    }
+
+    for (s32 i = 0; i < cStarNum; i++) {
+        const ApStar& rStar = cApStars[i];
+
+        if (rStar.mScenario != scenario || rStar.mKind == ApKind_grand || rStar.mKind == ApKind_ending || strcmp(rStar.mStage, pStage) != 0) {
+            continue;
+        }
+
+        return __NebulaArchipelago(NEBULA_AP_LOCATION_CHECKED, i + 1 + (isLuigiSave() ? cLuigiOffset : 0)) != 0;
+    }
+
+    return false;
+}
+
 bool NebulaArchipelago::getStarColorFrame(s32 scenario, s32* pFrame) {
     if (!isHostActive() || !status().mStarColors) {
         return false;
@@ -1650,6 +1852,186 @@ namespace NebulaArchipelago {
         }
 
         return false;
+    }
+
+    s32 getTrackerPlaceNum() {
+        return cGalaxyNum;
+    }
+
+    s32 getTrackerPlaceRoom(s32 place) {
+        return place >= 0 && place < cGalaxyNum ? cApGalaxies[place].mDome : 0;
+    }
+
+    s32 getTrackerDoorRoom(s32 door) {
+        return getDomeOfDoor(door);
+    }
+
+    s32 getTrackerGrandFlags() {
+        return getReceivedCount(NEBULA_AP_ITEM_GRAND_STAR) + 1;  // the first dome's flag is given at the start
+    }
+
+    namespace {
+        // The forms received, as the bits of the generated table.
+        s32 receivedForms() {
+            if (getSlotOption(NEBULA_AP_OPT_TRANSFORMATION_ITEMS) == 0) {
+                return 63;  // the forms are free
+            }
+
+            const s32 items[] = {NEBULA_AP_ITEM_BEE_MUSHROOM, NEBULA_AP_ITEM_BOO_MUSHROOM, NEBULA_AP_ITEM_SPRING_MUSHROOM,
+                                 NEBULA_AP_ITEM_FIRE_FLOWER, NEBULA_AP_ITEM_ICE_FLOWER, NEBULA_AP_ITEM_FLYING_STAR};
+            s32 mask = 0;
+
+            for (s32 i = 0; i < 6; i++) {
+                if (getReceivedCount(items[i]) > 0) {
+                    mask |= 1 << i;
+                }
+            }
+
+            return mask;
+        }
+
+        // What the place's galaxy asks to be open: the Observatory galaxies' Grand Stars and the trials' Green Stars.
+        s32 extraGrand(const char* pPlace) {
+            static const char* const cNames[] = {"BeltConveyerExGalaxy", "CocoonExGalaxy", "TearDropGalaxy", "FishTunnelGalaxy",
+                                                 "TransformationExGalaxy", "TeresaMario2DGalaxy", "SnowCapsuleGalaxy"};
+            static const s32 cGrand[] = {1, 2, 3, 4, 5, 6, 6};
+
+            for (s32 i = 0; i < 7; i++) {
+                if (strcmp(pPlace, cNames[i]) == 0) {
+                    return cGrand[i];
+                }
+            }
+
+            return 0;
+        }
+
+        bool needsGreens(const char* pPlace) {
+            return strcmp(pPlace, "TamakoroExLv2Galaxy") == 0 || strcmp(pPlace, "SurfingLv2Galaxy") == 0 || strcmp(pPlace, "CubeBubbleExLv2Galaxy") == 0;
+        }
+
+        bool isStarChecked(s32 index, u32 locationOffset) {
+            const ApStar& rStar = cApStars[index];
+            return GameDataFunction::hasPowerStar(rStar.mStage, rStar.mScenario) ||
+                   __NebulaArchipelago(NEBULA_AP_LOCATION_CHECKED, index + 1 + locationOffset) != 0;
+        }
+
+        // The star is a location of this slot.
+        bool isStarLocation(s32 index, u32 locationOffset) {
+            const ApStar& rStar = cApStars[index];
+            return sValid[index] && !isScenarioHidden(rStar.mStage, rStar.mScenario) &&
+                   __NebulaArchipelago(NEBULA_AP_LOCATION_VALID, index + 1 + locationOffset) != 0;
+        }
+    }  // namespace
+
+    bool getTrackerGalaxy(s32 place, TrackerGalaxy* pOut) {
+        if (pOut == nullptr || place < 0 || place >= cGalaxyNum || !isHostActive()) {
+            return false;
+        }
+
+        if (!sValidChecked) {
+            checkStars();
+        }
+
+        const ApGalaxy& rPlace = cApGalaxies[place];
+        const char* pContent = getShuffledGalaxy(rPlace.mName);
+        pOut->mStage = pContent;
+        pOut->mPlace = place;
+        pOut->mStarNum = 0;
+        pOut->mOpen = false;
+
+        // What the place asks to be open (the APWorld's galaxy_caps: the star counter; the dome's door; the extras).
+        const u32 cap = __NebulaArchipelago(NEBULA_AP_GALAXY_CAP, place);
+        pOut->mNeedStars = cap == cNoCap ? rPlace.mCap : static_cast< s32 >(cap);
+        pOut->mNeedGrand = extraGrand(rPlace.mName);
+        pOut->mDoor = rPlace.mDome > 0 ? getDomeOpenNumber(rPlace.mDome) : 0;
+        const s32 counter = MR::getPowerStarNum();
+        const s32 grand = getTrackerGrandFlags();
+        const s32 greens = getReceivedCount(NEBULA_AP_ITEM_GREEN_STAR);
+        s32 galaxyNeed = 0;
+
+        if (pOut->mDoor > 0 && grand < pOut->mDoor) {
+            galaxyNeed |= TrackerNeed_Dome;
+        }
+
+        if (counter < pOut->mNeedStars) {
+            galaxyNeed |= TrackerNeed_Stars;
+        }
+
+        if (grand < pOut->mNeedGrand) {
+            galaxyNeed |= TrackerNeed_Grand;
+        }
+
+        if (needsGreens(rPlace.mName) && greens < 3) {
+            galaxyNeed |= TrackerNeed_Green;
+        }
+
+        const s32 forms = receivedForms();
+        const u32 locationOffset = isLuigiSave() ? cLuigiOffset : 0;
+
+        for (s32 i = 0; i < cStarNum && i < 256; i++) {
+            const ApStar& rStar = cApStars[i];
+
+            if (strcmp(rStar.mStage, pContent) != 0 || !isStarLocation(i, locationOffset) || pOut->mStarNum >= cTrackerStarMax) {
+                continue;
+            }
+
+            TrackerStar& rOut = pOut->mStars[pOut->mStarNum++];
+            rOut.mScenario = rStar.mScenario;
+            rOut.mKind = rStar.mKind;
+            rOut.mNeed = 0;
+            rOut.mForms = 0;
+
+            if (isStarChecked(i, locationOffset)) {
+                rOut.mState = TrackerState_Done;
+                continue;
+            }
+
+            rOut.mNeed = galaxyNeed;
+
+            // The groups not met: the first in the low byte, the second in the next (each a group of alternatives).
+            if (rStar.mFormA != 0 && (rStar.mFormA & forms) == 0) {
+                rOut.mForms |= rStar.mFormA;
+            }
+
+            if (rStar.mFormB != 0 && (rStar.mFormB & forms) == 0) {
+                rOut.mForms |= rStar.mFormB << 8;
+            }
+
+            if (rOut.mForms != 0) {
+                rOut.mNeed |= TrackerNeed_Form;
+            }
+
+            if (rStar.mKind == ApKind_festival) {
+                // The Star Festival is the last star: every other star of the save first.
+                for (s32 k = 0; k < cStarNum && k < 256; k++) {
+                    if (k != i && cApStars[k].mKind != ApKind_festival && isStarLocation(k, locationOffset) && !isStarChecked(k, locationOffset)) {
+                        rOut.mNeed |= TrackerNeed_Others;
+                        break;
+                    }
+                }
+            }
+
+            rOut.mState = rOut.mNeed == 0 ? TrackerState_Doable : TrackerState_Locked;
+        }
+
+        // Named once the galaxy is unlocked (or one of its stars was done); the Gateway and Bowser's Star Reactor are never hidden.
+        pOut->mOpen = galaxyNeed == 0 || strcmp(pContent, "HeavensDoorGalaxy") == 0 || strcmp(pContent, "KoopaBattleVs1Galaxy") == 0;
+
+        for (s32 k = 0; k < pOut->mStarNum; k++) {
+            if (pOut->mStars[k].mState == TrackerState_Done) {
+                pOut->mOpen = true;
+            }
+        }
+
+        return pOut->mStarNum > 0;
+    }
+
+    s32 getReceivedCount(s32 item) {
+        return isHostActive() ? static_cast< s32 >(__NebulaArchipelago(NEBULA_AP_ITEM_COUNT, item)) : 0;
+    }
+
+    s32 getSlotOption(s32 option) {
+        return isHostActive() ? static_cast< s32 >(__NebulaArchipelago(NEBULA_AP_OPTION, option)) : 0;
     }
 
     bool isSkillLocked(s32 skill) {

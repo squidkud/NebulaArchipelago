@@ -198,7 +198,7 @@ typedef struct NebulaFsRequest {
    The host keeps the settings, their pages, the draft and its apply, and takes the keyboard and controllers while the
    menu is open; the game shows it (and takes the pointer, settings_input). Texts are the host's own, in English
    (UTF-8): the game names each in the played language (NebulaSettingsMenu). */
-#define NEBULA_SETTINGS_PAGES 8
+#define NEBULA_SETTINGS_PAGES 9
 #define NEBULA_SETTINGS_ROWS 96
 
 enum {
@@ -215,6 +215,7 @@ enum {
     NEBULA_SETTINGS_ROW_HELD = 256,      /* the mod picked up to move: the arrows move it */
     NEBULA_SETTINGS_ROW_SLIDER = 512,    /* a setting along a range: `slider_steps` from its first value, at `slider_at` */
     NEBULA_SETTINGS_ROW_BINDING = 1024,  /* a control's binding: changing it waits for an input */
+    NEBULA_SETTINGS_ROW_TEXT = 2048,     /* a text typed in (with CHANGES): its value is shown at the row's end, no arrows */
 };
 
 /* The game's button icons (its picture font's A, B, C, Z, 1, 2, Plus, Minus, HOME and Control Pad, in this order):
@@ -279,7 +280,32 @@ enum {
     NEBULA_SETTINGS_STATUS_LEAVE,            /* leaving with changes not applied: apply them or discard them? */
     NEBULA_SETTINGS_STATUS_MODS_RESTART_ASK, /* mod changes applied: restart now? yes: APPLY, later: CLOSE */
     NEBULA_SETTINGS_STATUS_JOYCON,           /* Pair Joy-Con: `status_number` NEBULA_JOYCON_* bits; CLOSE leaves */
+    NEBULA_SETTINGS_STATUS_TEXT,             /* a text is typed (the Archipelago page): the on-screen keyboard, see NEBULA_TEXT_* */
 };
+/* The text entry's on-screen keyboard (NEBULA_SETTINGS_STATUS_TEXT). `status_text` is the field's name, a line break and
+   the text so far; `status_number` is the key the cursor is on (NEBULA_KEY_*, or a place in the grid), the layer
+   (NEBULA_KEYBOARD_LAYERS: lower case, upper case, symbols) shifted by NEBULA_TEXT_LAYER_SHIFT, and NEBULA_TEXT_MASKED
+   when the text is a password. A key pressed with the pointer is NEBULA_SETTINGS_PRESS with the key as `arg`; the keyboard
+   and the controllers are the host's. The grid is NEBULA_KEYBOARD_ROWS rows of NEBULA_KEYBOARD_COLUMNS keys, a place
+   being row * NEBULA_KEYBOARD_COLUMNS + column, in the characters of the layer's string; below it NEBULA_KEY_SHIFT to
+   NEBULA_KEY_DONE in a row. */
+enum {
+    NEBULA_KEYBOARD_COLUMNS = 10,
+    NEBULA_KEYBOARD_ROWS = 4,
+    NEBULA_KEYBOARD_LAYERS = 3,
+    NEBULA_KEY_SHIFT = 40, /* upper case for one letter */
+    NEBULA_KEY_SYMBOLS,    /* the symbols layer, and back */
+    NEBULA_KEY_SPACE,
+    NEBULA_KEY_BACKSPACE,
+    NEBULA_KEY_CANCEL,
+    NEBULA_KEY_DONE,
+    NEBULA_KEY_COUNT,
+    NEBULA_TEXT_LAYER_SHIFT = 8,
+    NEBULA_TEXT_MASKED = 1 << 12,
+};
+#define NEBULA_KEYBOARD_LOWER "1234567890" "qwertyuiop" "asdfghjkl_" "zxcvbnm.:-"
+#define NEBULA_KEYBOARD_UPPER "1234567890" "QWERTYUIOP" "ASDFGHJKL_" "ZXCVBNM.:-"
+#define NEBULA_KEYBOARD_SYMBOLS "!@#$%^&*()" "~`+=[]{}|\\" ";'\",<>/?_-" "0123456789"
 /* The Pair Joy-Con screen's halves (NEBULA_SETTINGS_STATUS_JOYCON). */
 enum {
     NEBULA_JOYCON_LEFT = 1,       /* a left half is connected */
@@ -328,6 +354,7 @@ typedef struct NebulaSettingsView {
     uint32_t status; /* NEBULA_SETTINGS_STATUS_* */
     int32_t status_number;
     char status_text[160];
+    uint32_t gate; /* the connection screen after the title: 1 not connected, 2 connected; 0 the menu as usual (no tabs on the gate) */
 } NebulaSettingsView;
 
 /* The player's input to the settings menu (settings_input); the keyboard and controllers reach it through the host. */
@@ -374,6 +401,12 @@ enum {
     NEBULA_AP_SHOP_ICON,    /* value: a shop item: this game's own item on the shelf (1 1-Up ... 19 Flying), or 0 for another player's item / no picture */
     NEBULA_AP_SHOP_HINT,    /* the shop is open: its unbought shelves are declared as hints to the players concerned; -> 0 */
     NEBULA_AP_SPHERE_GUARD, /* value 0: -> 1 when the green spheres in the domes are allowed; 1: a dome holds one (a file marks it until 2 or a normal exit); 2: the dome is left; -> 0 */
+    NEBULA_AP_GATE,         /* value 1: the connection screen opens (the settings menu on its Archipelago page alone) -> 0; value 0: -> 0 while it is up, 1 once the client is connected, 2 once the player went on without */
+    NEBULA_AP_SAVE_OWNER,   /* -> 0 not connected yet (the room's seed is not known), 1 the save files belong to this multiworld, 2 they belong to another one (or none): they are to be cleared, 3 no owner was recorded but this multiworld was played before: keep them as they are */
+    NEBULA_AP_CLAIM_SAVES,  /* the connected multiworld owns the save files from now on; -> 0 */
+    NEBULA_AP_BACKUP_SAVES, /* the save files are copied to saves-backup\<date> in the settings folder; -> 1 done, 0 failed */
+    NEBULA_AP_LOCATION_CHECKED, /* value: a location number: 1 when it is checked (by this game, or on the server: a release), else 0 */
+    NEBULA_AP_LOCATION_VALID,   /* value: a location number: 1 when the slot has it (comets, Purple Coin stars... may be off), else 0 */
 };
 enum {
     NEBULA_AP_CLASS_FILLER = 0,
@@ -446,6 +479,7 @@ enum {
     NEBULA_AP_TEXT_NOTICE = 1, /* the oldest notice for the player, in `buffer` (ASCII, terminated); -> its length, 0 when none */
     NEBULA_AP_TEXT_LOG,        /* `buffer` (read): a line for archipelago.log; -> 0 */
     NEBULA_AP_TEXT_SHOP_LABEL, /* `buffer` (read: the shop item's number as decimal text, 0-based; written: what the shelf holds, UTF-8); -> its length, 0 when unknown */
+    NEBULA_AP_TEXT_SLOT,       /* the slot's name the client is connected with, in `buffer` (UTF-8, terminated); -> its length, 0 when none */
 };
 
 typedef struct NebulaHostServices {

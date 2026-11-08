@@ -551,7 +551,7 @@ void ScenarioSelectLayout::appearAllStar(s32 normalScenarioCompleteNum, s32 extr
 
 #ifdef TARGET_PC
             if (NebulaArchipelago::isActive()) {
-                appearStar(i, i + 1, MR::hasPowerStarInCurrentStage(i + 1) ? 2 : 0);
+                appearStar(i, i + 1, MR::hasPowerStarInCurrentStage(i + 1) || NebulaArchipelago::isStarReleased(i + 1) ? 2 : 0);
                 continue;
             }
 #endif
@@ -580,7 +580,7 @@ void ScenarioSelectLayout::appearAllStar(s32 normalScenarioCompleteNum, s32 extr
                     continue;
                 }
 
-                appearStar(starIndex + shown, scenarioNo, MR::hasPowerStarInCurrentStage(scenarioNo) ? 2 : 0);
+                appearStar(starIndex + shown, scenarioNo, MR::hasPowerStarInCurrentStage(scenarioNo) || NebulaArchipelago::isStarReleased(scenarioNo) ? 2 : 0);
                 shown++;
             }
 

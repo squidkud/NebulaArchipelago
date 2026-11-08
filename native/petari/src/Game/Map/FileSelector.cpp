@@ -70,6 +70,24 @@ namespace {
     static const s32 sIndexOrder[USER_FILE_NUM] = {1, 2, 4, 6, 5, 3};
 };  // namespace
 
+#ifdef TARGET_PC
+namespace {
+    // The name box of the file information: room for "<player> (Luigi)".
+    const s32 cInfoNameSize = 40;
+    const s32 cInfoPlayerLength = 24;
+
+    // The icon the file takes: the player's choice, or, when the Archipelago save files are not asked for one, the head of the
+    // character of the file (Mario's, or Luigi's for file 2 when both play).
+    inline void getChosenIcon(MiiSelect* pMiiSelect, FileSelectIconID* pIconId, s32 id) {
+        if (NebulaArchipelago::isSingleSaveFile()) {
+            pIconId->setFellowID(NebulaArchipelago::getFileCharacter(id) == 1 ? FileSelectIconID::Luigi : FileSelectIconID::Mario);
+        } else {
+            pMiiSelect->getSelectedID(pIconId);
+        }
+    }
+};  // namespace
+#endif
+
 namespace {
     inline int getItemArrayIndex(s32 id) {
         const s32* pIndexOrder = sIndexOrder;
@@ -82,6 +100,13 @@ namespace {
 
         return -1;
     }
+
+#ifdef TARGET_PC
+    // Archipelago: with one save file for the multiworld, the other files are not shown at all.
+    inline bool isHiddenFile(const FileSelectItem* pItem) {
+        return NebulaArchipelago::isSingleSaveFile() && pItem->_140 > NebulaArchipelago::getSaveFileCount();
+    }
+#endif
 
     MiiFacePartsHolder* getMiiFacePartsHolder() {
         return MR::getSceneObj< MiiFacePartsHolder >(SceneObj_MiiFacePartsHolder);
@@ -324,6 +349,12 @@ void FileSelector::createFileItems() {
         pItem->setSelectDelegator(pDelegator);
         pItem->mPosition.set(_98[i]);
         mItems->registerActor(pItem);
+#ifdef TARGET_PC
+        if (::isHiddenFile(pItem)) {
+            pItem->makeActorDead();
+            pItem->invalidateSelect();
+        }
+#endif
     }
 }
 
@@ -388,7 +419,7 @@ void FileSelector::offerFilesToMenuFocus() {
     for (int i = 0; i < mItems->getObjNum(); i++) {
         FileSelectItem* pItem = static_cast< FileSelectItem* >(mItems->getActor(i));
         TVec2f screen;
-        if (!pItem->mIsInvalidateSelect && MR::calcScreenPosition(&screen, pItem->mPosition + TVec3f(0.0f, 900.0f, 0.0f))) {
+        if (!pItem->mIsInvalidateSelect && !MR::isDead(pItem) && MR::calcScreenPosition(&screen, pItem->mPosition + TVec3f(0.0f, 900.0f, 0.0f))) {
             NebulaMenuFocus::offerTarget(pItem, screen);
         }
     }
@@ -473,7 +504,11 @@ bool FileSelector::updateQuitQuestion() {
 #endif
 
 void FileSelector::createFileInfo() {
+#ifdef TARGET_PC
+    mFileInfo = new FileSelectInfo(::cInfoNameSize, "\203\164\203\100\203\103\203\213\217\356\225\361" /* ファイル情報 */);
+#else
     mFileInfo = new FileSelectInfo(RFL_NAME_LEN + 1, "\203\164\203\100\203\103\203\213\217\356\225\361" /* ファイル情報 */);
+#endif
     mFileInfo->initWithoutIter();
 }
 
@@ -522,6 +557,11 @@ void FileSelector::createSelectEffect() {
 
 void FileSelector::appearAllItems() {
     for (int i = 0; i < mItems->getObjNum(); i++) {
+#ifdef TARGET_PC
+        if (::isHiddenFile(static_cast< FileSelectItem* >(mItems->getActor(i)))) {
+            continue;
+        }
+#endif
         mItems->getActor(i)->appear();
     }
 }
@@ -576,6 +616,11 @@ void FileSelector::updateFileInfo() {
 }
 
 void FileSelector::appearAllIndex() {
+#ifdef TARGET_PC
+    if (NebulaArchipelago::isSingleSaveFile()) {
+        return;  // the one file shows no number
+    }
+#endif
     for (int i = 0; i < mItems->getObjNum(); i++) {
         static_cast< FileSelectItem* >(mItems->getActor(i))->appearIndex();
     }
@@ -595,6 +640,12 @@ void FileSelector::invalidateSelectAll() {
 
 void FileSelector::validateSelectAll() {
     for (int i = 0; i < mItems->getObjNum(); i++) {
+#ifdef TARGET_PC
+        // Archipelago: one save file for the multiworld, the first.
+        if (::isHiddenFile(static_cast< FileSelectItem* >(mItems->getActor(i)))) {
+            continue;
+        }
+#endif
         static_cast< FileSelectItem* >(mItems->getActor(i))->validateSelect();
     }
 }
@@ -719,7 +770,14 @@ namespace {
 
 void FileSelector::setFileInfo(s32 id) {
     OSCalendarTime td;
+#ifdef TARGET_PC
+    u16 nameBuffer[::cInfoNameSize];
+    for (s32 i = 0; i < ::cInfoNameSize; i++) {
+        nameBuffer[i] = 0;
+    }
+#else
     u16 nameBuffer[RFL_NAME_LEN + 1];
+#endif
     wchar_t dateBuffer[32];
     wchar_t timeBuffer[32];
 
@@ -728,6 +786,30 @@ void FileSelector::setFileInfo(s32 id) {
     } else {
         ::copyIconMiiName(this, nameBuffer, id);
     }
+
+#ifdef TARGET_PC
+    // Archipelago: the one save file is named after the slot's player.
+    if (NebulaArchipelago::isSingleSaveFile()) {
+        s32 length = 0;
+
+        if (NebulaArchipelago::getSlotName(nameBuffer, ::cInfoPlayerLength + 1)) {
+            while (nameBuffer[length] != 0) {
+                length++;
+            }
+        }
+
+        // With both characters, each file says whose it is: "Kudo (Mario)", "Kudo (Luigi)".
+        if (NebulaArchipelago::getSaveFileCount() == 2) {
+            const char* pSuffix = NebulaArchipelago::getFileCharacter(id) == 1 ? " (Luigi)" : " (Mario)";
+
+            for (s32 i = 0; pSuffix[i] != 0 && length + 1 < ::cInfoNameSize; i++) {
+                nameBuffer[length++] = static_cast< u16 >(pSuffix[i]);
+            }
+
+            nameBuffer[length] = 0;
+        }
+    }
+#endif
 
     OSTicksToCalendarTime(::getUserFileLastModified(this, id), &td);
 
@@ -847,6 +929,14 @@ void FileSelector::calcBasePos(f32 offset) {
         f32 cosTheta = MR::cos(theta);
         f32 sinTheta = MR::sin(theta);
         _98[i].set(::sItemPosRadius * cosTheta, 0.0f, ::sItemPosRadius * sinTheta);
+#ifdef TARGET_PC
+        if (NebulaArchipelago::getSaveFileCount() == 1) {
+            _98[i].zero();  // the one file stands in the middle
+        } else if (NebulaArchipelago::getSaveFileCount() == 2) {
+            // Mario's file on the left, Luigi's on the right (the other files are not shown)
+            _98[i].set(i == 0 ? -1800.0f : (i == 1 ? 1800.0f : 0.0f), 0.0f, 0.0f);
+        }
+#endif
         transform.mult(_98[i], _98[i]);
     }
 }
@@ -884,6 +974,11 @@ namespace {
 
 void FileSelector::initAllItems() {
     for (int i = 0; i < USER_FILE_NUM; i++) {
+#ifdef TARGET_PC
+        if (::isHiddenFile(static_cast< FileSelectItem* >(mItems->getActor(i)))) {
+            continue;
+        }
+#endif
         ::initFileItem(this, static_cast< FileSelectItem* >(mItems->getActor(i)));
     }
 }
@@ -952,8 +1047,9 @@ bool FileSelector::isUserFileAppearLuigi(s32 id) const {
     id--;
 
 #ifdef TARGET_PC
-    // Archipelago: a slot that plays one character has no button to change; with both, Luigi can be chosen on any save file.
-    if (NebulaArchipelago::getForcedCharacter() >= 0) {
+    // Archipelago: a slot that plays one character has no button to change; with both, the file select's two files are
+    // Mario's and Luigi's (no button); out of that file select, Luigi can be chosen on any save file.
+    if (NebulaArchipelago::getFileCharacter(id + 1) >= 0) {
         return false;
     }
 
@@ -1106,8 +1202,38 @@ void FileSelector::exeTitle() {
 
 void FileSelector::exeTitleEnd() {
     if (MR::isFirstStep(this)) {
+#ifdef TARGET_PC
+        // Archipelago: this screen was built when the game started, before the connection. The files the connection made or
+        // cleared are read again, the files that are not the multiworld's are not shown, and the one file gets its logo.
+        if (NebulaArchipelago::isSingleSaveFile()) {
+            initUserFile();
+
+            for (int i = 0; i < mItems->getObjNum(); i++) {
+                FileSelectItem* pItem = static_cast< FileSelectItem* >(mItems->getActor(i));
+
+                if (::isHiddenFile(pItem)) {
+                    pItem->makeActorDead();
+                    pItem->invalidateSelect();
+                } else if (NebulaArchipelago::getSaveFileCount() == 1 && pItem->_140 == 1) {
+                    pItem->enableLogo();
+                }
+            }
+        }
+#endif
         mCameraController->goToFarPoint();
         calcBasePos(0.0f);
+#ifdef TARGET_PC
+        if (NebulaArchipelago::isSingleSaveFile()) {
+            // The files stand where they belong at once (they were built on the game's own ring).
+            for (int i = 0; i < mItems->getObjNum(); i++) {
+                FileSelectItem* pItem = static_cast< FileSelectItem* >(mItems->getActor(i));
+
+                if (!::isHiddenFile(pItem)) {
+                    pItem->mPosition.set(_98[::getItemArrayIndex(pItem->_140)]);
+                }
+            }
+        }
+#endif
         appearAllItems();
         initAllItems();
         mMiiSelect->collectValidMiiIndex();
@@ -1265,6 +1391,10 @@ void FileSelector::exeFileConfirm() {
             mFileInfo->forceChange();
         }
 
+#ifdef TARGET_PC
+        // Archipelago: without the Copy, Icon and Erase buttons, the information stays up where it is.
+        if (!NebulaArchipelago::isSingleSaveFile())
+#endif
         mFileInfo->slide();
     }
 
@@ -1390,6 +1520,13 @@ void FileSelector::exeCreate() {
 
     if (GameSequenceFunction::isSuccessSaveDataHandleSequence()) {
         restoreUserFile();
+#ifdef TARGET_PC
+        // Archipelago: the one save file is not asked for an icon (it shows the logo): it takes Mario's.
+        if (NebulaArchipelago::isSingleSaveFile()) {
+            setNerve(GET_NERVE(FileSelector, FileSelectorNrvMiiCreateWait));
+            return;
+        }
+#endif
         setNerve(GET_NERVE(FileSelector, FileSelectorNrvMiiSelectStartFirst));
     } else {
         clearPointing();
@@ -1760,7 +1897,11 @@ void FileSelector::exeMiiCreateWait() {
     if (MR::isFirstStep(this)) {
         FileSelectIconID iconId = FileSelectIconID();
 
-        mMiiSelect->getSelectedID(&iconId);
+        #ifdef TARGET_PC
+    ::getChosenIcon(mMiiSelect, &iconId, _B4->_140);
+#else
+    mMiiSelect->getSelectedID(&iconId);
+#endif
         storeSetMiiIdUserFile(_B4->_140, iconId);
 
         mIsMiiSelectStartFirst = false;
@@ -1780,7 +1921,11 @@ void FileSelector::exeMiiCreateDemo() {
         s32 id = _B4->_140;
         FileSelectIconID iconId = FileSelectIconID();
 
-        mMiiSelect->getSelectedID(&iconId);
+        #ifdef TARGET_PC
+    ::getChosenIcon(mMiiSelect, &iconId, _B4->_140);
+#else
+    mMiiSelect->getSelectedID(&iconId);
+#endif
         _B4->change(iconId, _CC[id - 1]);
         setFileInfo(id);
     }
@@ -1791,7 +1936,11 @@ void FileSelector::exeMiiCreateDemo() {
 
     FileSelectIconID iconId = FileSelectIconID();
 
+    #ifdef TARGET_PC
+    ::getChosenIcon(mMiiSelect, &iconId, _B4->_140);
+#else
     mMiiSelect->getSelectedID(&iconId);
+#endif
 
     if (iconId.isMii()) {
         setNerve(GET_NERVE(FileSelector, FileSelectorNrvMiiCaution));

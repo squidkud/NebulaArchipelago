@@ -1,3 +1,6 @@
+#ifdef TARGET_PC
+#include "Game/System/NebulaArchipelago.hpp"
+#endif
 #include "Game/Screen/FileSelectButton.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Screen/ButtonPaneController.hpp"
@@ -67,6 +70,12 @@ void FileSelectButton::shiftSelect() {
 
 void FileSelectButton::exeSelect() {
     for (int i = 0; i < ARRAY_SIZE(mButtonCtrl); i++) {
+#ifdef TARGET_PC
+        // Archipelago: with the one save file, Copy, Icon and Erase are not there (they cannot be pointed at or chosen).
+        if (NebulaArchipelago::isSingleSaveFile() && i >= 1 && i <= 3) {
+            continue;
+        }
+#endif
         if (mButtonCtrl[i]->isPointingTrigger()) {
             MR::startSystemSE("SE_SY_BUTTON_CURSOR_ON");
         }
@@ -103,6 +112,14 @@ void FileSelectButton::control() {
 
         mButtonCtrl[i]->update();
     }
+
+#ifdef TARGET_PC
+    if (NebulaArchipelago::isSingleSaveFile()) {
+        MR::hidePane(this, "CopyButton");
+        MR::hidePane(this, "MiiButton");
+        MR::hidePane(this, "DeleteButton");
+    }
+#endif
 
     if (mButtonCtrl[4]->isPointing()) {
         _48->show(MR::getGameMessageDirect("2PGuidanceIcon"), "P2Button");

@@ -1,3 +1,7 @@
+#ifdef TARGET_PC
+#include "Game/Map/NebulaFileLogo.hpp"
+#include "Game/System/NebulaArchipelago.hpp"
+#endif
 #include "Game/Map/FIleSelectItem.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/LiveActor/PartsModel.hpp"
@@ -112,6 +116,10 @@ FileSelectItem::FileSelectItem(s32 a1, bool a2, const FileSelectIconID& rID, con
     _D4.identity();
     _104.identity();
 
+#ifdef TARGET_PC
+    mLogo = nullptr;
+    mLogoOn = false;
+#endif
     mModels = new FileSelectModel*[5];
 
     for (u32 i = 0; i < 5; i++) {
@@ -126,7 +134,20 @@ void FileSelectItem::init(const JMapInfoIter& rIter) {
     createFellows();
     createMii();
     createNumber();
+#ifdef TARGET_PC
+    // The logo is the file of a slot that plays one character; with both, the files show Mario's head and Luigi's. It is made
+    // with the first file at the build of the scene (an actor made later is not drawn) and hidden until the connection says
+    // the one file is the multiworld's (enableLogo).
+    if (_140 == 1) {
+        mLogo = new NebulaFileLogo(this);
+        mLogo->initWithoutIter();
+    }
+    const bool isLogoFile = NebulaArchipelago::getSaveFileCount() == 1 && _140 == 1;
+    mLogoOn = isLogoFile;
+    MR::initStarPointerTarget(this, isLogoFile ? 1700.0f : 1000.0f, TVec3f(0.0f, 900.0f, 0.0f));
+#else
     MR::initStarPointerTarget(this, 1000.0f, TVec3f(0.0f, 900.0f, 0.0f));
+#endif
     MR::invalidateClipping(this);
     initNerve(GET_NERVE_ANON(FileSelectItemNrvNewWait));
     MR::createCenterScreenBlur();
@@ -397,13 +418,19 @@ void FileSelectItem::control() {
 
     mScaleCtrl->updateNerve();
 
-    mPlanetMapObj->mScale.setAll< f32 >(30.0f * mScaleCtrl->getScale());
+#ifdef TARGET_PC
+    // Archipelago: the one save file shows the logo (see NebulaFileLogo) and the game's own models are made too small to see.
+    const f32 bigger = mLogoOn ? 0.001f : 1.0f;
+#else
+    const f32 bigger = 1.0f;
+#endif
+    mPlanetMapObj->mScale.setAll< f32 >(30.0f * mScaleCtrl->getScale() * bigger);
 
     for (s32 i = 0; i < 5; i++) {
-        mModels[i]->mScale.setAll< f32 >(30.0f * mScaleCtrl->getScale());
+        mModels[i]->mScale.setAll< f32 >(30.0f * mScaleCtrl->getScale() * bigger);
     }
 
-    mFaceParts->mScale.setAll< f32 >(27.0f * mScaleCtrl->getScale());
+    mFaceParts->mScale.setAll< f32 >(27.0f * mScaleCtrl->getScale() * bigger);
 
     mBlinkCtrl->updateNerve();
 
@@ -955,3 +982,18 @@ void FileSelectItem::exeNewWait() {
 
 FileSelectItem::~FileSelectItem() {
 }
+
+#ifdef TARGET_PC
+// The logo's size: that of the file when pointed at (it swells) times how much larger the one file is shown.
+f32 FileSelectItem::getLogoScale() const {
+    return mScaleCtrl->getScale() * 1.4f;
+}
+
+void FileSelectItem::enableLogo() {
+    mLogoOn = mLogo != nullptr;
+
+    if (MR::isExistStarPointerTarget(this)) {
+        MR::setStarPointerTargetRadius3d(this, 1700.0f);
+    }
+}
+#endif

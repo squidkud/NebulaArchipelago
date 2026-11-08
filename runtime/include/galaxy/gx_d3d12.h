@@ -349,6 +349,7 @@ struct NativeSettingsViewRow {
     bool buttons = false;     // its value is its buttons' words, '|' between them
     unsigned mod_list = 0u;   // the MODS page's lists: 1 off, 2 on (a mod, or the list's title)
     bool held = false;        // a mod picked up to move
+    bool text = false;        // its value is a text typed in: shown at the row's end, without arrows
     unsigned slider_steps = 0u;  // a setting along a range: its steps, and the one it is at
     unsigned slider_at = 0u;
 };
@@ -371,6 +372,8 @@ enum class NativeSettingsStatus : unsigned {
     Leave,            // leaving with changes not applied: apply or discard them first
     ModsRestartAsk,   // mod changes applied: restart now? (yes: Apply, later: Close)
     JoyCon,           // Pair Joy-Con: status_number has the halves (kJoyCon* bits); Close leaves
+    TextEntry,        // a text is typed (the Archipelago page): status_text the field's name, a line break and the text so far
+                      // (status_number: nebula_game_api.h's NEBULA_KEY_*, NEBULA_TEXT_*)
 };
 // The Pair Joy-Con screen's status_number (nebula_game_api.h's NEBULA_JOYCON_*, checked alike in host_main.cpp).
 inline constexpr int kJoyConLeftBit = 1;       // a left half is connected
@@ -380,6 +383,23 @@ inline constexpr int kJoyConRightHeldBit = 8;  // its R is held
 inline constexpr int kJoyConPairedBit = 16;    // a pair was just made
 inline constexpr int kJoyConLeftPressesShift = 8;    // 4 bits: the left halves' button presses, counted round
 inline constexpr int kJoyConRightPressesShift = 12;  // 4 bits: the right halves'
+// The on-screen keyboard's keys and status_number (nebula_game_api.h's NEBULA_KEYBOARD_* and NEBULA_KEY_*, checked alike in
+// host_main.cpp): a grid of rows of columns, then the keys under it.
+inline constexpr int kKeyboardColumns = 10;
+inline constexpr int kKeyboardRows = 4;
+inline constexpr int kKeyboardLayerCount = 3;  // lower case, upper case, symbols
+inline constexpr int kKeyShift = 40;           // upper case for one letter
+inline constexpr int kKeySymbols = 41;         // the symbols layer, and back
+inline constexpr int kKeySpace = 42;
+inline constexpr int kKeyBackspace = 43;
+inline constexpr int kKeyCancel = 44;
+inline constexpr int kKeyDone = 45;
+inline constexpr int kKeyCount = 46;
+inline constexpr int kTextLayerShift = 8;
+inline constexpr int kTextMasked = 1 << 12;
+inline constexpr char kKeyboardLower[] = "1234567890" "qwertyuiop" "asdfghjkl_" "zxcvbnm.:-";
+inline constexpr char kKeyboardUpper[] = "1234567890" "QWERTYUIOP" "ASDFGHJKL_" "ZXCVBNM.:-";
+inline constexpr char kKeyboardSymbols[] = "!@#$%^&*()" "~`+=[]{}|\\" ";'\",<>/?_-" "0123456789";
 struct NativeSettingsView {
     bool open = false;
     unsigned page = 0u;
@@ -393,7 +413,33 @@ struct NativeSettingsView {
     NativeSettingsStatus status = NativeSettingsStatus::Help;
     int status_number = 0;
     std::string status_text;
+    unsigned gate = 0u;  // the connection screen after the title: 1 not connected, 2 connected; 0 the menu as usual
 };
+// The Archipelago page's connection (archipelago.ini): the host registers how to read and write it, and how the client
+// stands (galaxy::archipelago::State as a number, 0 off, 1 connecting, 2 connected, 3 refused).
+struct NativeArchipelagoHooks {
+    bool (*load)(std::string& server, std::string& slot, std::string& password) = nullptr;
+    // Writes archipelago.ini with these (as soon as a field is validated), without connecting.
+    bool (*save)(const std::string& server, const std::string& slot, const std::string& password, std::string& error) = nullptr;
+    // Writes archipelago.ini with these and restarts the client with it (the connection goes on in the background).
+    bool (*connect)(const std::string& server, const std::string& slot, const std::string& password, std::string& error) = nullptr;
+    unsigned (*state)() = nullptr;
+};
+void native_settings_set_archipelago_hooks(const NativeArchipelagoHooks& hooks);
+// The connection screen after the title: the settings menu opens on the Archipelago page alone (no other page, no tabs)
+// until the client is connected or the player skips it. The result: kGateOpen while it is up, then kGateConnected or
+// kGateSkipped (the game goes on either way).
+inline constexpr unsigned kGateOpen = 0u;
+inline constexpr unsigned kGateConnected = 1u;
+inline constexpr unsigned kGateSkipped = 2u;
+void native_settings_open_gate();
+[[nodiscard]] unsigned native_settings_gate_result();
+// A character the player typed (the window's WM_CHAR) and a paste (UTF-8) for the text the settings menu asks for; false
+// when none is asked for (the key is then the game's).
+bool native_settings_text_char(char32_t character);
+bool native_settings_text_paste(const std::string& text);
+// The settings menu asks for a text now.
+[[nodiscard]] bool native_settings_text_active();
 // The menu as it stands. The first call hands the drawing to the game: the overlay draws nothing of its own after.
 [[nodiscard]] NativeSettingsView native_settings_view();
 // The pointer's input to the menu (the game's own menu takes the pointer; the window thread the keyboard and pads).

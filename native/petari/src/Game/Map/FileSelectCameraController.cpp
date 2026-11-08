@@ -1,3 +1,6 @@
+#ifdef TARGET_PC
+#include "Game/System/NebulaArchipelago.hpp"
+#endif
 #include "Game/Map/FileSelectCameraController.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Util/ActorCameraUtil.hpp"
@@ -14,6 +17,20 @@ namespace {
     const f32 cTitleFovy = 60.0f;
     const f32 cFarFovy = 40.0f;
     const f32 cNearFovy = 50.0f;
+};  // namespace
+
+namespace {
+    // The far view's target. With the one Archipelago save file (the logo in the middle) it is raised, so the logo stands
+    // a little below the middle of the screen, clear of the line of text at the top.
+    inline TVec3f getFarTarget() {
+        TVec3f target(::cFarTarget);
+#ifdef TARGET_PC
+        if (NebulaArchipelago::isSingleSaveFile()) {
+            target.y += 350.0f;
+        }
+#endif
+        return target;
+    }
 };  // namespace
 
 namespace {
@@ -76,8 +93,9 @@ bool FileSelectCameraController::isToOrAtNearPoint() const {
 
 void FileSelectCameraController::exeTitle() {
     if (MR::isFirstStep(this)) {
-        mWPoint.set< f32 >(::cFarTarget.x, ::cFarTarget.y + 15000.0f, ::cFarTarget.z);
-        mPosition.set< f32 >(::cFarPoint.x, ::cFarTarget.y + 15000.0f, ::cFarPoint.z);
+        const TVec3f farTarget = ::getFarTarget();
+        mWPoint.set< f32 >(farTarget.x, farTarget.y + 15000.0f, farTarget.z);
+        mPosition.set< f32 >(::cFarPoint.x, farTarget.y + 15000.0f, ::cFarPoint.z);
         mUpVec.set(0.0f, 1.0f, 0.0f);
     }
 }
@@ -90,7 +108,7 @@ void FileSelectCameraController::exeMoveToFarPoint() {
     f32 squaredTime = getNerveStep() / 60.0f;
 
     squaredTime *= squaredTime;
-    mWPoint += (TVec3f(::cFarTarget) - mWPoint) * squaredTime;
+    mWPoint += (::getFarTarget() - mWPoint) * squaredTime;
     mFovy += (::cFarFovy - mFovy) * squaredTime;
     mPosition.add((TVec3f(::cFarPoint) - mPosition) * squaredTime);
 
@@ -98,7 +116,7 @@ void FileSelectCameraController::exeMoveToFarPoint() {
 }
 
 void FileSelectCameraController::exeFarPoint() {
-    mWPoint = ::cFarTarget;
+    mWPoint = ::getFarTarget();
     mFovy = ::cFarFovy;
     mPosition.set(TVec3f(::cFarPoint));
 }

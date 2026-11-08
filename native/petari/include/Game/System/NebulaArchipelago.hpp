@@ -23,6 +23,23 @@ namespace NebulaArchipelago {
     // The client runs.
     bool isActive();
 
+    // The title's A: the connection screen first (the host's settings menu on its Archipelago page, alone), then, once
+    // connected, the save files: only one is kept for the multiworld, the others are cleared (after a copy of them in the
+    // settings folder). Called each frame the title waits; true when the game may go on (connected and the files ready, or
+    // the screen skipped, or no host menu).
+    bool passConnectionGate();
+    // The file select is the multiworld's (the connection screen was passed connected): it offers one save file, or two when
+    // the slot plays both characters. Copy, Icon and Erase are not there.
+    bool isSingleSaveFile();
+    // How many save files the file select offers: 0 when it is the game's own (six files), 1, or 2 (file 1 is Mario's, file 2
+    // is Luigi's, each named "<player> (Mario)" and "<player> (Luigi)").
+    s32 getSaveFileCount();
+    // Who plays the file (numbered from 1): 0 Mario, 1 Luigi, -1 when the player chooses with the file select's button.
+    s32 getFileCharacter(s32 id);
+    // The slot's name the client is connected with, as the 16-bit text the file select's name box takes (at most
+    // capacity - 1 characters, terminated); false when there is none.
+    bool getSlotName(u16* pName, s32 capacity);
+
     // The star items option: the game's own logic asks these. Each returns false (and leaves its result) when the
     // game's own value stands.
     //   flag: SpecialStarGrand1 to 6 and SpecialStarGreen1 to 3 are on once that many such items came.
@@ -73,6 +90,7 @@ namespace NebulaArchipelago {
     // the class of its item. false (frame untouched) when the option is off or the class is not known yet.
     bool getStarColorFrame(s32 scenario, s32* pFrame);
     bool areStarColorsOn();
+    bool isStarReleased(s32 scenario);
 
     // The skybox_shuffle option also recolours the nebula of the star select screen: a hue shift (degrees, 60 to 300) chosen
     // from the multiworld's seed (the same multiworld, the same colour). false when the option is off or there is no seed.
@@ -173,6 +191,54 @@ namespace NebulaArchipelago {
         Skill_TripleJump = 5,  // the third jump of the chain
     };
     bool isSkillLocked(s32 skill);
+
+    // The in-game tracker (the pause menu's Tracker button). A "place" is a miniature of StarData.GALAXIES (the galaxy that
+    // stands in it is the shuffle's choice); each place lists the slot's locations of the galaxy standing in it, as the
+    // current save sees them, and what the logic asks of each (the APWorld's rules: the star counter, the Grand Stars of
+    // the dome, the Observatory galaxies' extra Grand Stars, the Green Stars of the trial galaxies, the forms when they are
+    // items, the Star Festival's other stars).
+    static const s32 cTrackerStarMax = 8;
+    enum TrackerState {
+        TrackerState_Done,    // checked
+        TrackerState_Doable,  // not checked, and the logic lets the player do it
+        TrackerState_Locked,  // not checked, and something is missing (mNeed)
+    };
+    enum TrackerNeed {
+        TrackerNeed_Dome = 1,    // the dome is not open (TrackerGalaxy::mDoor)
+        TrackerNeed_Stars = 2,   // the star counter is short of TrackerGalaxy::mNeedStars
+        TrackerNeed_Grand = 4,   // the Observatory galaxy asks Grand Stars (TrackerGalaxy::mNeedGrand)
+        TrackerNeed_Green = 8,   // the trial galaxy asks the three Green Stars
+        TrackerNeed_Form = 16,   // forms are missing (TrackerStar::mForms: the first group not met in the low byte, the second in the next; each the forms of which one is needed: 1 Bee 2 Boo 4 Spring 8 Fire 16 Ice 32 Flying)
+        TrackerNeed_Others = 32, // the Star Festival asks every other star first
+    };
+    struct TrackerStar {
+        s32 mScenario;  // the star's number in its galaxy (1-based)
+        s32 mKind;      // StarData's kinds in the generated table's order: 0 star, 1 comet, 2 secret, 3 purple, 4 luigi, 5 green, 6 grand, 8 festival
+        s32 mState;     // TrackerState
+        s32 mNeed;      // TrackerNeed bits (locked only)
+        s32 mForms;
+    };
+    struct TrackerGalaxy {
+        const char* mStage;  // the galaxy standing in the place (its game name)
+        s32 mPlace;
+        s32 mStarNum;
+        TrackerStar mStars[cTrackerStarMax];
+        s32 mNeedStars;      // what the place asks of the star counter
+        s32 mNeedGrand;      // the Observatory galaxy's Grand Stars (0 none)
+        s32 mDoor;           // the dome's door number (0 outside the domes)
+        bool mOpen;          // the galaxy can be entered (nothing asked of the galaxy itself is missing) or one of its stars is done: the tracker names it; else it shows ???
+    };
+    s32 getTrackerPlaceNum();
+    //   the place's own room (1 to 6, 0 outside the domes), and the room behind door `door` (1 to 6)
+    s32 getTrackerPlaceRoom(s32 place);
+    s32 getTrackerDoorRoom(s32 door);
+    //   the Grand Stars the player has (the door `door` of a dome is open with that many)
+    s32 getTrackerGrandFlags();
+    //   false when the galaxy standing in the place has no location in this slot
+    bool getTrackerGalaxy(s32 place, TrackerGalaxy* pOut);
+    //   how many of an item (NEBULA_AP_ITEM_*) the server has sent in all, and a slot option (NEBULA_AP_OPT_*)
+    s32 getReceivedCount(s32 item);
+    s32 getSlotOption(s32 option);
 
     // The star select does not show this star: the slot leaves its kind (the Prankster Comet stars, the Purple Coin stars)
     // out of the multiworld.

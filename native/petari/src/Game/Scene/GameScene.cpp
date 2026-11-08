@@ -66,6 +66,7 @@
 #include "Game/Screen/GameSceneLayoutHolder.hpp"
 #include "Game/NPC/NebulaAchievementLuma.hpp"
 #include "Game/Screen/NebulaAchievementBoard.hpp"
+#include "Game/Screen/NebulaTracker.hpp"
 #include "Game/Screen/NebulaAchievementToast.hpp"
 #include "Game/System/NebulaAchievements.hpp"
 #include "Game/System/NebulaArchipelago.hpp"
@@ -709,6 +710,9 @@ void GameScene::draw2D() const {
     if (isNerve(GET_NERVE(GameScene, GameSceneNebulaBoard))) {
         MR::getGameSceneLayoutHolder()->mAchievementBoard->drawOnTop();
     }
+    if (NebulaTracker::isShown() && MR::getGameSceneLayoutHolder()->mTracker != nullptr) {
+        MR::getGameSceneLayoutHolder()->mTracker->drawOnTop();
+    }
     MotionSignal::scene2D(false);
 #endif
 }
@@ -891,6 +895,22 @@ void GameScene::exePowerStarGet() {
 void GameScene::exePauseMenu() {
     if (MR::isFirstStep(this)) {
     }
+
+#ifdef TARGET_PC
+    // The Archipelago tracker (the pause menu's Tracker button): it opens over the pause menu, which takes no input
+    // under it, and the pause goes on when it closes.
+    if (MR::isExistSceneObj(SceneObj_GameSceneLayoutHolder) && MR::getGameSceneLayoutHolder()->mTracker != nullptr) {
+        NebulaTracker* pTracker = MR::getGameSceneLayoutHolder()->mTracker;
+        if (NebulaTracker::takeRequest() && !pTracker->isOpen()) {
+            pTracker->open();
+        }
+        if (pTracker->isOpen()) {
+            pTracker->update();
+            CategoryList::execute(MR::MovementType_LayoutOnPause);
+            return;
+        }
+    }
+#endif
 
     mPauseSeq->movement();
     CategoryList::execute(MR::MovementType_LayoutOnPause);

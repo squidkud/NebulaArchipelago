@@ -26,6 +26,9 @@ public:
     virtual void addStarPieceSaveData(s32);
     virtual void disappear(bool);
     virtual void appearInformation() const;
+#ifdef TARGET_PC
+    virtual const char* getArchipelagoGalaxy() const;
+#endif
 
     /* 0x208 */ const char* mGalaxyName;
     /* 0x208 */ TicoStarRing* mStarRing;

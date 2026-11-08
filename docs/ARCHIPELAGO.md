@@ -15,7 +15,7 @@ Mario Galaxy dans un multiworld. Il suppose que vous n'avez jamais compilé de p
 - **Chaque étoile a son nom** : « Good Egg Galaxy - Dino Piranha », « Honeyhive Galaxy - Bee Mario Takes Flight », etc.
   (les étoiles du jeu en anglais, dont les étoiles vertes et celles des comètes). Collecter une étoile envoie un
   objet à quelqu'un dans le multiworld. Les étoiles des comètes sont facultatives, de même que les étoiles à pièces
-  violettes (après la fin du jeu) et la cache-cache de Luigi (expérimental).
+  violettes (faisables dès que leur galaxie est ouverte) et la cache-cache de Luigi (expérimental).
 - **Les étoiles sont des objets** : **Étoiles de Puissance, Étoiles Vertes et Grandes Étoiles** arrivent du multiworld
   (comme dans l'APWorld Dolphin). Le compteur d'étoiles du jeu, les étoiles demandées par chaque galaxie et les
   événements « Grande Étoile » / « Étoile Verte » lisent ces objets, pas les étoiles que vous avez ramassées.
@@ -25,7 +25,8 @@ Mario Galaxy dans un multiworld. Il suppose que vous n'avez jamais compilé de p
 - **Démarrage à l'Observatoire** dès que vous choisissez une sauvegarde, sans avoir fini le jeu.
 - **Personnage** (`character: mario`, `luigi` ou `both`, défaut `mario`) : chaque étoile existe une fois par personnage
   (« Good Egg Galaxy - Dino Piranha (Mario) » / « (Luigi) »). Avec `mario` ou `luigi`, le jeu impose ce personnage sur tous
-  les fichiers et le bouton de bascule Mario/Luigi du choix de fichier est caché ; avec `both` le bouton reste. Les deux
+  les fichiers et le bouton de bascule Mario/Luigi du choix de fichier est caché ; avec `both` le choix de fichier montre **deux fichiers côte à côte** : le 1 pour Mario (sa tête), le 2 pour Luigi (sa tête),
+  nommés « <joueur> (Mario) » et « <joueur> (Luigi) » (pas de bouton de bascule). Les deux
   sauvegardes partagent les mêmes objets reçus et le même compteur d'étoiles. Jamais essayé en jeu.
 - Les autres objets sont des bonus : champignon 1-Up ou 50 Star Bits.
 - **Les pop-ups disent d'où vient un objet** : « Power Star from Bob (Good Egg Galaxy - Dino Piranha) » (l'emplacement
@@ -37,6 +38,7 @@ Mario Galaxy dans un multiworld. Il suppose que vous n'avez jamais compilé de p
   à ouvrir ce dernier niveau (Rosetta vous parle d'harmonie, puis il est ouvert) ; les Grandes Étoiles ne sont pas
   nécessaires.
 - **Exigences d'étoiles** par galaxie et **coût des Lumas affamés** réglables (voir le tableau des options).
+- **Lumas affamés de l'Observatoire** : quand on leur parle, ils ne racontent plus leur histoire de transformation : ils annoncent la galaxie qu'ils ouvrent (celle qui est vraiment à leur place, même mélangée) et le nombre de Star Bits qu'il leur reste à manger.
 - **Mélange des galaxies** (`galaxy_shuffle`, `galaxy_shuffle_type`) : dans l'Observatoire, chaque petite galaxie
   garde ce qui l'ouvre (le nombre d'étoiles demandé, sa place dans le dôme), mais **montre, nomme et lance une autre
   galaxie**. Les étoiles de cette galaxie sont les emplacements de cette galaxie, où qu'elle se trouve. Détails dans
@@ -67,11 +69,11 @@ Mario Galaxy dans un multiworld. Il suppose que vous n'avez jamais compilé de p
   jeu demande au serveur ce que contient chaque lieu au moment de la connexion. Attention : c'est un petit spoiler
   voulu (on voit quelles étoiles comptent).
 - **Boutique de Star Bits** (`shop_items`, de 1 à 20, 8 par défaut ; prix de `shop_min_price` (100 par défaut) à
-  `shop_max_price` (2000 par défaut), les autres étagères en progression régulière) : le
+  `shop_max_price` (2000 par défaut), les autres étagères en progression régulière ; une fois le multiworld rempli, les prix sont distribués selon l'importance de l'objet sur l'étagère : progression = le plus cher, puis utile, puis filler, pièges = le moins cher) : le
   Luma jaune du début de l'Observatoire, celui qui ouvrait la page des succès de Nebula, ouvre à la place une
   boutique. Chaque étagère est un lieu du multiworld : elle contient un objet (de votre monde ou d'un autre, le nom
   et le joueur sont affichés une fois connecté) et coûte des Star Bits. Chaque étagère montre l'image de l'objet s'il
-  est de votre jeu (pièges compris), sinon le logo Archipelago. Pas de curseur : manette/clavier, **A** demande
+  est de votre jeu (pièges compris), sinon le logo Archipelago. Une étagère déjà cochée sur le serveur (par exemple après un release de votre jeu) compte comme achetée, et une étoile déjà cochée apparaît comme prise dans le choix des étoiles. Pas de curseur : manette/clavier, **A** demande
   « Acheter X pour N Star Bits ? » (Oui/Non, **B** annule), **B** ferme la boutique. À l'ouverture, les étagères non
   achetées sont déclarées en **hint** aux joueurs concernés. Il faut être connecté au serveur pour acheter ; un achat
   est mémorisé (par le serveur). Les prix ne sont pas pris en compte dans la logique. La boutique est obligatoire
@@ -300,7 +302,7 @@ Options du YAML (toutes facultatives) :
 | `goal` (`bowser`, `bowser_and_120_stars` ou `242_stars`) | `bowser` : l'étoile de Bowser ; `bowser_and_120_stars` : Bowser **et** les 120 étoiles de chaque personnage (pourpres comprises, sans la Star Festival, la 121e) ; `242_stars` : toutes les étoiles, pourpres comprises, du ou des personnages ; la dernière de chaque personnage est l'étoile « Grand Finale Galaxy - The Star Festival » (la 121e, un lieu seulement avec ce but) : l'entrée du jeu n'est pas modifiée (elle n'apparaît que quand Mario **et** Luigi ont chacun leurs 120 étoiles) ; on peut aussi y aller à tout moment par le menu ADVANCED du choix de galaxie des réglages; avec `both`, le but part quand le second personnage prend la sienne. Avec les deux derniers, les trois options qui suivent sont **ignorées** (tout est activé) |
 | `stars_to_finish` (10 à 120, défaut 50) | **seulement avec le but `bowser`** : nombre d'étoiles pour ouvrir le Réacteur de Bowser (avec `bowser_and_120_stars` le Réacteur demande toujours 120 étoiles, avec `242_stars` les 60 du jeu) ; aucune Power, Green ou Grand Star n'est jamais derrière la fin (les étoiles pourpres n'en contiennent pas) : avec d'autres joueurs dans le multiworld le Réacteur demande toujours 120 (le shop reçoit des étagères en plus, jusqu'à 20, si le pool en a besoin) ; seul, ce sont les places avant la fin qui limitent : le shop reçoit des étagères, et avec un seul personnage et les transformations en objets le Réacteur demande un peu moins (environ 104) |
 | `include_comet_stars` (défaut oui) | **seulement avec le but `bowser`** : les étoiles des comètes sont des lieux ; sinon elles n'apparaissent pas non plus dans le choix d'étoile du jeu |
-| `include_purple_coin_stars` (défaut non) | **seulement avec le but `bowser`** : les étoiles à pièces violettes (après la fin) ; sinon elles n'apparaissent pas dans le choix d'étoile du jeu |
+| `include_purple_coin_stars` (défaut non) | **seulement avec le but `bowser`** : les étoiles à pièces violettes (dès que leur galaxie est ouverte) ; sinon elles n'apparaissent pas dans le choix d'étoile du jeu |
 | *(supprimées)* | `power_star_percentage`, `include_luigi_stars`, `one_up_percentage`, `rainbow_star_percentage`, `star_bit_pack_percentage`, `one_up_burst_percentage`, `full_heal_percentage` n'existent plus (remplissage fixe, personnage via `character`) ; une ligne qui les cite dans un YAML est ignorée |
 | `star_requirements` (`vanilla` ou `dome_offsets`, défaut `vanilla`) | `dome_offsets` : les étoiles demandées par chaque galaxie des dômes viennent des options `dome_*_counts` |
 | `dome_one_counts` … `dome_six_counts` | pour chaque « orbite » (First à Fifth Orbit) : combien d'étoiles de plus que l'orbite précédente (0 à 8, 10 pour les dômes 2 à 5, 20 pour le dôme 6) ; la 1re orbite d'un dôme s'ajoute au plus grand nombre du dôme précédent ; le total est plafonné par `stars_to_finish`. Accepte `random` et `random-range-1-5` |
@@ -313,7 +315,31 @@ Les Star Bits des Lumas ne sont pas pris en compte dans la logique (on suppose q
 
 ## 7. Dire à Nebula où se connecter
 
-**Le plus simple** : lancez le script `tools\archipelago_setup.ps1` (dans PowerShell, depuis `C:\dev\nebula` :
+**Dans le jeu** (pas testé en jeu) : au menu titre, appuyez sur **A** : une page **Connexion à Archipelago** s'affiche avant
+le choix de la sauvegarde. Elle demande **Serveur**, **Slot** et **Mot de passe** : chaque ligne ouvre un champ de saisie
+(au clavier, **Ctrl+V** colle le presse-papiers ; sinon le clavier à l'écran : souris, croix et A de la manette, X
+efface, Y connecte, B passe, LB/RB changent majuscules et symboles). Chaque champ validé est **écrit tout de suite** dans
+`archipelago.ini` : si vous fermez le jeu avant de connecter, la salle saisie est retrouvée au lancement suivant. Le jeu ne
+se connecte **pas** au lancement (la salle n'est pas encore connue, donc pas de message d'échec) : la page s'affiche à
+chaque lancement, avec les valeurs du fichier, et un appui sur **Connecter** suffit. Appuyez sur **Connecter** (Entrée, ou Y sur la
+manette) : le jeu écrit `archipelago.ini`, se connecte, puis la page se ferme toute seule et la popup habituelle
+« Connected to Archipelago as … » apparaît. Si le fichier `archipelago.ini` existe déjà et que la connexion marche, la
+page s'affiche avec « Connected » : **Continuer** suffit. **Passer** (Échap ou B) entre dans le jeu sans connexion.
+
+Le même réglage existe dans les réglages de Nebula (touche F1 ou la manette), onglet **Archipelago**, avec le bouton
+**Connecter** : il refait la connexion en cas de problème, sans redémarrer le jeu.
+
+**Une seule sauvegarde par multiworld** (deux avec `character: both`). Une fois connecté, seule la **sauvegarde 1** existe : elle est affichée seule, plus
+grande, au milieu de l'écran de choix, sans son numéro, et à la place de la tête du personnage elle montre le **logo
+d'Archipelago en 3D** (six disques arrondis qui tournent ; pas testé en jeu). Les boutons Copy, Icon et Erase n'existent
+plus (seul « Play This File » reste), la barre avec le nom et les étoiles reste en haut, et le fichier est **créé tout seul** à la connexion (rien à confirmer, pas de question d'icône : c'est la tête de
+Mario, ou de Luigi pour le fichier 2 avec `both`). Ces sauvegardes se font sans fenêtre : seul le petit « Saving... » du coin en bas à gauche (comme en jeu) l'annonce. L'écran de choix est construit au lancement du jeu, avant la connexion : il se met à jour juste après (sauvegardes relues, un seul fichier, logo). Deux fichiers seulement quand le YAML dit `character: both` explicitement ; sans cette option, un seul (Mario). Le nom affiché dans la barre est celui du slot (le joueur Archipelago). Le logo vient de `tools/gen_archipelago_logo_mesh.py` (relancez-le pour
+changer sa forme : `--preview image.png` en dessine un aperçu). Avec `character: both`, ce sont les sauvegardes 1 (Mario) et 2 (Luigi) qui existent, côte à côte, chacune avec la tête de son personnage au lieu du logo ; le Luigi d'une ancienne sauvegarde 1 n'est plus utilisé (il est dans la sauvegarde 2 désormais). Les autres sauvegardes sont effacées ; si une sauvegarde gardée vient d'un autre multiworld (autre salle ou autre slot), elle l'est aussi, pour
+repartir de zéro. Avant d'effacer quoi que ce soit, le jeu copie toutes les sauvegardes dans
+`%LOCALAPPDATA%\Nebula\saves-backup\<date>` : rien n'est perdu pour de bon. Le fichier `archipelago-saves.txt` (même
+dossier) note à quel multiworld appartiennent les sauvegardes.
+
+Sinon, **autre méthode** : lancez le script `tools\archipelago_setup.ps1` (dans PowerShell, depuis `C:\dev\nebula` :
 `.\tools\archipelago_setup.ps1`). Il vous pose 3 questions (adresse, nom du joueur, mot de passe) et écrit le fichier
 `%LOCALAPPDATA%\Nebula\archipelago.ini` avec le bon nom (si PowerShell refuse de lancer le script, tapez d'abord
 `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass`). Vous pouvez aussi le créer à la main avec le Bloc-notes :
@@ -328,7 +354,7 @@ password=
 - `slot` : exactement le `name:` de votre YAML.
 - `password` : vide si la salle n'en a pas.
 - Pour jouer sans Archipelago : renommez ou supprimez ce fichier (ou ajoutez la ligne `enabled=0`).
-- Il n'est pas encore possible de saisir l'adresse dans le jeu lui-même : la connexion se règle uniquement par ce fichier.
+- L'onglet Archipelago des réglages (voir plus haut) écrit ce même fichier ; le script et le Bloc-notes marchent toujours.
 
 Attention : le fichier doit s'appeler **`archipelago.ini`** et non `archipelago.ini.txt` (le Bloc-notes ajoute
 parfois `.txt` ; activez « Extensions de noms de fichiers » dans l'Explorateur pour le voir). Nebula accepte quand
@@ -363,6 +389,31 @@ logique est reconstruite à partir des données de la partie (mélanges, ordre d
 Je n'ai pas pu ouvrir la fenêtre graphique ici (pas d'écran) : les commandes et la reconstruction de la logique sont
 vérifiées en test, l'affichage dans le Launcher ne l'est pas.
 
+### Le tracker en jeu
+
+Avec une partie Archipelago, le menu **Start** a un bouton **Tracker** au-dessus de **Paramètres**. Il ouvre une page
+par-dessus le menu pause (fond étoilé de la carte des galaxies) :
+
+- **En haut, sept onglets** : les six dômes (*Terrace*, *Fountain*, *Kitchen*, *Bedroom*, *Engine Room*, *Garden*) dans
+  l'ordre où ils s'ouvrent dans le multiworld (donc pas l'ordre vanilla si `dome_shuffle` est activé), puis *Autres*
+  (tout ce qui n'est pas dans un dôme : galaxies des Lumas goinfres, Gateway, etc.). Un dôme pas encore ouvert s'affiche
+  « ??? » et ne s'ouvre pas.
+- **Sous l'onglet**, une ligne par galaxie (avec le nom, « faites / total ») ; une galaxie pas encore débloquée (compteur
+  d'étoiles, dôme, Grand Stars ou étoiles vertes qui manquent) s'affiche « ??? » sans aucune information, sauf le Gateway
+  et Bowser's Star Reactor qui sont toujours nommés ; et une étoile pour chaque position du slot :
+  étoile **dorée** = faite (les libérations du serveur comptent), étoile **blanche un peu transparente** = faisable
+  d'après la logique mais pas encore faite, étoile **noire** = pas faisable. Les étoiles ont l'icône de leur type
+  (étoile, comète, pièces violettes, cachée, étoile verte).
+- **Le détail** : en visant (pointeur) ou en choisissant (manette) une étoile, la ligne sous la liste donne son nom et
+  ce qui lui manque : le dôme, le compteur d'étoiles de la galaxie, les Grand Stars demandés, les 3 étoiles vertes des
+  galaxies d'épreuve, les transformations, ou « toutes les autres étoiles » pour le Star Festival.
+- **Les compteurs** (étoiles / total pour finir, Grand Stars, étoiles vertes), puis **Objets** : les icônes des
+  transformations reçues (quand elles sont des objets du pool), ajoutées au fur et à mesure.
+
+La logique est celle de l'APWorld (même table d'étoiles, générée par `tools/gen_archipelago_stars.py`). Commandes : -/+
+ou clic changent d'onglet, la croix directionnelle ou le pointeur choisissent une étoile, B ou le bouton Retour ferment.
+Le jeu n'a pas été lancé ici : l'affichage n'est pas testé.
+
 ## Options du mélange
 
 À mettre dans votre YAML, comme les autres options :
@@ -395,7 +446,7 @@ vérifiées en test, l'affichage dans le Launcher ne l'est pas.
 - **Départ à l'Observatoire** : les cinématiques d'introduction de l'histoire sont sautées, et certaines scènes du
   type « vous venez d'obtenir une Grande Étoile » peuvent ne pas se jouer, puisque les étoiles viennent des objets.
 - **Étoiles des comètes** : elles se choisissent directement dans le choix des étoiles (plus de comètes aléatoires). Les étoiles à pièces
-  violettes ne sont accessibles qu'après la fin du jeu.
+  violettes se font dès que leur galaxie est ouverte (ni les 13 étoiles des comètes, ni la fin du jeu ne sont demandées ; seule la transformation, s'il y en a une).
 - **Cache-cache de Luigi** : les étoiles de Luigi se choisissent comme les autres ; Luigi apparaît dans la galaxie dès
   que vous choisissez son étoile. Le jeu peut quand même lui faire quitter l'Observatoire et envoyer sa lettre : ça ne
   change rien à ces étoiles.

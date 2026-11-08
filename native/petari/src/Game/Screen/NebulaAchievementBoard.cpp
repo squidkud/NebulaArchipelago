@@ -585,6 +585,10 @@ namespace {
                 }
             }
         }
+        // The header's count (bought / shelves) follows the purchases, as the Star Bits row does.
+        wchar_t header[48];
+        formatCount(header, 48, p->mUnlockedNum, p->mShopNum);
+        setText(p->mSummary, header);
         p->mArranged = false;  // the texts changed: laid out again at the next frame
     }
 

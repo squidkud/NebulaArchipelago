@@ -582,3 +582,69 @@ ShopNo	No		Non	Non	No	No	Nein	No			いいえ	아니요	否	否
 SaveIndicator	Saving...		Sauvegarde...	Sauvegarde...	Guardando...	Guardando...	Speichern...	Salvataggio...			セーブちゅう...	저장 중...	保存中...	儲存中...
 HintBuy	A: Buy		A : Acheter	A : Acheter	A: Comprar	A: Comprar	A: Kaufen	A: Compra			A: かう	A: 구매	A: 购买	A: 購買
 LumaShop	Want to take a look at my Star Bit shop?		Tu veux jeter un œil à ma boutique d'Éclats d'Étoile ?	Tu veux jeter un œil à ma boutique de Fragments d'étoile ?	¿Quieres echar un vistazo a mi tienda de Trozos de Estrella?	¿Quieres echar un vistazo a mi tienda de trozos de estrella?	Willst du einen Blick in meinen Sternenstaub-Laden werfen?	Vuoi dare un'occhiata al mio negozio di Astroschegge?			ぼくのスターピースのおみせを見ていく？	내 스타구슬 상점 구경할래?	要来看看我的星屑商店吗？	要來看看我的星塵商店嗎？
+S.ARCHIPELAGO	Archipelago		Archipelago	Archipelago
+S.CONNECTION	Connection		Connexion	Connexion
+S.SERVER	Server		Serveur	Serveur
+S.SLOT	Slot		Slot	Slot
+S.PASSWORD	Password		Mot de passe	Mot de passe
+S.STATUS	Status		Statut	Statut
+S.(EMPTY)	(empty)		(vide)	(vide)
+S.CONNECTING	Connecting		Connexion en cours	Connexion en cours
+S.CONNECTED	Connected		Connecté	Connecté
+S.REFUSED_BY_THE_SERVER	Refused by the server		Refusé par le serveur	Refusé par le serveur
+S.NOT_AVAILABLE	Not available		Indisponible	Indisponible
+S.COULD_NOT_SAVE_THE_CONNECTION	Could not save the connection		Impossible d'enregistrer la connexion	Impossible d'enregistrer la connexion
+S.THE_MULTIWORLD'S_ADDRESS,_LIKE_ARCHIPELAGO.GG:#._PRESS_A,_ENTER_OR_RIGHT_TO_TYPE_IT	The multiworld's address, like archipelago.gg:{0}. Press A, Enter or Right to type it		L'adresse du multiworld, par exemple archipelago.gg:{0}. Appuyez sur A, Entrée ou Droite pour la saisir	L'adresse du multiworld, par exemple archipelago.gg:{0}. Appuyez sur A, Entrée ou Droite pour la saisir
+S.YOUR_SLOT'S_NAME_IN_THE_MULTIWORLD_(THE_NAME_IN_YOUR_YAML)	Your slot's name in the multiworld (the name in your YAML)		Le nom de votre slot dans le multiworld (le nom dans votre YAML)	Le nom de votre slot dans le multiworld (le nom dans votre YAML)
+S.THE_ROOM'S_PASSWORD,_OR_NOTHING_WHEN_IT_HAS_NONE	The room's password, or nothing when it has none		Le mot de passe de la salle, ou rien s'il n'y en a pas	Le mot de passe de la salle, ou rien s'il n'y en a pas
+S.WHETHER_THE_GAME_IS_CONNECTED_TO_THE_MULTIWORLD	Whether the game is connected to the multiworld		Indique si le jeu est connecté au multiworld	Indique si le jeu est connecté au multiworld
+SettingsKeyShift	Shift		Maj	Maj
+SettingsKeySymbols	#+=		#+=	#+=
+SettingsKeySpace	Space		Espace	Espace
+SettingsKeyDelete	Delete		Suppr.	Suppr.
+SettingsKeyCancel	Cancel		Annuler	Annuler
+SettingsKeyDone	Done		Valider	Valider
+SettingsKeyboardHelpKeys	Type, or paste with Ctrl+V   |   Enter: done   |   Esc: cancel		Tapez, ou collez avec Ctrl+V   |   Entrée : valider   |   Échap : annuler	Tapez, ou collez avec Ctrl+V   |   Entrée : valider   |   Échap : annuler
+SettingsKeyboardHelpPad	D-pad: move   |   A: type   |   X: delete   |   Y: done   |   B: cancel		Croix : bouger   |   A : taper   |   X : effacer   |   Y : valider   |   B : annuler	Croix : bouger   |   A : taper   |   X : effacer   |   Y : valider   |   B : annuler
+S.CONNECT	Connect		Connecter	Connecter
+S.CHANGED:_PRESS_CONNECT	Changed: press Connect		Modifié : appuyez sur Connecter	Modifié : appuyez sur Connecter
+S.NOT_CONNECTED	Not connected		Non connecté	Non connecté
+S.SAVES_THE_CONNECTION_IN_ARCHIPELAGO.INI_AND_CONNECTS_AGAIN,_IF_THE_CONNECTION_FAILED_OR_WAS_CHANGED	Saves the connection in archipelago.ini and connects again, if the connection failed or was changed		Enregistre la connexion dans archipelago.ini et se reconnecte, si la connexion a échoué ou a été modifiée	Enregistre la connexion dans archipelago.ini et se reconnecte, si la connexion a échoué ou a été modifiée
+SettingsGateTitle	Connect to Archipelago		Connexion à Archipelago	Connexion à Archipelago
+SettingsGateConnect	Connect		Connecter	Connecter
+SettingsGateContinue	Continue		Continuer	Continuer
+SettingsGateSkip	Skip		Passer	Passer
+HungryLumaFresh	Psst! Feed me {red}{n} {icon} Star Bits{/red} and I'll take you to {galaxy}!		J'ai la dalle ! Donne-moi {red}{n} {icon} Star Bits{/red} et je t'emmène à {galaxy} !	J'ai la dalle ! Donne-moi {red}{n} {icon} Star Bits{/red} et je t'emmène à {galaxy} !										
+HungryLumaFed	Yum! Just {red}{n} {icon} Star Bits{/red} more and {galaxy} is all yours!		Miam ! Encore {red}{n} {icon} Star Bits{/red} et {galaxy} est à toi !	Miam ! Encore {red}{n} {icon} Star Bits{/red} et {galaxy} est à toi !										
+HungryLumaOne	One last {red}1 {icon} Star Bit{/red} and I'll whisk you off to {galaxy}!		Plus qu'{red}1 {icon} Star Bit{/red} et je t'envoie direct à {galaxy} !	Plus qu'{red}1 {icon} Star Bit{/red} et je t'envoie direct à {galaxy} !										
+TrackerButton	Tracker		Tracker	Tracker									
+TrackerTitle	Tracker		Tracker	Tracker									
+TrackerFormBee	Bee		Abeille	Abeille									
+TrackerFormBoo	Boo		Fantôme	Fantôme									
+TrackerFormSpring	Spring		Ressort	Ressort									
+TrackerFormFire	Fire		Feu	Feu									
+TrackerFormIce	Ice		Glace	Glace									
+TrackerFormFlying	Flying		Vol	Vol									
+TrackerDome	Dome {n}		Dôme {n}	Dôme {n}									
+TrackerDomeName1	Terrace		Terrasse	Terrasse									
+TrackerDomeName2	Fountain		Fontaine	Fontaine									
+TrackerDomeName3	Kitchen		Cuisine	Cuisine									
+TrackerDomeName4	Bedroom		Chambre	Chambre									
+TrackerDomeName5	Engine Room		Salle des machines	Salle des machines									
+TrackerDomeName6	Garden		Jardin	Jardin									
+TrackerOther	Other		Autres	Autres									
+TrackerStarsCount	Stars {n}/{total}		Étoiles {n}/{total}	Étoiles {n}/{total}									
+TrackerGrandCount	Grand Stars {n}		Grand Stars {n}	Grand Stars {n}									
+TrackerGreenCount	Green Stars {n}		Étoiles vertes {n}	Étoiles vertes {n}									
+TrackerItemsLabel	Items		Objets	Objets									
+TrackerItemsNone	none yet		aucun pour l'instant	aucun pour l'instant									
+TrackerStatusDone	Done		Fait	Fait									
+TrackerStatusDoable	Doable now		Faisable	Faisable									
+TrackerNeeds	Needs: {list}		Nécessite : {list}	Nécessite : {list}									
+TrackerNeedDome	dome {n} open		dôme {n} ouvert	dôme {n} ouvert									
+TrackerNeedStars	{n} stars		{n} étoiles	{n} étoiles									
+TrackerNeedGrand	Grand Star {n}		Grand Star {n}	Grand Star {n}									
+TrackerNeedGreen	{n} Green Stars		{n} étoiles vertes	{n} étoiles vertes									
+TrackerNeedOthers	every other star		toutes les autres étoiles	toutes les autres étoiles									
+TrackerDetailHint	Point at a star to see what it needs		Vise une étoile pour voir ce qu'il lui faut	Vise une étoile pour voir ce qu'il lui faut									
+TrackerEmpty	Nothing to track here		Rien à suivre ici	Rien à suivre ici									

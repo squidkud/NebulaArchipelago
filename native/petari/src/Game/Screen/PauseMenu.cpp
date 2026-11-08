@@ -15,8 +15,10 @@
 #include "Game/Util/SequenceUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
 #ifdef TARGET_PC
+#include "Game/Screen/NebulaTracker.hpp"
 #include "Game/Screen/NebulaPauseSettingsButton.hpp"
 #include "Game/Screen/NebulaSettingsMenu.hpp"
+#include "Game/System/NebulaArchipelago.hpp"
 #endif
 
 namespace {
@@ -45,6 +47,7 @@ PauseMenu::PauseMenu()
       mCoinNumPos(0.0f, 0.0f), mStarPieceNumPos(0.0f, 0.0f), _54(true) {
 #ifdef TARGET_PC
     mSettingsButton = nullptr;
+    mTrackerButton = nullptr;
 #endif
 }
 
@@ -109,8 +112,14 @@ void PauseMenu::init(const JMapInfoIter& rIter) {
     }
 
 #ifdef TARGET_PC
-    mSettingsButton = new NebulaPauseSettingsButton();
+    // With an Archipelago game the tracker's button joins it: the two share the band, the Tracker above Settings.
+    const bool hasTracker = NebulaArchipelago::isActive();
+    mSettingsButton = new NebulaPauseSettingsButton("NebulaPauseSettings", "SettingsTitle", hasTracker ? -1 : 0);
     mSettingsButton->initWithoutIter();
+    if (hasTracker) {
+        mTrackerButton = new NebulaPauseSettingsButton("NebulaPauseTracker", "TrackerButton", 1);
+        mTrackerButton->initWithoutIter();
+    }
 #endif
 
     initNerve(GET_NERVE(PauseMenu, PauseMenuNrvSelecting));
@@ -152,6 +161,9 @@ void PauseMenu::appear() {
 
 #ifdef TARGET_PC
     mSettingsButton->show();
+    if (mTrackerButton != nullptr) {
+        mTrackerButton->show();
+    }
 #endif
 
     setNerve(GET_NERVE(PauseMenu, PauseMenuNrvSelecting));
@@ -182,6 +194,9 @@ void PauseMenu::draw() const {
     LayoutActor::draw();
 #ifdef TARGET_PC
     mSettingsButton->draw();
+    if (mTrackerButton != nullptr) {
+        mTrackerButton->draw();
+    }
 #endif
 
     if (mLuigiLetter != nullptr) {
@@ -193,6 +208,9 @@ void PauseMenu::kill() {
     LayoutActor::kill();
 #ifdef TARGET_PC
     mSettingsButton->kill();
+    if (mTrackerButton != nullptr) {
+        mTrackerButton->kill();
+    }
 #endif
 
     if (_54) {
@@ -287,14 +305,24 @@ void PauseMenu::forceToWaitAllButton() {
 
 #ifdef TARGET_PC
     mSettingsButton->getButton()->forceToWait();
+    if (mTrackerButton != nullptr) {
+        mTrackerButton->getButton()->forceToWait();
+    }
 #endif
 }
 
 void PauseMenu::exeSelecting() {
+#ifdef TARGET_PC
+    // The tracker is open over the menu (GameScene runs it): the menu below takes no input.
+    if (NebulaTracker::isShown()) {
+        return;
+    }
+#endif
     bool isPointingTrigger = _20->isPointingTrigger() || (_24 != nullptr && _24->isPointingTrigger()) ||
                              (!(_38 == nullptr || _38->isHidden()) && _38->isPointingTrigger());
 #ifdef TARGET_PC
-    isPointingTrigger = isPointingTrigger || mSettingsButton->getButton()->isPointingTrigger();
+    isPointingTrigger = isPointingTrigger || mSettingsButton->getButton()->isPointingTrigger() ||
+                        (mTrackerButton != nullptr && mTrackerButton->getButton()->isPointingTrigger());
 #endif
 
     if (isPointingTrigger) {
@@ -309,7 +337,7 @@ void PauseMenu::exeSelecting() {
     }
 
 #ifdef TARGET_PC
-    if (mSettingsButton->getButton()->trySelect()) {
+    if (mSettingsButton->getButton()->trySelect() || (mTrackerButton != nullptr && mTrackerButton->getButton()->trySelect())) {
         setNerve(GET_NERVE(PauseMenu, PauseMenuNrvDecided));
         return;
     }
@@ -357,6 +385,13 @@ void PauseMenu::exeDecided() {
             forceToWaitAllButton();
             setNerve(GET_NERVE(PauseMenu, PauseMenuNrvSelecting));
         }
+    } else if (mTrackerButton != nullptr && mTrackerButton->getButton()->mIsSelected) {
+        // Tracker: GameScene opens it over the menu, which waits under it with its buttons ready.
+        if (mTrackerButton->getButton()->isDecidedWait()) {
+            NebulaTracker::request();
+            forceToWaitAllButton();
+            setNerve(GET_NERVE(PauseMenu, PauseMenuNrvSelecting));
+        }
     }
 #endif
     else {
@@ -392,6 +427,9 @@ void PauseMenu::exeDisappear() {
 
 #ifdef TARGET_PC
         mSettingsButton->hide();
+        if (mTrackerButton != nullptr) {
+            mTrackerButton->hide();
+        }
 #endif
     }
 

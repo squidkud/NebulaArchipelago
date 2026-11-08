@@ -119,6 +119,22 @@ int main() {
         expect(!ap::parse_config("server=a:1\n").enabled, "no slot leaves it off");
         expect(!ap::parse_config("").enabled, "an empty file leaves it off");
         expect(ap::parse_config("server=a:1\nslot=b\nenabled=yes\n").enabled, "enabled=yes");
+        {
+            const std::string kept = "# my notes\nname = Old\nserver=old:1\noption.star_colors=1\npassword=x\nenabled=0\nserver=dup:2\n";
+            const std::string out = ap::rewrite_connection(kept, "archipelago.gg:38281", "Mario", "s\r\ne");
+            const ap::Config c = ap::parse_config(out);
+            expect(c.server == "archipelago.gg:38281" && c.slot == "Mario" && c.password == "se" && c.enabled,
+                   "rewrite_connection sets the three lines and switches the client on");
+            expect(out.find("# my notes\n") == 0 && out.find("option.star_colors=1\n") != std::string::npos,
+                   "rewrite_connection keeps the other lines");
+            expect(out.find("old:1") == std::string::npos && out.find("dup:2") == std::string::npos && out.find("Old") == std::string::npos,
+                   "rewrite_connection drops the old and repeated lines");
+            expect(ap::rewrite_connection(out, "archipelago.gg:38281", "Mario", "se") == ap::rewrite_connection("\xEF\xBB\xBF" + out, "archipelago.gg:38281", "Mario", "se"),
+                   "rewrite_connection reads past a byte-order mark and is stable");
+            const ap::Config fresh = ap::parse_config(ap::rewrite_connection("", "h:1", "S", ""));
+            expect(fresh.enabled && fresh.server == "h:1" && fresh.slot == "S" && fresh.password.empty(),
+                   "rewrite_connection makes a file from nothing");
+        }
     }
 
     ap::Config config;
@@ -433,6 +449,11 @@ int main() {
         expect(engine.list_value(ap::Engine::kListShopPrices, 1) == 60u, "the price of the second shelf");
         expect(engine.list_value(ap::Engine::kListShopPrices, 3) == ap::Engine::kNoCap, "no fourth shelf");
         expect(!engine.shop_bought(0) && !engine.shop_bought(1) && engine.shop_bought(2), "the shelf the server checked is bought");
+        expect(!engine.location_checked(1) && engine.location_checked(203), "a location the server checked is checked");
+        // A release: the server sends the rest of this slot's checks as a RoomUpdate.
+        engine.on_message(R"([{"cmd":"RoomUpdate","checked_locations":[)" + id(1) + "," + id(202) + R"(]}])", out);
+        expect(engine.location_checked(1), "a star released after the connection is checked");
+        expect(engine.shop_bought(1) && !engine.shop_bought(0), "a shelf released after the connection is bought");
         bool scouted = false;
         for (const std::string& message : out) {
             const json::Value command = first_command(message);

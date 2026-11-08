@@ -45,7 +45,6 @@ AFTER_ENDING_KINDS = ("purple", "festival")  # the stars that open after Bowser'
 COUNTED_STARS = (POWER_STAR, GREEN_STAR, GRAND_STAR)  # the items the game's star counter holds
 GRAND_STARS_IN_POOL = 5  # the first one is given at the start (the game starts in the Observatory)
 GREEN_STARS_IN_POOL = 3
-COMET_STAR_COUNT = 13  # the stars the game asks before the Prankster Comets show up
 
 # Galaxies outside the domes (and a few inside) open with more than the stars they ask: Grand Stars, the three Green
 # Stars, or a particular star collected: only the planets of the Observatory (the four galaxies of the domes that asked a
@@ -495,11 +494,9 @@ class SMGWorld(World):
                 region.locations.append(location)
                 if star.kind in AFTER_ENDING_KINDS:
                     add_item_rule(location, lambda item: item.player != player or item.name not in COUNTED_STARS)
-                if star.kind == "comet":
-                    add_rule(location, lambda state: stars_total(state, player) >= COMET_STAR_COUNT)
-                elif star.kind == "purple":
-                    # After the ending of the character whose save it is in.
-                    add_rule(location, lambda state, event=VICTORY_LUIGI if star.character == "Luigi" else VICTORY: state.has(event, player))
+                # The comet and Purple Coin stars need nothing more than their galaxy (and their transformation, below): the star
+                # select of this port offers every star of an open galaxy, so neither the 13 stars of the comets nor the ending
+                # that the Purple Coin stars wait for in the original game are asked.
                 # Luigi's stars need nothing more than their galaxy: the game puts Luigi in the scenario of his star.
                 forms = form_requirement(star.name)
                 if forms and self.options.transformation_items:
@@ -673,5 +670,36 @@ class SMGWorld(World):
         if self.luma_counts:
             slot_data["luma_counts"] = self.luma_counts
         if self.shop_prices:
+            self.shop_prices = self._prices_by_importance(self.shop_prices)
             slot_data["shop_prices"] = self.shop_prices
         return slot_data
+
+    def _prices_by_importance(self, prices: List[int]) -> List[int]:
+        """The same prices, dealt out after the fill so that the more important the item on a shelf, the more it costs:
+        progression (what other games, or this one, need to go on) is the dearest, then useful items, then filler, and traps
+        are the cheapest. (All the shelves stand in the Observatory, the first sphere, so the sphere itself does not tell them
+        apart: the class of the item does.) Shelves of the same class keep a random order among themselves."""
+        def weight(number: int) -> int:
+            try:
+                item = self.multiworld.get_location(shop_location_name(number), self.player).item
+            except KeyError:
+                return 1
+            if item is None:
+                return 1
+            if item.advancement:
+                return 3
+            if item.useful:
+                return 2
+            if item.trap:
+                return 0
+            return 1
+
+        numbers = list(range(1, len(prices) + 1))
+        if len({weight(number) for number in numbers}) <= 1:
+            return prices  # nothing tells the shelves apart (no item placed yet): the order stays as it is
+        self.random.shuffle(numbers)
+        numbers.sort(key=weight)  # stable: the shuffled order stays inside a class
+        dealt = [0] * len(prices)
+        for number, price in zip(numbers, sorted(prices)):
+            dealt[number - 1] = price
+        return dealt

@@ -141,6 +141,11 @@ struct Config {
 // file. A file without server or slot leaves it off. A byte-order mark (Notepad adds one) is ignored, and a file saved
 // as UTF-16 is read as text.
 [[nodiscard]] Config parse_config(std::string_view text);
+// archipelago.ini with its server, slot and password lines set to these (and `enabled` on): every other line stays as it
+// is, a missing line is added, a repeated one dropped. Line breaks in a value are removed. Used by the connection page of
+// the settings menu.
+[[nodiscard]] std::string rewrite_connection(std::string_view text, std::string_view server, std::string_view slot,
+                                             std::string_view password);
 // Why parse_config left the client off ("" when it is on): for the log.
 [[nodiscard]] std::string config_problem(std::string_view text);
 
@@ -190,6 +195,8 @@ public:
     [[nodiscard]] std::uint32_t option_value(Option option) const;
     [[nodiscard]] std::uint32_t list_value(std::uint32_t list, std::uint32_t index) const;
     [[nodiscard]] std::uint32_t seed_id() const;
+    // This slot of this room has a state file already (an earlier start played it): false before the room's seed is known.
+    [[nodiscard]] bool has_state_file() const;
     // The oldest notice for the player (a short line); false when none waits.
     // `icon`: the number (kItem*) of the item the notice is about when one of ours was received, else 0 (the logo).
     [[nodiscard]] bool pop_notice(std::string& text, std::uint32_t* icon = nullptr);
@@ -217,6 +224,9 @@ public:
     // holds as a line for the shelf ("Power Star for Mario", "an item" while the server has not answered). Empty when
     // the server did not tell yet.
     [[nodiscard]] bool shop_bought(std::uint32_t item) const;
+    // Whether a location (its number) is checked: reported by this game, or checked on the server (a release of another
+    // player's game sends the rest of a slot's checks).
+    [[nodiscard]] bool location_checked(std::uint32_t number) const;
     [[nodiscard]] std::string shop_label(std::uint32_t item) const;
     // The item number (kItem* - kItemBase) of this game's own item on the shelf, or 0: another player's item (or one with no picture).
     [[nodiscard]] std::uint32_t shop_icon(std::uint32_t item) const;
@@ -291,6 +301,7 @@ private:
     std::vector<std::uint32_t> galaxy_shuffle_;
     std::vector<std::uint32_t> shop_prices_;
     std::set<std::uint32_t> checked_shop_;  // shop locations known checked (the server's, and ours)
+    std::set<std::uint32_t> checked_all_;   // every location the server says is checked (Connected, then RoomUpdate)
     struct Scouted {
         std::int64_t item = 0;
         std::int64_t player = 0;
@@ -336,7 +347,8 @@ private:
 // Starts writing archipelago.log in `settings_folder` (it says what was looked for and found), reads archipelago.ini
 // (or archipelago.ini.txt, which Windows makes of a file saved as .txt) there, and starts the client when it names a
 // server and a slot. `log` receives one line at a time as well. Calling it again does nothing.
-void start(const std::filesystem::path& settings_folder, LogFn log);
+// With connect_now false the client is not started: only the settings are read, the connection comes with reconnect().
+void start(const std::filesystem::path& settings_folder, LogFn log, bool connect_now = true);
 [[nodiscard]] bool active() noexcept;  // the client was started
 [[nodiscard]] State state() noexcept;
 [[nodiscard]] std::uint32_t goal_option() noexcept;
@@ -353,6 +365,9 @@ void item_applied(std::uint32_t file);
 void report_death();
 [[nodiscard]] bool take_death();
 [[nodiscard]] bool shop_bought(std::uint32_t item);
+[[nodiscard]] bool location_checked(std::uint32_t number);
+// The slot has this location (it is in the room's checked or missing locations); true for every one before the server spoke.
+[[nodiscard]] bool location_valid(std::uint32_t number);
 [[nodiscard]] std::string shop_label(std::uint32_t item);
 [[nodiscard]] std::uint32_t shop_icon(std::uint32_t item);
 void request_shop_hints();
@@ -361,6 +376,29 @@ void game_log(const char* text);
 // The oldest notice; the length copied into `buffer` (always terminated), 0 when none waits.
 [[nodiscard]] std::size_t pop_notice(char* buffer, std::size_t capacity);
 void stop();
+
+// The connection page of the settings menu: archipelago.ini's server, slot and password as the file has them now (empty
+// before start() or without a file), and the file written with new ones (the game connects at its next start). `error`
+// says why a write failed.
+struct Connection {
+    std::string server;
+    std::string slot;
+    std::string password;
+};
+[[nodiscard]] Connection saved_connection();
+// Restarts the client with archipelago.ini as it is now (the connection page writes it first): the old client stops, a new
+// one starts, in a thread of its own, and state() says Connecting meanwhile. Does nothing before start().
+void reconnect();
+// The save files and the multiworld: a game keeps one save file for the multiworld (seed and slot) it is connected to.
+enum class SaveOwner : std::uint32_t {
+    Unknown = 0,  // not connected yet: the room's seed is not known
+    Same = 1,     // the files belong to this multiworld
+    Other = 2,    // another multiworld's (or none's): the files are to be cleared
+    Adopted = 3,  // no owner was recorded (files from before this page) but an earlier start played this multiworld: they are kept as they are, and recorded
+};
+[[nodiscard]] SaveOwner save_owner() noexcept;
+void claim_saves();  // the connected multiworld is the files' owner from now on
+[[nodiscard]] bool save_connection(const Connection& connection, std::string& error);
 
 // The green spheres in the domes (a galaxy without a miniature of its own is shown as the Observatory's green sphere) crashed
 // the game once. They are on unless archipelago.ini says `green_spheres=0` or the last run stopped while they were on screen:

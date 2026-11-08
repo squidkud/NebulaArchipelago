@@ -1,4 +1,5 @@
 #include "Game/System/NebulaText.hpp"
+#include "Game/Screen/MessageTagSkipTagProcessor.hpp"
 #include "Game/System/NebulaArchipelago.hpp"
 
 #ifdef TARGET_PC
@@ -328,6 +329,20 @@ namespace NebulaText {
     wchar_t sTalk[cTalkMax];
     bool sTalkFitted = false;
 
+    // The Hungry Lumas' talks: a text for each, rebuilt when what it says changes.
+    const s32 cHungryMax = 8;
+    wchar_t sHungry[cHungryMax][cTalkMax];
+    bool sHungryFitted[cHungryMax];
+    s32 sHungryRemaining[cHungryMax];
+    s32 sHungryTotal[cHungryMax];
+    char sHungryStage[cHungryMax][48];
+    s32 sHungryActive = -1;
+    bool sHungryShown = false;  // the talking Luma's text was given already (once a talk)
+    // The game's own tags for the red and the Star Bit picture, copied from its messages the first time one is shown.
+    wchar_t sHungryColorOn[8];
+    wchar_t sHungryColorOff[8];
+    wchar_t sHungryPicture[8];
+
     // Japanese and Chinese lines may break between characters (Korean, as English, at spaces): before a wide character
     // that is not closing punctuation or a small kana, after one that is not an opening bracket.
     bool breaksBefore(wchar_t c, wchar_t previous) {
@@ -385,6 +400,101 @@ namespace NebulaText {
         return sTalk;
     }
 
+    // The text a Hungry Luma says: "{n}", "{galaxy}", "{red}", "{/red}" and "{icon}" of the pattern replaced, the galaxy's name
+    // without its tags (the game's tags, when known; else the tokens vanish).
+    s32 expandHungry(wchar_t* pDst, s32 capacity, const wchar_t* pPattern, const wchar_t* pGalaxy, const wchar_t* pNumber) {
+        static const wchar_t cGalaxyToken[] = L"{galaxy}";
+        static const wchar_t cNumberToken[] = L"{n}";
+        static const wchar_t cRedToken[] = L"{red}";
+        static const wchar_t cRedEndToken[] = L"{/red}";
+        static const wchar_t cIconToken[] = L"{icon}";
+        s32 length = 0;
+        while (*pPattern != 0 && length + 1 < capacity) {
+            const wchar_t* pValue = nullptr;
+            bool tag = false;
+            s32 tokenLength = 0;
+            if (startsWith(pPattern, cGalaxyToken)) {
+                pValue = pGalaxy;
+                tokenLength = sizeof(cGalaxyToken) / sizeof(cGalaxyToken[0]) - 1;
+            } else if (startsWith(pPattern, cNumberToken)) {
+                pValue = pNumber;
+                tokenLength = sizeof(cNumberToken) / sizeof(cNumberToken[0]) - 1;
+            } else if (startsWith(pPattern, cRedToken)) {
+                pValue = sHungryColorOn;
+                tag = true;
+                tokenLength = sizeof(cRedToken) / sizeof(cRedToken[0]) - 1;
+            } else if (startsWith(pPattern, cRedEndToken)) {
+                pValue = sHungryColorOff;
+                tag = true;
+                tokenLength = sizeof(cRedEndToken) / sizeof(cRedEndToken[0]) - 1;
+            } else if (startsWith(pPattern, cIconToken)) {
+                pValue = sHungryPicture;
+                tag = true;
+                tokenLength = sizeof(cIconToken) / sizeof(cIconToken[0]) - 1;
+            }
+            if (pValue == nullptr) {
+                pDst[length++] = *pPattern++;
+                continue;
+            }
+            if (tag) {
+                // A whole tag (0x1A, then as many units as it says), or nothing when the game's is not known yet.
+                if (pValue[0] == 0x1A) {
+                    const s32 units = 1 + ((pValue[1] & 0xFF) / 2 > 0 ? (pValue[1] & 0xFF) / 2 - 1 : 0);
+                    for (s32 i = 0; i < units && length + 1 < capacity; i++) {
+                        pDst[length++] = pValue[i];
+                    }
+                }
+                pPattern += tokenLength;
+                continue;
+            }
+            for (const wchar_t* p = pValue; *p != 0 && length + 1 < capacity;) {
+                if (*p == 0x1A && p[1] != 0) {
+                    // The game's tags are left out (a tag's size in bytes is in the next unit's low byte).
+                    const s32 units = (p[1] & 0xFF) / 2;
+                    p += units > 0 ? units : 1;
+                    continue;
+                }
+                pDst[length++] = *p++;
+            }
+            pPattern += tokenLength;
+        }
+        pDst[length] = 0;
+        return length;
+    }
+
+    // Writes slot's text from what it was given (the galaxy, the Star Bits): with the game's tags once they are known.
+    void buildHungry(s32 slot) {
+        const wchar_t* pName = MR::getGalaxyNameOnCurrentLanguage(sHungryStage[slot]);
+        wchar_t fallback[48];
+        if (pName == nullptr) {
+            s32 n = 0;
+            for (; sHungryStage[slot][n] != 0 && n < 47; n++) {
+                fallback[n] = static_cast< wchar_t >(sHungryStage[slot][n]);
+            }
+            fallback[n] = 0;
+            pName = fallback;
+        }
+        wchar_t number[16];
+        {
+            char digits[16];
+            s32 count = 0;
+            for (s32 value = sHungryRemaining[slot]; value > 0 && count < 15; value /= 10) {
+                digits[count++] = static_cast< char >('0' + value % 10);
+            }
+            s32 n = 0;
+            while (count > 0) {
+                number[n++] = static_cast< wchar_t >(digits[--count]);
+            }
+            number[n] = 0;
+        }
+        const s32 remaining = sHungryRemaining[slot];
+        const char* pId = remaining == sHungryTotal[slot] ? "HungryLumaFresh" : remaining == 1 ? "HungryLumaOne" : "HungryLumaFed";
+        wchar_t pattern[192];
+        get(pattern, 192, pId);
+        expandHungry(sHungry[slot], cTalkMax - cTalkBreaks, pattern, pName, number);
+        sHungryFitted[slot] = false;
+    }
+
     // Where a paragraph may break: at a space (not one French keeps with its punctuation: before ! ? : ; », after «),
     // or before a Japanese or Chinese character. Offsets from the paragraph's start; at most `max`.
     s32 findBreaks(const wchar_t* pText, s32 length, s32* pBreaks, s32 max) {
@@ -432,20 +542,38 @@ namespace NebulaText {
         return chosen;
     }
 
+    // The buffer a talk of ours is in (the Achievement Luma's, or a Hungry Luma's), and whether its lines were fitted.
+    wchar_t* findTalk(const wchar_t* pMessage, bool** ppFitted) {
+        if (pMessage >= sTalk && pMessage < sTalk + cTalkMax) {
+            *ppFitted = &sTalkFitted;
+            return sTalk;
+        }
+        for (s32 i = 0; i < cHungryMax; i++) {
+            if (pMessage >= sHungry[i] && pMessage < sHungry[i] + cTalkMax) {
+                *ppFitted = &sHungryFitted[i];
+                return sHungry[i];
+            }
+        }
+        return nullptr;
+    }
+
     bool isTalk(const wchar_t* pMessage) {
-        return pMessage >= sTalk && pMessage < sTalk + cTalkMax;
+        bool* pFitted;
+        return findTalk(pMessage, &pFitted) != nullptr;
     }
 
     void fitTalk(const wchar_t* pMessage, nw4r::lyt::TextBox* pBox) {
-        if (pBox == nullptr || sTalkFitted || !isTalk(pMessage)) {
+        bool* pFitted = nullptr;
+        wchar_t* pBuffer = findTalk(pMessage, &pFitted);
+        if (pBox == nullptr || pBuffer == nullptr || *pFitted) {
             return;
         }
-        sTalkFitted = true;
+        *pFitted = true;
         const f32 limit = pBox->mSize.width;
         // Its length: tags skipped whole (the player's name is a tag whose parameters are zero).
         s32 length = 0;
-        while (sTalk[length] != 0) {
-            const s32 units = sTalk[length] == 0x1A && sTalk[length + 1] != 0 ? (sTalk[length + 1] & 0xFF) / 2 : 1;
+        while (pBuffer[length] != 0) {
+            const s32 units = pBuffer[length] == 0x1A && pBuffer[length + 1] != 0 ? (pBuffer[length + 1] & 0xFF) / 2 : 1;
             length += units > 0 ? units : 1;
         }
         // Paragraph by paragraph (a line break or a page ends one): as few lines as the box allows, and those as even
@@ -453,10 +581,10 @@ namespace NebulaText {
         s32 paragraph = 0;
         while (paragraph <= length) {
             s32 paragraphEnd = paragraph;
-            while (paragraphEnd < length && sTalk[paragraphEnd] != L'\n' && !(sTalk[paragraphEnd] == 0x1A && sTalk[paragraphEnd + 1] == 0x0106)) {
-                if (sTalk[paragraphEnd] == 0x1A && sTalk[paragraphEnd + 1] != 0) {
+            while (paragraphEnd < length && pBuffer[paragraphEnd] != L'\n' && !(pBuffer[paragraphEnd] == 0x1A && pBuffer[paragraphEnd + 1] == 0x0106)) {
+                if (pBuffer[paragraphEnd] == 0x1A && pBuffer[paragraphEnd + 1] != 0) {
                     // Its whole size: a tag's parameters may be zero.
-                    const s32 units = (sTalk[paragraphEnd + 1] & 0xFF) / 2;
+                    const s32 units = (pBuffer[paragraphEnd + 1] & 0xFF) / 2;
                     paragraphEnd += units > 0 ? units : 1;
                 } else {
                     paragraphEnd++;
@@ -465,7 +593,7 @@ namespace NebulaText {
             if (paragraphEnd > length) {
                 paragraphEnd = length;
             }
-            wchar_t* pText = sTalk + paragraph;
+            wchar_t* pText = pBuffer + paragraph;
             const s32 textLength = paragraphEnd - paragraph;
             // As many as the text has places: one per unit at most.
             static s32 breaks[cTalkMax];
@@ -494,7 +622,7 @@ namespace NebulaText {
                 if (*pBreak == L' ') {
                     *pBreak = L'\n';
                 } else if (length + 1 < cTalkMax) {
-                    memmove(pBreak + 1, pBreak, (length + 1 - (pBreak - sTalk)) * sizeof(wchar_t));
+                    memmove(pBreak + 1, pBreak, (length + 1 - (pBreak - pBuffer)) * sizeof(wchar_t));
                     *pBreak = L'\n';
                     length++;
                     added++;
@@ -504,13 +632,80 @@ namespace NebulaText {
             if (paragraphEnd >= length) {
                 break;
             }
-            if (sTalk[paragraphEnd] == L'\n') {
+            if (pBuffer[paragraphEnd] == L'\n') {
                 paragraph = paragraphEnd + 1;
             } else {
-                const s32 units = (sTalk[paragraphEnd + 1] & 0xFF) / 2;
+                const s32 units = (pBuffer[paragraphEnd + 1] & 0xFF) / 2;
                 paragraph = paragraphEnd + (units > 0 ? units : 1);
             }
         }
+    }
+
+    void setHungryTalk(s32 slot, const char* pGalaxyStage, s32 remaining, s32 total) {
+        if (slot < 0 || slot >= cHungryMax || pGalaxyStage == nullptr || remaining <= 0) {
+            return;
+        }
+        if (sHungryRemaining[slot] == remaining && sHungryTotal[slot] == total && strcmp(sHungryStage[slot], pGalaxyStage) == 0) {
+            return;
+        }
+        sHungryRemaining[slot] = remaining;
+        sHungryTotal[slot] = total;
+        strncpy(sHungryStage[slot], pGalaxyStage, sizeof(sHungryStage[slot]) - 1);
+        sHungryStage[slot][sizeof(sHungryStage[slot]) - 1] = 0;
+        buildHungry(slot);
+    }
+
+    void beginHungryTalk(s32 slot) {
+        if (slot >= 0 && slot < cHungryMax && sHungryRemaining[slot] > 0) {
+            sHungryActive = slot;
+        }
+    }
+
+    void endHungryTalk(s32 slot) {
+        if (slot >= 0 && slot == sHungryActive) {
+            sHungryActive = -1;
+            sHungryShown = false;
+        }
+    }
+
+    const wchar_t* getHungryTalk(const wchar_t* pVanilla) {
+        if (sHungryActive < 0 || sHungryShown || pVanilla == nullptr) {
+            return nullptr;
+        }
+        // Only the game's message that asks for a number of Star Bits (a number tag): the others of the talk stay as they are.
+        // Its tags are kept to dress ours the same way: the red and the Star Bit picture.
+        bool hasNumber = false;
+        for (const wchar_t* p = pVanilla; *p != 0;) {
+            if (*p != 0x1A) {
+                p++;
+                continue;
+            }
+            MessageEditorMessageTag tag(p + 1);
+            const s32 units = 1 + static_cast< s32 >(tag.getSkipLength());
+            if (tag.getGroup() == 6) {
+                hasNumber = true;
+            } else if (tag.getGroup() == 3 && sHungryPicture[0] == 0 && units < 8) {
+                for (s32 i = 0; i < units; i++) {
+                    sHungryPicture[i] = p[i];
+                }
+                sHungryPicture[units] = 0;
+            } else if (tag.getGroup() == 255 && tag.getTag() == 0 && tag.getParam8(0) != 0 && sHungryColorOn[0] == 0 && units >= 4 && units < 8) {
+                for (s32 i = 0; i < units; i++) {
+                    sHungryColorOn[i] = p[i];
+                    sHungryColorOff[i] = p[i];
+                }
+                sHungryColorOn[units] = 0;
+                sHungryColorOff[units] = 0;
+                sHungryColorOff[3] = 0;  // the colour's index 0 ends the red
+            }
+            p += units;
+        }
+        if (!hasNumber) {
+            return nullptr;
+        }
+        sHungryShown = true;
+        buildHungry(sHungryActive);
+        return sHungry[sHungryActive];
     }
 };  // namespace NebulaText
 #endif
