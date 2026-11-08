@@ -83,8 +83,8 @@ void NebulaFileLogo::draw() const {
     const f32 radius = cLogoRadius * mHost->getLogoScale();
     TVec3f centre = mHost->mPosition;
     centre.y += cLogoHeight;
-    // The file select shows the models' backs in this frame: half a turn more puts the logo's front to the screen.
-    const f32 turn = (mHost->mRotation.y + 180.0f) * 3.14159265f / 180.0f;
+    // Like the game's models, the logo's front faces the screen when the file's rotation is 0 (it turns like a planet when dragged).
+    const f32 turn = mHost->mRotation.y * 3.14159265f / 180.0f;
     const f32 cosY = MR::cos(turn);
     const f32 sinY = MR::sin(turn);
 
