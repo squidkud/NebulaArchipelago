@@ -983,10 +983,13 @@ int main() {
                 password.clear();
                 return true;
             };
-            hooks.save = [](const std::string& server, const std::string&, const std::string&, std::string&) {
+            static unsigned s_state = 0u;
+            hooks.connect = [](const std::string& server, const std::string&, const std::string&, std::string&) {
                 s_saved_server = server;
+                s_state = 1u;  // connecting
                 return true;
             };
+            hooks.state = []() { return s_state; };
             galaxy::gx::native_settings_set_archipelago_hooks(hooks);
             galaxy::gx::native_settings_input(NativeSettingsInput::SelectPage, 8);
             const galaxy::gx::NativeSettingsView page = galaxy::gx::native_settings_view();
@@ -1015,8 +1018,36 @@ int main() {
             passed &= expect(galaxy::gx::native_settings_view().rows[1].value == "old:1w", "CANCEL leaves the text as it was");
             galaxy::gx::native_settings_input(NativeSettingsInput::SelectRow, 4);
             galaxy::gx::native_settings_input(NativeSettingsInput::Press, 0);
-            passed &= expect(s_saved_server == "old:1w", "SAVE hands the connection to be written");
+            passed &= expect(s_saved_server == "old:1w", "CONNECT hands the connection to be written and connected");
+            passed &= expect(galaxy::gx::native_settings_view().rows[5].value == "CONNECTING", "the status row says it is connecting");
+            // The connection screen after the title: the one page, no tabs, closing when connected.
+            galaxy::gx::native_settings_input(NativeSettingsInput::Close, 0);
+            s_state = 0u;
+            s_saved_server.clear();
+            galaxy::gx::native_settings_open_gate();
+            galaxy::gx::NativeSettingsView gate = galaxy::gx::native_settings_view();
+            passed &= expect(gate.open && gate.gate == 1u && gate.page == 8u && galaxy::gx::native_settings_gate_result() == galaxy::gx::kGateOpen,
+                             "the gate opens on the Archipelago page");
+            galaxy::gx::native_settings_input(NativeSettingsInput::SelectPage, 0);
+            passed &= expect(key(VK_TAB) && key(VK_NEXT) && galaxy::gx::native_settings_view().page == 8u,
+                             "no other page opens on the gate");
+            galaxy::gx::native_settings_input(NativeSettingsInput::Apply, 0);  // Enter: connect
+            passed &= expect(s_saved_server == "old:1" && galaxy::gx::native_settings_view().gate == 1u,
+                             "Enter connects on the gate, with what the file has");
+            s_state = 2u;  // connected
+            passed &= expect(galaxy::gx::native_settings_gate_result() == galaxy::gx::kGateConnected && !galaxy::gx::native_settings_view().open,
+                             "the gate closes by itself once connected");
+            galaxy::gx::native_settings_open_gate();
+            passed &= expect(galaxy::gx::native_settings_view().gate == 2u, "the gate says when the client is connected already");
+            galaxy::gx::native_settings_input(NativeSettingsInput::Close, 0);
+            passed &= expect(galaxy::gx::native_settings_gate_result() == galaxy::gx::kGateConnected && !galaxy::gx::native_settings_view().open,
+                             "going on from a connected gate");
+            s_state = 0u;
+            galaxy::gx::native_settings_open_gate();
+            galaxy::gx::native_settings_input(NativeSettingsInput::Close, 0);
+            passed &= expect(galaxy::gx::native_settings_gate_result() == galaxy::gx::kGateSkipped, "skipping the gate");
             galaxy::gx::native_settings_set_archipelago_hooks({});
+            (void)key(VK_F1);  // the menu again, for what follows
         }
         std::cerr << "pointer checks: " << lists << " lists, " << sliders << " sliders\n";
         passed &= expect(lists >= 20u && sliders >= 8u, "every page's lists and sliders were checked");

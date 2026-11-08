@@ -1211,13 +1211,14 @@ void NebulaSettingsScreen::fillTexts(const NebulaSettingsView& rView, const Nebu
     wchar_t text[256];
     f32 width = 0.0f;
     f32 height = 0.0f;
-    if (pShown == nullptr) {
-        NebulaText::get(text, 256, "SettingsTitle");
+    if (pShown == nullptr || (pShown->gate != 0) != (rView.gate != 0)) {
+        // The connection screen after the title has the one page: no tabs, its own title.
+        NebulaText::get(text, 256, rView.gate != 0 ? "SettingsGateTitle" : "SettingsTitle");
         setText(mTitle, text);
         measure(mTitle, 4000.0f, &width, &height);
         for (u32 i = 0; i < NEBULA_SETTINGS_PAGES; i++) {
             Chip& rTab = mTabs[i];
-            rTab.mRoot->SetVisible(i < rView.page_count);
+            rTab.mRoot->SetVisible(i < rView.page_count && rView.gate == 0);
             if (i >= rView.page_count) {
                 continue;
             }
@@ -1303,7 +1304,7 @@ void NebulaSettingsScreen::fillTexts(const NebulaSettingsView& rView, const Nebu
     const s32 hint = firstHint(rView);
     if (pShown != nullptr && pShown->status == rView.status && pShown->status_number == rView.status_number &&
         strcmp(pShown->help, rView.help) == 0 && strcmp(pShown->status_text, rView.status_text) == 0 &&
-        pShown->page == rView.page && pShown->input == rView.input && firstHint(*pShown) == hint) {
+        pShown->page == rView.page && pShown->input == rView.input && pShown->gate == rView.gate && firstHint(*pShown) == hint) {
         return;
     }
 
@@ -1383,9 +1384,10 @@ void NebulaSettingsScreen::fillTexts(const NebulaSettingsView& rView, const Nebu
         setText(rHint.mWord, text);
         measure(rHint.mWord, 4000.0f, &rHint.mWordWidth, &height);
     }
-    fillButton(mFooter[FooterApply], "SettingsApply");
+    // On the connection screen: Connect, and Continue (connected) or Skip.
+    fillButton(mFooter[FooterApply], rView.gate != 0 ? "SettingsGateConnect" : "SettingsApply");
     fillKeyCap(mFooter[FooterApply].mKey, KeyApply, rView.input, controls);
-    fillButton(mFooter[FooterBack], "SettingsBack");
+    fillButton(mFooter[FooterBack], rView.gate == 2 ? "SettingsGateContinue" : rView.gate == 1 ? "SettingsGateSkip" : "SettingsBack");
     fillKeyCap(mFooter[FooterBack].mKey, KeyBack, rView.input, controls);
 
     // A question over the page.
@@ -1712,7 +1714,7 @@ void NebulaSettingsScreen::readPointer(const NebulaSettingsView& rView) {
         }
     } else {
         for (u32 i = 0; i < rView.page_count; i++) {
-            if (i != rView.page && isOnButton(x, y, mTabs[i].mX, mTabY, mTabs[i].mWidth, cTabHeight, cTabGap)) {
+            if (rView.gate == 0 && i != rView.page && isOnButton(x, y, mTabs[i].mX, mTabY, mTabs[i].mWidth, cTabHeight, cTabGap)) {
                 mHoverTab = static_cast< s32 >(i);
             }
         }
@@ -2807,8 +2809,9 @@ namespace NebulaSettingsMenu {
             return;
         }
         __NebulaSettingsView(&sView);
-        // Not before a file is chosen (the logos, the title, the file select): asked for there, it closes at once.
-        if (sView.open && !sScreen->isShown() &&
+        // Not before a file is chosen (the logos, the title, the file select): asked for there, it closes at once. The
+        // connection screen after the title is the exception: it opens on the title.
+        if (sView.open && sView.gate == 0 && !sScreen->isShown() &&
             (MR::isEqualSceneName("Logo") || MR::isEqualSceneName("Title") || MR::isStageFileSelect())) {
             __NebulaSettingsInput(NEBULA_SETTINGS_CLOSE, 0);
             sView.open = 0;

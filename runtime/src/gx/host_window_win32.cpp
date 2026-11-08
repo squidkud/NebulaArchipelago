@@ -334,6 +334,12 @@ std::atomic<bool> s_settings_drawn_by_game{false};
 bool s_settings_leave_asking = false;
 // Apply saved mod changes this session did not start with: the menu asks whether to restart now.
 std::atomic<bool> s_mods_restart_ask{false};
+// The Archipelago page's hooks, and the connection screen after the title (the gate): the menu on that page alone. All
+// under s_native_settings_mutex.
+NativeArchipelagoHooks s_ap_hooks{};
+bool s_ap_gate = false;            // the gate is up
+bool s_ap_gate_waiting = false;    // CONNECT was pressed on it: it closes as soon as the client is connected
+unsigned s_ap_gate_result = kGateOpen;
 // The pages, in order.
 constexpr const char* kNativeSettingsTabNames[] = {"DISPLAY", "GRAPHICS", "CONTROLS", "AUDIO", "GENERAL", "MODS", "SYSTEM",
                                                    "ADVANCED", "ARCHIPELAGO"};
@@ -1455,6 +1461,7 @@ void settle_native_settings_row() {
 }
 
 void cycle_native_settings_tab(int delta) {
+    if (s_ap_gate) return;  // the connection screen has the one page
     end_controls_capture();
     s_native_settings_button_row.store(~0u, std::memory_order_relaxed);
     s_settings_first_row = 0u;
@@ -1486,6 +1493,12 @@ void set_native_settings_visible(bool visible) {
         reset_controls_draft();
         refresh_controls_devices(true);
         settle_native_settings_row();
+    }
+    if (!visible && s_ap_gate) {
+        // The gate closes: connected (the player goes on) or skipped.
+        s_ap_gate = false;
+        s_ap_gate_waiting = false;
+        s_ap_gate_result = s_ap_hooks.state != nullptr && s_ap_hooks.state() == 2u ? kGateConnected : kGateSkipped;
     }
     if (!visible) {
         // Closing discards an unapplied draft, an unconfirmed display and an
@@ -1707,9 +1720,8 @@ void set_slider(unsigned target) {
 }
 
 // ---- The ARCHIPELAGO page: the connection (server, slot, password) typed with the keyboard, pasted, or picked on an
-// on-screen keyboard with a controller or the pointer (NEBULA_SETTINGS_STATUS_TEXT). The file is written by SAVE and the
-// game connects at its next start. All under s_native_settings_mutex.
-NativeArchipelagoHooks s_ap_hooks{};
+// on-screen keyboard with a controller or the pointer (NEBULA_SETTINGS_STATUS_TEXT). CONNECT writes the file and restarts
+// the client with it. All under s_native_settings_mutex.
 struct ApConnection {
     bool loaded = false;
     bool dirty = false;  // changed since it was read or saved
@@ -1927,6 +1939,35 @@ std::string ap_shown(ApField field) {
     return std::string(std::min<std::size_t>(letters, 24u), '*');
 }
 
+// CONNECT: the connection as typed here is written to archipelago.ini and the client restarts with it. On the gate, a client
+// already connected with nothing changed just goes on.
+void ap_press_connect() {
+    ap_load_once();
+    if (s_ap_gate && !s_ap.dirty && s_ap_hooks.state != nullptr && s_ap_hooks.state() == 2u) {
+        set_native_settings_visible(false);
+        return;
+    }
+    if (s_ap_hooks.connect == nullptr) {
+        show_controls_message("NOT AVAILABLE");
+        return;
+    }
+    std::string error;
+    if (s_ap_hooks.connect(s_ap.server, s_ap.slot, s_ap.password, error)) {
+        s_ap.dirty = false;
+        s_ap_gate_waiting = s_ap_gate;
+    } else {
+        show_controls_message("COULD NOT SAVE THE CONNECTION");
+    }
+}
+
+// The gate closes by itself once CONNECT was pressed on it and the client is connected.
+void ap_gate_poll() {
+    const std::lock_guard<std::recursive_mutex> lock(s_native_settings_mutex);
+    if (s_ap_gate && s_ap_gate_waiting && s_ap_hooks.state != nullptr && s_ap_hooks.state() == 2u) {
+        set_native_settings_visible(false);
+    }
+}
+
 // Closing: at once, or with changes not applied, after asking (apply them, discard them, or stay).
 void request_native_settings_close() {
     const std::lock_guard<std::recursive_mutex> lock(s_native_settings_mutex);
@@ -1984,6 +2025,20 @@ bool handle_native_settings_key(WPARAM key, bool was_down, bool from_pad = false
             return true;
         }
         return text_entry_key(key, accept, was_down, from_pad);
+    }
+    if (s_ap_gate && s_native_settings_visible.load(std::memory_order_relaxed)) {
+        // The connection screen: one page. Enter (Y) connects, Escape (B) or F1 goes on without waiting (connected or not).
+        if (key == VK_PRIOR || key == VK_NEXT || key == VK_TAB || key == VK_BACK) {
+            return true;
+        }
+        if (key == VK_ESCAPE || key == VK_F1) {
+            if (!was_down) set_native_settings_visible(false);
+            return true;
+        }
+        if (key == VK_RETURN) {
+            if (!was_down) ap_press_connect();
+            return true;
+        }
     }
     if (s_settings_leave_asking && s_native_settings_visible.load(std::memory_order_relaxed)) {
         // Changes not applied: Enter, Space or Y applies them and closes, Backspace or X discards them and closes,
@@ -2990,7 +3045,7 @@ std::vector<SettingsRow> graphics_page(const RenderConfig& render) {
 }
 
 // ARCHIPELAGO: the connection archipelago.ini holds, edited here. A row's change (Left, Right, A, a click on its arrows)
-// asks for its text; SAVE writes the file.
+// asks for its text; CONNECT writes the file and connects.
 std::vector<SettingsRow> archipelago_page() {
     ap_load_once();
     std::vector<SettingsRow> rows;
@@ -3001,27 +3056,11 @@ std::vector<SettingsRow> archipelago_page() {
     rows.push_back(field_row("SERVER", ApField::Server, "THE MULTIWORLD'S ADDRESS, LIKE ARCHIPELAGO.GG:38281. PRESS A, ENTER OR RIGHT TO TYPE IT"));
     rows.push_back(field_row("SLOT", ApField::Slot, "YOUR SLOT'S NAME IN THE MULTIWORLD (THE NAME IN YOUR YAML)"));
     rows.push_back(field_row("PASSWORD", ApField::Password, "THE ROOM'S PASSWORD, OR NOTHING WHEN IT HAS NONE"));
-    rows.push_back(button_row("SAVE", {"SAVE"},
-                              [](RenderConfig&, unsigned) {
-                                  if (s_ap_hooks.save == nullptr) {
-                                      show_controls_message("NOT AVAILABLE");
-                                      return;
-                                  }
-                                  std::string error;
-                                  if (s_ap_hooks.save(s_ap.server, s_ap.slot, s_ap.password, error)) {
-                                      s_ap.dirty = false;
-                                      s_ap.saved = true;
-                                      show_controls_message("SAVED. RESTART THE GAME TO CONNECT");
-                                  } else {
-                                      show_controls_message("COULD NOT SAVE THE CONNECTION");
-                                  }
-                              },
-                              "WRITES ARCHIPELAGO.INI. THE GAME CONNECTS WITH IT AT ITS NEXT START"));
-    std::string state = "OFF";
+    rows.push_back(button_row("CONNECT", {"CONNECT"}, [](RenderConfig&, unsigned) { ap_press_connect(); },
+                              "SAVES THE CONNECTION IN ARCHIPELAGO.INI AND CONNECTS AGAIN, IF THE CONNECTION FAILED OR WAS CHANGED"));
+    std::string state = "NOT CONNECTED";
     if (s_ap.dirty) {
-        state = "NOT SAVED";
-    } else if (s_ap.saved) {
-        state = "SAVED: RESTART TO CONNECT";
+        state = "CHANGED: PRESS CONNECT";
     } else if (s_ap_hooks.state != nullptr) {
         switch (s_ap_hooks.state()) {
         case 1u: state = "CONNECTING"; break;
@@ -5310,6 +5349,7 @@ void draw_native_settings_overlay(UiCanvas& renderer) {
 // The menu as it stands: its pages, the open page's rows (label, value, a heading or not, whether it changes), the
 // selection and what the line under the page says, in the order the overlay always chose it. Takes the menu's lock.
 NativeSettingsView build_native_settings_view() {
+    ap_gate_poll();
     NativeSettingsView view;
     view.pages.assign(std::begin(kNativeSettingsTabNames), std::end(kNativeSettingsTabNames));
     view.controls_page = kControlsTab;
@@ -5333,6 +5373,9 @@ NativeSettingsView build_native_settings_view() {
         return view;
     }
     const std::lock_guard<std::recursive_mutex> settings_lock(s_native_settings_mutex);
+    if (s_ap_gate) {
+        view.gate = s_ap_hooks.state != nullptr && s_ap_hooks.state() == 2u ? 2u : 1u;
+    }
     expire_display_confirmation();
     expire_controls_capture();
     if (tab == kControlsTab) {
@@ -6028,6 +6071,32 @@ void native_settings_set_archipelago_hooks(const NativeArchipelagoHooks& hooks) 
     s_ap.loaded = false;
 }
 
+void native_settings_open_gate() {
+    const std::lock_guard<std::recursive_mutex> lock(s_native_settings_mutex);
+    s_ap.loaded = false;  // what archipelago.ini has now
+    ap_load_once();
+    s_ap.dirty = false;
+    s_ap_gate = true;
+    s_ap_gate_waiting = false;
+    s_ap_gate_result = kGateOpen;
+    set_native_settings_visible(true);
+    s_native_settings_button_row.store(~0u, std::memory_order_relaxed);
+    s_settings_first_row = 0u;
+    s_native_settings_tab.store(kArchipelagoTab, std::memory_order_relaxed);
+    unsigned first = 0u;
+    const unsigned count = native_settings_row_count(kArchipelagoTab);
+    while (first + 1u < count && native_settings_heading(kArchipelagoTab, first)) {
+        ++first;
+    }
+    s_native_settings_row.store(first, std::memory_order_relaxed);
+}
+
+unsigned native_settings_gate_result() {
+    const std::lock_guard<std::recursive_mutex> lock(s_native_settings_mutex);
+    ap_gate_poll();
+    return s_ap_gate ? kGateOpen : s_ap_gate_result;
+}
+
 bool native_settings_text_active() {
     const std::lock_guard<std::recursive_mutex> lock(s_native_settings_mutex);
     return s_text_entry && s_native_settings_visible.load(std::memory_order_relaxed);
@@ -6088,6 +6157,7 @@ void native_settings_input(NativeSettingsInput input, int arg) {
     }
     switch (input) {
     case NativeSettingsInput::SelectPage: {
+        if (s_ap_gate) return;  // the connection screen has the one page
         const int current = static_cast<int>(s_native_settings_tab.load(std::memory_order_relaxed) % kNativeSettingsTabCount);
         if (arg >= 0 && arg < static_cast<int>(kNativeSettingsTabCount) && arg != current) {
             cycle_native_settings_tab(arg - current);

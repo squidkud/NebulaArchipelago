@@ -143,8 +143,16 @@ void TitleSequenceProduct::exeLogoDisplay() {
     mBButtonChecker->update(MR::testCorePadButtonB(WPAD_CHAN0));
 
 #ifdef TARGET_PC
-    // A alone starts (the game asks for A and B together).
+    // A alone starts (the game asks for A and B together); under Archipelago, after the connection screen.
+    static bool sStartWanted = false;
     if (mAButtonChecker->getOnTrigger()) {
+        sStartWanted = true;
+    }
+    if (sStartWanted && !NebulaArchipelago::passConnectionGate()) {
+        return;
+    }
+    if (sStartWanted) {
+        sStartWanted = false;
 #else
     if (mAButtonChecker->getLevel() && mBButtonChecker->getLevel()) {
 #endif

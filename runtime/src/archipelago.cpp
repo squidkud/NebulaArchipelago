@@ -1077,6 +1077,13 @@ std::uint32_t Engine::seed_id() const {
     return seed_id_;
 }
 
+bool Engine::has_state_file() const {
+    const std::lock_guard<std::mutex> lock(mutex_);
+    if (state_folder_.empty() || seed_name_.empty()) return false;
+    std::error_code error;
+    return std::filesystem::exists(state_path_locked(), error);
+}
+
 State Engine::state() const {
     const std::lock_guard<std::mutex> lock(mutex_);
     return state_;
@@ -1299,6 +1306,8 @@ std::filesystem::path g_settings_folder;  // set by start()
 std::filesystem::path g_ini_path;         // the archipelago.ini start() read (empty: none was found)
 std::atomic<bool> g_spheres_allowed{true};
 std::atomic<bool> g_guard_exit_registered{false};
+std::atomic<bool> g_reconnecting{false};  // reconnect() is replacing the client
+std::vector<Client*> g_retired;           // clients that were stopped: kept, the game's thread may still hold one
 Client* g_client = nullptr;  // never destroyed: its thread may still run when the process ends
 
 std::mutex g_log_mutex;
@@ -1464,6 +1473,7 @@ bool active() noexcept {
 }
 
 State state() noexcept {
+    if (g_reconnecting.load()) return State::Connecting;
     Client* c = client();
     return c != nullptr ? c->engine().state() : State::Off;
 }
@@ -1614,6 +1624,73 @@ bool save_connection(const Connection& connection, std::string& error) {
               "\", password " + (connection.password.empty() ? "none" : "set") + " (used at the next start)")
                  .c_str());
     return true;
+}
+
+void reconnect() {
+    std::filesystem::path folder;
+    {
+        const std::lock_guard<std::mutex> lock(g_mutex);
+        folder = g_settings_folder;
+    }
+    if (folder.empty() || g_reconnecting.exchange(true)) return;
+    std::thread([folder] {
+        const std::filesystem::path path = connection_file();
+        Client* old = client();
+        log_sink("reconnecting with archipelago.ini as it is now");
+        if (old != nullptr) old->stop();
+        std::string text;
+        Client* fresh = nullptr;
+        if (read_file(path, text)) {
+            Config config = parse_config(text);
+            config.path = path.string();
+            if (config.enabled) {
+                log_sink(("server " + config.server + ", slot \"" + config.slot + "\", password " + (config.password.empty() ? "none" : "set")).c_str());
+                fresh = new Client(config, folder / "archipelago", &log_sink);
+            } else {
+                log_sink(("the Archipelago client stays off: " + config_problem(text)).c_str());
+            }
+        } else {
+            log_sink(("no archipelago.ini at " + path.string()).c_str());
+        }
+        {
+            const std::lock_guard<std::mutex> lock(g_mutex);
+            if (old != nullptr) g_retired.push_back(old);
+            g_client = fresh;
+            if (g_ini_path.empty()) g_ini_path = path;
+        }
+        if (fresh != nullptr) fresh->start();
+        g_reconnecting.store(false);
+    }).detach();
+}
+
+namespace {
+std::filesystem::path owner_file() {
+    const std::lock_guard<std::mutex> lock(g_mutex);
+    return g_settings_folder.empty() ? std::filesystem::path() : g_settings_folder / "archipelago-saves.txt";
+}
+}  // namespace
+
+SaveOwner save_owner() noexcept {
+    Client* c = client();
+    const std::uint32_t id = c != nullptr ? c->engine().seed_id() : 0u;
+    if (id == 0u) return SaveOwner::Unknown;
+    const std::filesystem::path path = owner_file();
+    std::string text;
+    if (!path.empty() && read_file(path, text)) {
+        const std::size_t equals = text.find('=');
+        const std::string value = trim(equals == std::string::npos ? std::string_view(text) : std::string_view(text).substr(equals + 1u));
+        return value == std::to_string(id) ? SaveOwner::Same : SaveOwner::Other;
+    }
+    // No owner recorded (saves from before this page): a multiworld an earlier start played keeps its files.
+    return c->engine().has_state_file() ? SaveOwner::Adopted : SaveOwner::Other;
+}
+
+void claim_saves() {
+    Client* c = client();
+    const std::uint32_t id = c != nullptr ? c->engine().seed_id() : 0u;
+    const std::filesystem::path path = owner_file();
+    if (id == 0u || path.empty()) return;
+    (void)galaxy::io::write_text_file_atomically(path, "seed_id=" + std::to_string(id) + "\n");
 }
 
 }  // namespace galaxy::archipelago

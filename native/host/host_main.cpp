@@ -70,6 +70,7 @@ inline int64_t perf_hint_retrace() noexcept { return 0; }
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <ctime>
 #include <cmath>
 #include <condition_variable>
 #include <csignal>
@@ -1737,10 +1738,37 @@ static_assert(NEBULA_AP_ITEM_ONE_UP == galaxy::archipelago::kItemOneUp &&
               "nebula_game_api.h and galaxy/archipelago.h number the Archipelago items, goals and options alike");
 #endif
 
+#if defined(NEBULA_HOST_RENDERER)
+// The save files copied to saves-backup\<date> in the settings folder, before the game clears the ones that do not belong
+// to the multiworld it is connected to.
+bool backup_save_files() {
+    fs::path from;
+    if (gSaveDataPath.empty() || !nand_path(gSaveDataPath.c_str(), &from)) return false;
+    const fs::path settings = galaxy::runtime_settings_folder();
+    std::error_code error;
+    if (settings.empty() || !fs::is_directory(from, error)) return false;
+    const std::time_t now = std::time(nullptr);
+    char stamp[32];
+    std::tm local{};
+#if defined(_WIN32)
+    localtime_s(&local, &now);
+#else
+    localtime_r(&now, &local);
+#endif
+    std::strftime(stamp, sizeof(stamp), "%Y-%m-%d_%H-%M-%S", &local);
+    const fs::path to = settings / "saves-backup" / stamp;
+    fs::create_directories(to, error);
+    if (error) return false;
+    fs::copy(from, to, fs::copy_options::recursive | fs::copy_options::overwrite_existing, error);
+    log_line("archipelago:", error ? "could not back up the save files" : "save files backed up before they are cleared");
+    return !error;
+}
+#endif
+
 uint32_t svc_archipelago(void*, uint32_t what, uint32_t value) {
 #if !defined(NEBULA_HOST_RENDERER)
-    (void)what, (void)value;
-    return 0u;
+    (void)value;
+    return what == NEBULA_AP_GATE && value == 0u ? 2u : 0u;  // no menu to ask: the gate is skipped
 #else
     switch (what) {
     case NEBULA_AP_ACTIVE:
@@ -1800,6 +1828,19 @@ uint32_t svc_archipelago(void*, uint32_t what, uint32_t value) {
         if (value == 1u) galaxy::archipelago::sphere_guard_begin();
         if (value == 2u) galaxy::archipelago::sphere_guard_end();
         return 0u;
+    case NEBULA_AP_GATE:
+        if (value == 1u) {
+            galaxy::gx::native_settings_open_gate();
+            return 0u;
+        }
+        return galaxy::gx::native_settings_gate_result();
+    case NEBULA_AP_SAVE_OWNER:
+        return static_cast<uint32_t>(galaxy::archipelago::save_owner());  // SaveOwner's numbers are NEBULA_AP_SAVE_OWNER's
+    case NEBULA_AP_CLAIM_SAVES:
+        galaxy::archipelago::claim_saves();
+        return 0u;
+    case NEBULA_AP_BACKUP_SAVES:
+        return backup_save_files() ? 1u : 0u;
     default:
         return 0u;
     }
@@ -1891,6 +1932,7 @@ void svc_settings_view(void*, NebulaSettingsView* view) {
     }
     view->controls_page = source.controls_page;
     view->input = source.input;
+    view->gate = source.gate;
     // A long page (many mods) is sent in part: the rows around the selection, more than the menu shows at once.
     const std::size_t total = source.rows.size();
     const std::size_t selected = std::min<std::size_t>(source.selected, total == 0u ? 0u : total - 1u);
@@ -3618,8 +3660,10 @@ int main(int argc, char** argv) {
             password = connection.password;
             return true;
         };
-        hooks.save = [](const std::string& server, const std::string& slot, const std::string& password, std::string& error) {
-            return galaxy::archipelago::save_connection({server, slot, password}, error);
+        hooks.connect = [](const std::string& server, const std::string& slot, const std::string& password, std::string& error) {
+            if (!galaxy::archipelago::save_connection({server, slot, password}, error)) return false;
+            galaxy::archipelago::reconnect();
+            return true;
         };
         hooks.state = []() { return static_cast<unsigned>(galaxy::archipelago::state()); };
         galaxy::gx::native_settings_set_archipelago_hooks(hooks);

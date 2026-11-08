@@ -595,6 +595,12 @@ void FileSelector::invalidateSelectAll() {
 
 void FileSelector::validateSelectAll() {
     for (int i = 0; i < mItems->getObjNum(); i++) {
+#ifdef TARGET_PC
+        // Archipelago: one save file for the multiworld, the first.
+        if (NebulaArchipelago::isSingleSaveFile() && static_cast< FileSelectItem* >(mItems->getActor(i))->_140 != 1) {
+            continue;
+        }
+#endif
         static_cast< FileSelectItem* >(mItems->getActor(i))->validateSelect();
     }
 }
