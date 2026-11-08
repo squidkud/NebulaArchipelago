@@ -1557,6 +1557,9 @@ void NebulaSettingsScreen::fillKeyboard(const NebulaSettingsView& rView) {
     while (text[length] != 0) {
         length++;
     }
+    if (length > 0 && length + 2 < cKbFieldChars - 1) {
+        text[length++] = L' ';  // a little air between the text and the bar
+    }
     text[length] = L'|';
     text[length + 1] = 0;
     const f32 room = (mPanelWidth - 40.0f < cKbWidth ? mPanelWidth - 40.0f : cKbWidth) - cQuestionMargin * 2.0f - 28.0f;
@@ -1632,8 +1635,8 @@ void NebulaSettingsScreen::placeKeyboard(const NebulaSettingsView& rView) {
     mQuestionText->mTranslate = nw4r::math::VEC3(0.0f, textCentre(top - titleHeight * 0.5f, cTextSize + 1.0f), 0.0f);
 
     const f32 fieldY = top - titleHeight - 8.0f - cKbFieldHeight * 0.5f;
-    mKbField->mSize = nw4r::lyt::Size(inner, cKbFieldHeight);
-    mKbField->mTranslate = nw4r::math::VEC3(0.0f, fieldY, 0.0f);
+    // Scaled like the rows' frames: the raw nine-slice is taller than half this bar and drew a cut, uneven end.
+    shape(mKbField, 0.0f, fieldY, inner, cKbFieldHeight, 10.0f);
     mKbFieldText->mTranslate = nw4r::math::VEC3(-inner * 0.5f + 14.0f, textCentre(fieldY, cTextSize + 1.0f), 0.0f);
 
     const f32 keyWidth = (inner - cKbGap * (NEBULA_KEYBOARD_COLUMNS - 1)) / NEBULA_KEYBOARD_COLUMNS;
