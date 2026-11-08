@@ -77,13 +77,10 @@ namespace {
     const f32 cTabSize = 15.0f;
     const f32 cSummarySize = 16.0f;
     const f32 cFooterSize = 14.0f;
-    const f32 cFooterGlyph = 21.0f;
     const f32 cBackGlyph = 18.0f;
-    const f32 cTitleGlyph = 26.0f;
+    const f32 cTitleGlyph = 34.0f;
     const f32 cCountSize = 16.0f;
     const f32 cDetailSize = 14.0f;
-    const f32 cCrownHeight = 0.71f;
-    const f32 cCrownLift = 0.02f;
 
     // Colours, 0xRRGGBBAA, those of the achievement board.
     const u32 cPanelFill = 0x0A1442C8;
@@ -110,7 +107,6 @@ namespace {
     const s32 cGlyphPlus = 'H';
     const s32 cGlyphMinus = 'G';
     const s32 cGlyphPad = 'C';
-    const s32 cGlyphCrown = 'P';
 
     // The picture font's star of each kind of location (StarData's kinds in the generated table's order).
     s32 kindGlyph(s32 kind) {
@@ -128,7 +124,6 @@ namespace {
         }
     }
 
-    enum { HintTabs, HintMove, HintNum };
     enum { ZoneTabs, ZoneStars };
 
     bool sRequested = false;
@@ -201,7 +196,7 @@ struct NebulaTrackerParts {
     NebulaPaneKit mButton;  // BackButton: the game's button
     Pane* mBoard;
     Window* mPanel;
-    TextBox* mTitleGlyph;
+    Picture* mTitleLogo;
     TextBox* mTitleShadow;
     TextBox* mTitle;
     TextBox* mSummary;
@@ -210,8 +205,6 @@ struct NebulaTrackerParts {
     TextBox* mPercent;
     Chip mTabs[cTabNum];
     Chip mBack;
-    TextBox* mHintGlyphs[HintNum];
-    TextBox* mHintLabels[HintNum];
     Row mRows[cRowMax];
     Window* mFocusRing;
     TextBox* mDetail;
@@ -487,6 +480,9 @@ namespace {
                 continue;
             }
             if (NebulaArchipelago::getTrackerGalaxy(g, &p->mGalaxies[p->mRowNum])) {
+                if (!p->mGalaxies[p->mRowNum].mOpen) {
+                    p->mGalaxies[p->mRowNum].mStarNum = 0;  // ??? : no star, nothing to point at
+                }
                 p->mRowNum++;
             }
         }
@@ -547,8 +543,15 @@ namespace {
             wchar_t label[48];
             if (i == cOtherTab) {
                 NebulaText::get(label, 48, "TrackerOther");
+            } else if (!p->mTabOpen[i]) {
+                label[0] = L'?';  // a dome not open yet is not named
+                label[1] = L'?';
+                label[2] = L'?';
+                label[3] = 0;
             } else {
-                fillNumber(label, 48, "TrackerDome", i + 1);
+                char id[24];
+                snprintf(id, sizeof(id), "TrackerDomeName%d", tabRoom(i));
+                NebulaText::get(label, 48, id);
             }
             setText(rChip.mText, label);
             rChip.mText->mScale = nw4r::math::VEC2(1.0f, 1.0f);
@@ -585,7 +588,7 @@ namespace {
             p->mRowY[r] = p->mListTop - line * (rowHeight + cRowGap) - rowHeight * 0.5f;
             // The name, narrowed into its room; the stars' count at the right end.
             setTextStyle(rRow.mName, nameSize, cWhite, cWhite, 3);
-            setText(rRow.mName, MR::getGalaxyNameOnCurrentLanguage(rGalaxy.mStage));
+            setText(rRow.mName, rGalaxy.mOpen ? MR::getGalaxyNameOnCurrentLanguage(rGalaxy.mStage) : L"???");
             f32 width, height;
             measure(rRow.mName, 4000.0f, &width, &height);
             rRow.mName->mScale = nw4r::math::VEC2(width > nameRoom && width > 0.0f ? nameRoom / width : 1.0f, 1.0f);
@@ -602,7 +605,7 @@ namespace {
             fill(count, 32, "BoardCount", names, values, 2);
             setTextStyle(rRow.mCount, clamp(nameSize - 2.0f, 10.0f, 14.0f), done >= rGalaxy.mStarNum ? cGoldTop : cSubText,
                          done >= rGalaxy.mStarNum ? cGoldBottom : cSubText, 5);
-            setText(rRow.mCount, count);
+            setText(rRow.mCount, rGalaxy.mOpen ? count : L"");
             // The stars, from the end of the name's room, each by its kind and state.
             const f32 rowLeft = -p->mRowWidth * 0.5f;
             const f32 starsLeft = rowLeft + 12.0f + nameRoom + 12.0f;
@@ -714,11 +717,6 @@ namespace {
         p->mDetail->mTranslate = nw4r::math::VEC3(left, textCentre(p->mDetailY, cDetailSize), 0.0f);
 
         setHeader(p);
-        // The footer's labels' sizes, for the pad's guide at the right.
-        for (s32 i = 0; i < HintNum; i++) {
-            f32 width, height;
-            measure(p->mHintLabels[i], 4000.0f, &width, &height);
-        }
         measure(p->mBack.mText, 4000.0f, &p->mBack.mWidth, &p->mBack.mHeight);
         p->mBack.mHeight = cBackHeight;
         {
@@ -737,7 +735,7 @@ namespace {
         p->mBoard->mAlpha = toAlpha(open);
         p->mBoard->mTranslate = nw4r::math::VEC3(0.0f, (1.0f - easeOut(open)) * -16.0f, 0.0f);
 
-        // The panel and the header: the crown and title, the count, bar and percentage.
+        // The panel and the header: the logo and title, the count, bar and percentage.
         const f32 panelTop = p->mHeight * 0.5f - cMargin;
         const f32 panelBottom = -p->mHeight * 0.5f + cFooter;
         shape(p->mPanel, 0.0f, (panelTop + panelBottom) * 0.5f, p->mWidth - cMargin * 2.0f, panelTop - panelBottom, 16.0f);
@@ -745,9 +743,10 @@ namespace {
         const f32 right = p->mRight;
         const f32 headerY = p->mHeaderY;
         f32 width, height;
-        const f32 baseline = headerY - cCapHeight * 0.5f * cTitleSize;
-        const f32 crownMiddle = baseline + cCrownHeight * 0.5f * cTitleGlyph;
-        p->mTitleGlyph->mTranslate = nw4r::math::VEC3(left + cTitleGlyph * 0.5f + 2.0f, crownMiddle + cCrownLift * cTitleGlyph, 0.0f);
+        if (p->mTitleLogo != nullptr) {
+            setPicture(p->mTitleLogo, NebulaItemIcons::getLogo(), cTitleGlyph, cWhite);
+            p->mTitleLogo->mTranslate = nw4r::math::VEC3(left + cTitleGlyph * 0.5f + 2.0f, headerY, 0.0f);
+        }
         measure(p->mTitle, 4000.0f, &width, &height);
         measure(p->mTitleShadow, 4000.0f, &width, &height);
         const f32 titleX = left + cTitleGlyph + 12.0f;
@@ -824,16 +823,6 @@ namespace {
         const f32 glyphX = arrowX + backArrowSize(cBackHeight) * 0.5f + 6.0f + cBackGlyph * 0.5f;
         rBack.mGlyph->mTranslate = nw4r::math::VEC3(glyphX, glyphCentre(0.0f, cBackGlyph), 0.0f);
         rBack.mText->mTranslate = nw4r::math::VEC3(glyphX + cBackGlyph * 0.5f + 5.0f, textCentre(0.0f, cFooterSize + 1.0f), 0.0f);
-        f32 x = p->mWidth * 0.5f - cMargin - 6.0f;
-        for (s32 i = HintNum - 1; i >= 0; i--) {
-            TextBox* pLabel = p->mHintLabels[i];
-            pLabel->mTranslate = nw4r::math::VEC3(x, textCentre(p->mFooterY, cFooterSize), 0.0f);
-            x -= pLabel->mSize.width + 7.0f;
-            TextBox* pGlyphs = p->mHintGlyphs[i];
-            const f32 glyphWidth = pGlyphs->mSize.width;
-            pGlyphs->mTranslate = nw4r::math::VEC3(x - glyphWidth * 0.5f, glyphCentre(p->mFooterY, cFooterGlyph), 0.0f);
-            x -= glyphWidth + 24.0f;
-        }
     }
 
     // The pointer in board units; false when it is off the screen.
@@ -915,17 +904,25 @@ namespace {
                     p->mStarFocus++;
                 }
             } else if (direction == NebulaMenuFocus::Direction_Up) {
-                if (row == 0) {
+                s32 above = row - 1;
+                while (above >= 0 && p->mGalaxies[above].mStarNum == 0) {
+                    above--;
+                }
+                if (above < 0) {
                     p->mZone = ZoneTabs;
                     p->mTabFocus = p->mTab;
                 } else {
-                    const s32 target = index < p->mGalaxies[row - 1].mStarNum ? index : p->mGalaxies[row - 1].mStarNum - 1;
-                    p->mStarFocus = starFlat(p, row - 1, target);
+                    const s32 target = index < p->mGalaxies[above].mStarNum ? index : p->mGalaxies[above].mStarNum - 1;
+                    p->mStarFocus = starFlat(p, above, target);
                 }
             } else if (direction == NebulaMenuFocus::Direction_Down) {
-                if (row + 1 < p->mRowNum) {
-                    const s32 target = index < p->mGalaxies[row + 1].mStarNum ? index : p->mGalaxies[row + 1].mStarNum - 1;
-                    p->mStarFocus = starFlat(p, row + 1, target);
+                s32 below = row + 1;
+                while (below < p->mRowNum && p->mGalaxies[below].mStarNum == 0) {
+                    below++;
+                }
+                if (below < p->mRowNum) {
+                    const s32 target = index < p->mGalaxies[below].mStarNum ? index : p->mGalaxies[below].mStarNum - 1;
+                    p->mStarFocus = starFlat(p, below, target);
                 }
             }
         }
@@ -1054,14 +1051,14 @@ void NebulaTracker::init(const JMapInfoIter& rIter) {
     paint(p->mPanel, cPanelFill, cPanelRing);
 
     // The header: the crown and title, how many locations are checked.
-    p->mTitleGlyph = makeText(p, pBoard, "NtTitleY", 8);
+    p->mTitleLogo = makePicture(pBoard, "NtLogo", const_cast< nw4r::lyt::TexMap* >(NebulaItemIcons::getLogo()));
     p->mTitleShadow = makeText(p, pBoard, "NtTitleS", 64);
     p->mTitle = makeText(p, pBoard, "NtTitle", 64);
     p->mSummary = makeText(p, pBoard, "NtSum", 32);
     p->mSummaryTrack = makeWindow(p, pBoard, "NtSumTr");
     p->mSummaryBar = makeWindow(p, pBoard, "NtSumBar");
     p->mPercent = makeText(p, pBoard, "NtSumPc", 16);
-    if (p->mPanel == nullptr || p->mTitleGlyph == nullptr || p->mTitleShadow == nullptr || p->mTitle == nullptr ||
+    if (p->mPanel == nullptr || p->mTitleShadow == nullptr || p->mTitle == nullptr ||
         p->mSummary == nullptr || p->mSummaryTrack == nullptr || p->mSummaryBar == nullptr || p->mPercent == nullptr) {
         p->mBoard = nullptr;
         return;
@@ -1074,8 +1071,6 @@ void NebulaTracker::init(const JMapInfoIter& rIter) {
     setText(p->mTitleShadow, text);
     setTextStyle(p->mTitle, cTitleSize, cWhite, cWhite, 3);
     setTextStyle(p->mTitleShadow, cTitleSize, 0x00000070, 0x00000070, 3);
-    setGlyph(p->mTitleGlyph, cGlyphCrown, cTitleGlyph);
-    setTextColor(p->mTitleGlyph, cGoldTop, cGoldBottom);
     setTextStyle(p->mSummary, cSummarySize, cWhite, cWhite, 5);
     setTextStyle(p->mPercent, cSummarySize, cGoldTop, cGoldBottom, 5);
 
@@ -1178,34 +1173,6 @@ void NebulaTracker::init(const JMapInfoIter& rIter) {
     }
     setText(p->mBack.mText, pBack);
     setTextStyle(p->mBack.mText, cFooterSize + 1.0f, cButtonText, cButtonText, 3);
-    static const char* const cHintIds[HintNum] = {"HintTabs", "HintMove"};
-    for (s32 i = 0; i < HintNum; i++) {
-        char name[17];
-        snprintf(name, sizeof(name), "NtHint%dY", i);
-        p->mHintGlyphs[i] = makeText(p, pBoard, name, 16);
-        snprintf(name, sizeof(name), "NtHint%dT", i);
-        p->mHintLabels[i] = makeText(p, pBoard, name, 48);
-        if (p->mHintGlyphs[i] == nullptr || p->mHintLabels[i] == nullptr) {
-            p->mBoard = nullptr;
-            return;
-        }
-        wchar_t glyphs[16] = {0};
-        wchar_t* q = glyphs;
-        if (i == HintTabs) {
-            q = MR::addPictureFontTag(q, cGlyphMinus);
-            q = MR::addPictureFontTag(q, cGlyphPlus);
-        } else {
-            MR::addPictureFontTag(q, cGlyphPad);
-        }
-        setText(p->mHintGlyphs[i], glyphs);
-        p->mHintGlyphs[i]->SetFontSize(glyphFontSize(p->mHintGlyphs[i], cFooterGlyph));
-        p->mHintGlyphs[i]->mCharSpace = 3.0f;
-        setAnchor(p->mHintGlyphs[i], 4);
-        NebulaText::get(text, 48, cHintIds[i]);
-        setText(p->mHintLabels[i], text);
-        setTextStyle(p->mHintLabels[i], cFooterSize, cSubText, cSubText, 5);
-    }
-
     // The backdrop fades in and out with the tracker.
     if (Pane* pBackground = mBackground->getLayoutManager()->mLayout->mpRootPane) {
         setInfluencedAlphaRecursive(pBackground, 0);

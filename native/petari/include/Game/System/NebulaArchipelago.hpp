@@ -226,6 +226,7 @@ namespace NebulaArchipelago {
         s32 mNeedStars;      // what the place asks of the star counter
         s32 mNeedGrand;      // the Observatory galaxy's Grand Stars (0 none)
         s32 mDoor;           // the dome's door number (0 outside the domes)
+        bool mOpen;          // the galaxy can be entered (nothing asked of the galaxy itself is missing) or one of its stars is done: the tracker names it; else it shows ???
     };
     s32 getTrackerPlaceNum();
     //   the place's own room (1 to 6, 0 outside the domes), and the room behind door `door` (1 to 6)

@@ -618,7 +618,7 @@ HungryLumaFresh	Psst! Feed me {red}{n} {icon} Star Bits{/red} and I'll take you 
 HungryLumaFed	Yum! Just {red}{n} {icon} Star Bits{/red} more and {galaxy} is all yours!		Miam ! Encore {red}{n} {icon} Star Bits{/red} et {galaxy} est à toi !	Miam ! Encore {red}{n} {icon} Star Bits{/red} et {galaxy} est à toi !										
 HungryLumaOne	One last {red}1 {icon} Star Bit{/red} and I'll whisk you off to {galaxy}!		Plus qu'{red}1 {icon} Star Bit{/red} et je t'envoie direct à {galaxy} !	Plus qu'{red}1 {icon} Star Bit{/red} et je t'envoie direct à {galaxy} !										
 TrackerButton	Tracker		Tracker	Tracker									
-TrackerTitle	Archipelago Tracker		Tracker Archipelago	Tracker Archipelago									
+TrackerTitle	Tracker		Tracker	Tracker									
 TrackerFormBee	Bee		Abeille	Abeille									
 TrackerFormBoo	Boo		Fantôme	Fantôme									
 TrackerFormSpring	Spring		Ressort	Ressort									
@@ -626,6 +626,12 @@ TrackerFormFire	Fire		Feu	Feu
 TrackerFormIce	Ice		Glace	Glace									
 TrackerFormFlying	Flying		Vol	Vol									
 TrackerDome	Dome {n}		Dôme {n}	Dôme {n}									
+TrackerDomeName1	Terrace		Terrasse	Terrasse									
+TrackerDomeName2	Fountain		Fontaine	Fontaine									
+TrackerDomeName3	Kitchen		Cuisine	Cuisine									
+TrackerDomeName4	Bedroom		Chambre	Chambre									
+TrackerDomeName5	Engine Room		Salle des machines	Salle des machines									
+TrackerDomeName6	Garden		Jardin	Jardin									
 TrackerOther	Other		Autres	Autres									
 TrackerStarsCount	Stars {n}/{total}		Étoiles {n}/{total}	Étoiles {n}/{total}									
 TrackerGrandCount	Grand Stars {n}		Grand Stars {n}	Grand Stars {n}									
