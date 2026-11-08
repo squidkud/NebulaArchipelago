@@ -998,6 +998,8 @@ int main() {
             galaxy::gx::native_settings_set_archipelago_hooks(hooks);
             galaxy::gx::native_settings_input(NativeSettingsInput::SelectPage, 8);
             const galaxy::gx::NativeSettingsView page = galaxy::gx::native_settings_view();
+            passed &= expect(page.rows.size() >= 5u && page.rows[1].text && page.rows[2].text && page.rows[3].text && !page.rows[4].text,
+                             "the Archipelago page's text rows are marked as text (no arrows), the CONNECT row is not");
             passed &= expect(page.pages.size() == 9u && page.pages[8] == "ARCHIPELAGO" && page.rows.size() >= 5u &&
                                  page.rows[1].label == "SERVER" && page.rows[1].value == "old:1",
                              "the ARCHIPELAGO page shows the connection the file has");

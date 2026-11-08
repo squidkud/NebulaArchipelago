@@ -1608,6 +1608,7 @@ Connection saved_connection() {
     connection.server = config.server;
     connection.slot = config.slot;
     connection.password = config.password;
+    log_sink(("connection read from " + path.string() + ": server " + connection.server + ", slot \"" + connection.slot + "\"").c_str());
     return connection;
 }
 
@@ -1620,8 +1621,31 @@ bool save_connection(const Connection& connection, std::string& error) {
     std::string text;
     (void)read_file(path, text);
     const std::string written = rewrite_connection(text, connection.server, connection.slot, connection.password);
-    if (!galaxy::io::write_text_file_atomically(path, written)) {
+    // The atomic replace can be refused on Windows (the file open somewhere for a moment): tried again, then written in
+    // place, and what is on disk is read back to be sure it is what was meant.
+    bool done = false;
+    for (int attempt = 0; attempt < 3 && !done; attempt++) {
+        done = galaxy::io::write_text_file_atomically(path, written);
+        if (!done) {
+            log_sink(("writing " + path.string() + " failed (attempt " + std::to_string(attempt + 1) + ")").c_str());
+            std::this_thread::sleep_for(std::chrono::milliseconds(60));
+        }
+    }
+    if (!done) {
+        std::ofstream direct(path, std::ios::binary | std::ios::trunc);
+        direct << written;
+        done = direct.good();
+    }
+    std::string check;
+    if (done && (!read_file(path, check) || parse_config(check).server != connection.server)) {
+        log_sink(("what is in " + path.string() + " is not what was written").c_str());
+        std::ofstream direct(path, std::ios::binary | std::ios::trunc);
+        direct << written;
+        done = direct.good() && read_file(path, check) && parse_config(check).server == connection.server;
+    }
+    if (!done) {
         error = "could not write " + path.string();
+        log_sink(error.c_str());
         return false;
     }
     log_sink(("connection saved to " + path.string() + ": server " + connection.server + ", slot \"" + connection.slot +

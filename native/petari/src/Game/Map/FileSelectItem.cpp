@@ -981,6 +981,6 @@ FileSelectItem::~FileSelectItem() {
 #ifdef TARGET_PC
 // The logo's size: that of the file when pointed at (it swells) times how much larger the one file is shown.
 f32 FileSelectItem::getLogoScale() const {
-    return mScaleCtrl->getScale() * 1.6f;
+    return mScaleCtrl->getScale() * 1.4f;
 }
 #endif

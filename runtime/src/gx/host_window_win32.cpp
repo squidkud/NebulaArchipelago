@@ -126,6 +126,7 @@ struct SettingsRow {
     std::function<void(RenderConfig&, unsigned)> press;
     std::uint8_t list = 0u;  // the MODS page's lists: 1 off, 2 on (a mod, or the list's title)
     bool held = false;       // a mod picked up to move
+    bool text = false;       // a text typed in (the ARCHIPELAGO page's fields): no arrows
     // A setting along a range (a slider): its steps from the first value and where it is.
     std::uint16_t slider_steps = 0u;
     std::uint16_t slider_at = 0u;
@@ -3054,7 +3055,9 @@ std::vector<SettingsRow> archipelago_page() {
     std::vector<SettingsRow> rows;
     rows.push_back({"CONNECTION", {}, nullptr, {}, true});
     const auto field_row = [](const char* label, ApField field, const char* help) {
-        return SettingsRow{label, ap_shown(field), [field](RenderConfig&, int) { begin_text_entry(field); }, help};
+        SettingsRow row{label, ap_shown(field), [field](RenderConfig&, int) { begin_text_entry(field); }, help};
+        row.text = true;
+        return row;
     };
     rows.push_back(field_row("SERVER", ApField::Server, "THE MULTIWORLD'S ADDRESS, LIKE ARCHIPELAGO.GG:38281. PRESS A, ENTER OR RIGHT TO TYPE IT"));
     rows.push_back(field_row("SLOT", ApField::Slot, "YOUR SLOT'S NAME IN THE MULTIWORLD (THE NAME IN YOUR YAML)"));
@@ -5405,6 +5408,7 @@ NativeSettingsView build_native_settings_view() {
             shown.name = (page[row].names & 2u) != 0u;
             shown.mod_list = page[row].list;
             shown.held = page[row].held;
+            shown.text = page[row].text;
             shown.buttons = !page[row].buttons.empty();
             if (row == view.selected) view.help = page[row].help;
         } else {

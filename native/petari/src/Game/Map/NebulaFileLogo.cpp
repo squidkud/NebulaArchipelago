@@ -44,10 +44,10 @@ namespace {
         specular *= specular;
         specular *= specular;
         specular *= specular;  // ^16
-        const f32 light = 0.5f + 0.6f * diffuse;
+        const f32 light = 0.4f + 0.5f * diffuse;
         u32 channel[3];
         for (int i = 0; i < 3; i++) {
-            f32 value = pColor[i] * light + 255.0f * 0.35f * specular;
+            f32 value = pColor[i] * light + 255.0f * 0.25f * specular;
             channel[i] = value > 255.0f ? 255u : static_cast< u32 >(value);
         }
         return (channel[0] << 24) | (channel[1] << 16) | (channel[2] << 8) | 0xFFu;
@@ -83,7 +83,8 @@ void NebulaFileLogo::draw() const {
     const f32 radius = cLogoRadius * mHost->getLogoScale();
     TVec3f centre = mHost->mPosition;
     centre.y += cLogoHeight;
-    const f32 turn = mHost->mRotation.y * 3.14159265f / 180.0f;
+    // The file select shows the models' backs in this frame: half a turn more puts the logo's front to the screen.
+    const f32 turn = (mHost->mRotation.y + 180.0f) * 3.14159265f / 180.0f;
     const f32 cosY = MR::cos(turn);
     const f32 sinY = MR::sin(turn);
 

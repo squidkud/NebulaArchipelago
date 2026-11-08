@@ -1868,6 +1868,13 @@ uint32_t svc_archipelago_text(void*, uint32_t what, char* buffer, uint32_t size)
         buffer[length] = '\0';
         return static_cast<uint32_t>(length);
     }
+    case NEBULA_AP_TEXT_SLOT: {
+        const std::string slot = galaxy::archipelago::saved_connection().slot;
+        const std::size_t length = std::min<std::size_t>(slot.size(), size - 1u);
+        std::memcpy(buffer, slot.data(), length);
+        buffer[length] = '\0';
+        return static_cast<uint32_t>(length);
+    }
     default:
         buffer[0] = '\0';
         return 0u;
@@ -1955,7 +1962,7 @@ void svc_settings_view(void*, NebulaSettingsView* view) {
                               (row.mod_list == 1u ? NEBULA_SETTINGS_ROW_MOD_OFF : 0u) |
                               (row.mod_list == 2u ? NEBULA_SETTINGS_ROW_MOD_ON : 0u) | (row.held ? NEBULA_SETTINGS_ROW_HELD : 0u) |
                               (row.slider_steps != 0u ? NEBULA_SETTINGS_ROW_SLIDER : 0u) |
-                              (row.inputs ? NEBULA_SETTINGS_ROW_BINDING : 0u);
+                              (row.inputs ? NEBULA_SETTINGS_ROW_BINDING : 0u) | (row.text ? NEBULA_SETTINGS_ROW_TEXT : 0u);
         view->rows[i].slider_steps = static_cast<uint16_t>(row.slider_steps);
         view->rows[i].slider_at = static_cast<uint16_t>(row.slider_at);
     }

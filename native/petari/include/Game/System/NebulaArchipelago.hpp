@@ -30,6 +30,9 @@ namespace NebulaArchipelago {
     bool passConnectionGate();
     // One save file for the multiworld (the connection screen was passed connected): the file select offers file 1 only.
     bool isSingleSaveFile();
+    // The slot's name the client is connected with, as the 16-bit text the file select's name box takes (at most
+    // capacity - 1 characters, terminated); false when there is none.
+    bool getSlotName(u16* pName, s32 capacity);
 
     // The star items option: the game's own logic asks these. Each returns false (and leaves its result) when the
     // game's own value stands.

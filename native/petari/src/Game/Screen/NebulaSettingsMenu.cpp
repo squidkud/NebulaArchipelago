@@ -636,7 +636,8 @@ namespace {
     // A setting with a list of values: its arrows step through them (a binding waits for an input instead).
     bool hasArrows(const NebulaSettingsRow& rRow) {
         return (rRow.flags & (NEBULA_SETTINGS_ROW_HEADING | NEBULA_SETTINGS_ROW_CHANGES | NEBULA_SETTINGS_ROW_BUTTONS |
-                              NEBULA_SETTINGS_ROW_BINDING | NEBULA_SETTINGS_ROW_MOD_OFF | NEBULA_SETTINGS_ROW_MOD_ON)) ==
+                              NEBULA_SETTINGS_ROW_BINDING | NEBULA_SETTINGS_ROW_MOD_OFF | NEBULA_SETTINGS_ROW_MOD_ON |
+                              NEBULA_SETTINGS_ROW_TEXT)) ==
                    NEBULA_SETTINGS_ROW_CHANGES &&
                !hasSlider(rRow);
     }
@@ -1719,7 +1720,8 @@ void NebulaSettingsScreen::readPointer(const NebulaSettingsView& rView) {
             }
         }
         for (s32 i = 0; i < FooterNum; i++) {
-            if (isOnButton(x, y, mFooter[i].mChip.mX, mFooterY, mFooter[i].mChip.mWidth, cButtonHeight, cButtonGap)) {
+            if ((i != FooterApply || rView.gate == 0) &&
+                isOnButton(x, y, mFooter[i].mChip.mX, mFooterY, mFooter[i].mChip.mWidth, cButtonHeight, cButtonGap)) {
                 mHoverButton = &mFooter[i];
             }
         }
@@ -2468,16 +2470,26 @@ void NebulaSettingsScreen::place(const NebulaSettingsView& rView) {
 
     // The footer: Apply and Back for the pointer on the right; the line under the page and the hints in the room left,
     // narrowed when a language runs long.
+    // On the connection screen the Connect button is not there (the CONNECT row does it): only Skip or Continue.
+    const bool applyShown = rView.gate == 0;
+    mFooter[FooterApply].mChip.mRoot->SetVisible(applyShown);
     f32 buttonWidths[FooterNum];
     f32 buttonsWidth = 0.0f;
     for (s32 i = 0; i < FooterNum; i++) {
         const Button& rButton = mFooter[i];
         buttonWidths[i] = rButton.mKey.mWidth + cKeyGap + rButton.mWordWidth + 44.0f;
         buttonWidths[i] = buttonWidths[i] < 110.0f ? 110.0f : buttonWidths[i];
+        if (i == FooterApply && !applyShown) {
+            buttonWidths[i] = 0.0f;
+            continue;
+        }
         buttonsWidth += buttonWidths[i] + (i > 0 ? cButtonGap : 0.0f);
     }
     f32 x = mRight;
     for (s32 i = FooterNum - 1; i >= 0; i--) {
+        if (i == FooterApply && !applyShown) {
+            continue;
+        }
         placeButton(mFooter[i], x - buttonWidths[i] * 0.5f, mFooterY, buttonWidths[i]);
         x -= buttonWidths[i] + cButtonGap;
     }
