@@ -1202,8 +1202,38 @@ void FileSelector::exeTitle() {
 
 void FileSelector::exeTitleEnd() {
     if (MR::isFirstStep(this)) {
+#ifdef TARGET_PC
+        // Archipelago: this screen was built when the game started, before the connection. The files the connection made or
+        // cleared are read again, the files that are not the multiworld's are not shown, and the one file gets its logo.
+        if (NebulaArchipelago::isSingleSaveFile()) {
+            initUserFile();
+
+            for (int i = 0; i < mItems->getObjNum(); i++) {
+                FileSelectItem* pItem = static_cast< FileSelectItem* >(mItems->getActor(i));
+
+                if (::isHiddenFile(pItem)) {
+                    pItem->makeActorDead();
+                    pItem->invalidateSelect();
+                } else if (NebulaArchipelago::getSaveFileCount() == 1 && pItem->_140 == 1) {
+                    pItem->enableLogo();
+                }
+            }
+        }
+#endif
         mCameraController->goToFarPoint();
         calcBasePos(0.0f);
+#ifdef TARGET_PC
+        if (NebulaArchipelago::isSingleSaveFile()) {
+            // The files stand where they belong at once (they were built on the game's own ring).
+            for (int i = 0; i < mItems->getObjNum(); i++) {
+                FileSelectItem* pItem = static_cast< FileSelectItem* >(mItems->getActor(i));
+
+                if (!::isHiddenFile(pItem)) {
+                    pItem->mPosition.set(_98[::getItemArrayIndex(pItem->_140)]);
+                }
+            }
+        }
+#endif
         appearAllItems();
         initAllItems();
         mMiiSelect->collectValidMiiIndex();

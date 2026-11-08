@@ -984,4 +984,15 @@ FileSelectItem::~FileSelectItem() {
 f32 FileSelectItem::getLogoScale() const {
     return mScaleCtrl->getScale() * 1.4f;
 }
+
+void FileSelectItem::enableLogo() {
+    if (mLogo == nullptr) {
+        mLogo = new NebulaFileLogo(this);
+        mLogo->initWithoutIter();
+    }
+
+    if (MR::isExistStarPointerTarget(this)) {
+        MR::setStarPointerTargetRadius3d(this, 1700.0f);
+    }
+}
 #endif
