@@ -771,6 +771,13 @@ void FileSelector::setFileInfo(s32 id) {
         ::copyIconMiiName(this, nameBuffer, id);
     }
 
+#ifdef TARGET_PC
+    // Archipelago: the one save file is named after the slot's player.
+    if (NebulaArchipelago::isSingleSaveFile()) {
+        (void)NebulaArchipelago::getSlotName(nameBuffer, RFL_NAME_LEN + 1);
+    }
+#endif
+
     OSTicksToCalendarTime(::getUserFileLastModified(this, id), &td);
 
     MR::makeDateString(dateBuffer, ARRAY_SIZE(dateBuffer), td.year, td.mon + 1, td.mday);

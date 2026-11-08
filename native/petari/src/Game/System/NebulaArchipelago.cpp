@@ -640,6 +640,29 @@ namespace NebulaArchipelago {
         return sSingleFile;
     }
 
+    bool getSlotName(u16* pName, s32 capacity) {
+        char text[96];
+        text[0] = 0;
+        if (__NebulaArchipelagoText(NEBULA_AP_TEXT_SLOT, text, sizeof(text)) == 0) {
+            return false;
+        }
+        s32 length = 0;
+        const u8* p = reinterpret_cast< const u8* >(text);
+        while (*p != 0 && length + 1 < capacity) {
+            u32 c = *p++;
+            if (c >= 0xE0 && p[0] != 0 && p[1] != 0) {
+                c = ((c & 0x0F) << 12) | ((p[0] & 0x3F) << 6) | (p[1] & 0x3F);
+                p += 2;
+            } else if (c >= 0xC0 && p[0] != 0) {
+                c = ((c & 0x1F) << 6) | (p[0] & 0x3F);
+                p += 1;
+            }
+            pName[length++] = static_cast< u16 >(c);
+        }
+        pName[length] = 0;
+        return length > 0;
+    }
+
     bool passConnectionGate() {
         switch (sGateStep) {
         case GateDone:

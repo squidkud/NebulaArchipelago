@@ -215,6 +215,7 @@ enum {
     NEBULA_SETTINGS_ROW_HELD = 256,      /* the mod picked up to move: the arrows move it */
     NEBULA_SETTINGS_ROW_SLIDER = 512,    /* a setting along a range: `slider_steps` from its first value, at `slider_at` */
     NEBULA_SETTINGS_ROW_BINDING = 1024,  /* a control's binding: changing it waits for an input */
+    NEBULA_SETTINGS_ROW_TEXT = 2048,     /* a text typed in (with CHANGES): its value is shown at the row's end, no arrows */
 };
 
 /* The game's button icons (its picture font's A, B, C, Z, 1, 2, Plus, Minus, HOME and Control Pad, in this order):
@@ -476,6 +477,7 @@ enum {
     NEBULA_AP_TEXT_NOTICE = 1, /* the oldest notice for the player, in `buffer` (ASCII, terminated); -> its length, 0 when none */
     NEBULA_AP_TEXT_LOG,        /* `buffer` (read): a line for archipelago.log; -> 0 */
     NEBULA_AP_TEXT_SHOP_LABEL, /* `buffer` (read: the shop item's number as decimal text, 0-based; written: what the shelf holds, UTF-8); -> its length, 0 when unknown */
+    NEBULA_AP_TEXT_SLOT,       /* the slot's name the client is connected with, in `buffer` (UTF-8, terminated); -> its length, 0 when none */
 };
 
 typedef struct NebulaHostServices {

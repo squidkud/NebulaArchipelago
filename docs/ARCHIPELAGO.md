@@ -331,7 +331,7 @@ Le même réglage existe dans les réglages de Nebula (touche F1 ou la manette),
 grande, au milieu de l'écran de choix, sans son numéro, et à la place de la tête du personnage elle montre le **logo
 d'Archipelago en 3D** (six disques arrondis qui tournent ; pas testé en jeu). Les boutons Copy, Icon et Erase n'existent
 plus (seul « Play This File » reste), la barre avec le nom et les étoiles reste en haut, et la création du fichier ne
-demande plus d'icône (c'est celle de Mario). Le logo vient de `tools/gen_archipelago_logo_mesh.py` (relancez-le pour
+demande plus d'icône (c'est celle de Mario). Le nom affiché dans la barre est celui du slot (le joueur Archipelago). Le logo vient de `tools/gen_archipelago_logo_mesh.py` (relancez-le pour
 changer sa forme : `--preview image.png` en dessine un aperçu). Les sauvegardes 2 à 6 sont effacées ; si la sauvegarde 1 vient d'un autre multiworld (autre salle ou autre slot), elle l'est aussi, pour
 repartir de zéro. Avant d'effacer quoi que ce soit, le jeu copie toutes les sauvegardes dans
 `%LOCALAPPDATA%\Nebula\saves-backup\<date>` : rien n'est perdu pour de bon. Le fichier `archipelago-saves.txt` (même

@@ -349,6 +349,7 @@ struct NativeSettingsViewRow {
     bool buttons = false;     // its value is its buttons' words, '|' between them
     unsigned mod_list = 0u;   // the MODS page's lists: 1 off, 2 on (a mod, or the list's title)
     bool held = false;        // a mod picked up to move
+    bool text = false;        // its value is a text typed in: shown at the row's end, without arrows
     unsigned slider_steps = 0u;  // a setting along a range: its steps, and the one it is at
     unsigned slider_at = 0u;
 };
