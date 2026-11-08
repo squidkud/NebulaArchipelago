@@ -1,0 +1,36 @@
+name: launcher-dev
+on:
+  workflow_dispatch:
+jobs:
+  launcher:
+    runs-on: windows-2022
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile the launcher (Nebula.exe, dev build)
+        shell: pwsh
+        run: |
+          $commit = (git rev-parse --short HEAD)
+          New-Item -ItemType Directory -Force out | Out-Null
+          [IO.File]::WriteAllText("$PWD\out\BuildInfo.cs", @"
+          namespace Nebula
+          {
+              internal static class BuildInfo
+              {
+                  public const string Version = "99.0.0";
+                  public const string Commit = "$commit";
+                  public const string Repository = "squidkud/NebulaArchipelago";
+              }
+          }
+          "@, (New-Object Text.UTF8Encoding $false))
+          $csc = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
+          $common = @(Get-ChildItem installer\src\Common\*.cs | ForEach-Object FullName) + "$PWD\out\BuildInfo.cs"
+          $launcher = @(Get-ChildItem installer\src\Launcher\*.cs | ForEach-Object FullName)
+          $refs = @('/r:System.Web.Extensions.dll','/r:System.IO.Compression.dll','/r:System.IO.Compression.FileSystem.dll','/r:System.Windows.Forms.dll','/r:System.Drawing.dll','/r:System.Core.dll')
+          & $csc /nologo /target:winexe /platform:x64 /optimize+ "/win32manifest:installer\app.manifest" "/win32icon:installer\assets\nebula.ico" /define:NEBULA_SETTINGS_APP "/out:out\Nebula.exe" @refs @common @launcher
+          if ($LASTEXITCODE -ne 0) { throw "csc failed ($LASTEXITCODE)" }
+          Get-Item out\Nebula.exe | Select-Object Name, Length
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Nebula-launcher-dev
+          path: out/Nebula.exe
