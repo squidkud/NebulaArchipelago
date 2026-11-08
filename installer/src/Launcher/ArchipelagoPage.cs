@@ -12,8 +12,7 @@ namespace Nebula.Launcher
 {
     /// <summary>
     /// The first tab of the launcher: (1) your game: the Super Mario Galaxy image, packed once into game.pak by
-    /// nebula-import; (2) the Archipelago room, written to archipelago.ini (the file the game reads at start);
-    /// (3) the APWorld for Archipelago. Everything the installer used to ask for lives here.
+    /// nebula-import; (2) the APWorld for Archipelago. The Archipelago room is typed in the game itself (it saves archipelago.ini).
     /// </summary>
     internal sealed class ArchipelagoPage
     {
@@ -27,12 +26,6 @@ namespace Nebula.Launcher
         private readonly Button cancelImport = new Button();
         private readonly ProgressBar progress = new ProgressBar();
         private readonly Label progressText = new Label();
-        private readonly CheckBox enabled = new CheckBox();
-        private readonly TextBox server = new TextBox();
-        private readonly TextBox slot = new TextBox();
-        private readonly TextBox password = new TextBox();
-        private readonly CheckBox showPassword = new CheckBox();
-        private readonly Label roomStatus = new Label();
         private CancellationTokenSource importCancel;
         private bool importing;
 
@@ -45,7 +38,6 @@ namespace Nebula.Launcher
             this.session = session;
             Build();
             RefreshGame();
-            LoadRoom();
         }
 
         /// <summary>The packing format this version reads (content.json's formatVersion). Content packed for another
@@ -68,11 +60,6 @@ namespace Nebula.Launcher
         }
 
         public bool Importing { get { return importing; } }
-
-        private static string IniPath
-        {
-            get { return Path.Combine(NebulaPaths.DataRoot, "archipelago.ini"); }
-        }
 
         private Label Heading(string text, int y)
         {
@@ -119,45 +106,9 @@ namespace Nebula.Launcher
             progressText.ForeColor = SystemColors.GrayText;
             page.Controls.Add(progressText);
 
-            Heading("2. Archipelago room", 184);
-            enabled.Text = "Connect to Archipelago when the game starts";
-            enabled.Location = new Point(12, 216);
-            enabled.Size = new Size(500, 26);
-            enabled.Checked = true;
-            page.Controls.Add(enabled);
-            Caption("Server address", 12, 250, 180);
-            server.Location = new Point(200, 250);
-            server.Size = new Size(300, 28);
-            page.Controls.Add(server);
-            var serverHint = Caption("for example archipelago.gg:38281", 510, 250, 210);
-            serverHint.ForeColor = SystemColors.GrayText;
-            Caption("Player name (slot)", 12, 288, 180);
-            slot.Location = new Point(200, 288);
-            slot.Size = new Size(300, 28);
-            page.Controls.Add(slot);
-            var slotHint = Caption("the \"name:\" of your YAML", 510, 288, 210);
-            slotHint.ForeColor = SystemColors.GrayText;
-            Caption("Room password", 12, 326, 180);
-            password.Location = new Point(200, 326);
-            password.Size = new Size(300, 28);
-            password.UseSystemPasswordChar = true;
-            page.Controls.Add(password);
-            showPassword.Text = "Show";
-            showPassword.Location = new Point(510, 328);
-            showPassword.Size = new Size(120, 24);
-            showPassword.CheckedChanged += delegate { password.UseSystemPasswordChar = !showPassword.Checked; };
-            page.Controls.Add(showPassword);
-            var save = MakeButton(new Button(), "Save the room", 12, 366, 180);
-            save.Click += delegate { SaveRoom(); };
-            roomStatus.Location = new Point(200, 370);
-            roomStatus.Size = new Size(520, 26);
-            roomStatus.ForeColor = SystemColors.GrayText;
-            roomStatus.AutoEllipsis = true;
-            page.Controls.Add(roomStatus);
-
-            Heading("3. APWorld (for the Archipelago launcher)", 410);
-            MakeButton(new Button(), "Open the APWorld folder", 12, 442, 230).Click += delegate { OpenApworldFolder(); };
-            MakeButton(new Button(), "Copy it into Archipelago", 250, 442, 230).Click += delegate { CopyApworld(); };
+            Heading("2. APWorld (for the Archipelago launcher)", 184);
+            MakeButton(new Button(), "Open the APWorld folder", 12, 216, 230).Click += delegate { OpenApworldFolder(); };
+            MakeButton(new Button(), "Copy it into Archipelago", 250, 216, 230).Click += delegate { CopyApworld(); };
         }
 
         // ---- The game ----
@@ -328,119 +279,6 @@ namespace Nebula.Launcher
             RefreshGame();
             if (canceled) { progressText.Text = "Canceled."; return; }
             MessageBox.Show(page.FindForm(), error, "Nebula Archipelago", MessageBoxButtons.OK, MessageBoxIcon.Error);
-        }
-
-        // ---- The room (archipelago.ini) ----
-
-        // What the fields held when the room was read (or last written): "Save and play" writes the room only when the player
-        // changed it here, so that a room typed in the game itself is not overwritten by an older one on every launch.
-        private string loadedServer = "", loadedSlot = "", loadedPassword = "";
-        private bool loadedEnabled = true;
-
-        private void RememberRoom()
-        {
-            loadedServer = server.Text.Trim();
-            loadedSlot = slot.Text.Trim();
-            loadedPassword = password.Text;
-            loadedEnabled = enabled.Checked;
-        }
-
-        private bool RoomChangedHere()
-        {
-            return server.Text.Trim() != loadedServer || slot.Text.Trim() != loadedSlot || password.Text != loadedPassword ||
-                   enabled.Checked != loadedEnabled;
-        }
-
-        private void LoadRoom()
-        {
-            string path = IniPath;
-            if (!File.Exists(path))
-            {
-                roomStatus.Text = "No room saved yet.";
-                RememberRoom();
-                return;
-            }
-            bool on = true;
-            try
-            {
-                foreach (string raw in File.ReadAllLines(path))
-                {
-                    string line = raw.Trim();
-                    int equals = line.IndexOf('=');
-                    if (line.Length == 0 || line[0] == '#' || line[0] == ';' || equals < 0) continue;
-                    string key = line.Substring(0, equals).Trim().ToLowerInvariant();
-                    string value = line.Substring(equals + 1).Trim();
-                    if (key == "server") server.Text = value;
-                    else if (key == "slot" || key == "name") slot.Text = value;
-                    else if (key == "password") password.Text = value;
-                    else if (key == "enabled")
-                    {
-                        string v = value.ToLowerInvariant();
-                        on = !(v == "0" || v == "false" || v == "no" || v == "off");
-                    }
-                }
-            }
-            catch (IOException) { roomStatus.Text = "archipelago.ini could not be read."; return; }
-            enabled.Checked = on;
-            RememberRoom();
-            roomStatus.Text = "Saved in " + path;
-        }
-
-        /// <summary>Called by "Save" / "Save and play": writes the room when something was typed, without nagging.</summary>
-        public void SaveIfFilled()
-        {
-            // Nothing typed here since the room was read: the file (which the game may have changed) stays as it is.
-            if (!RoomChangedHere()) return;
-            if (server.Text.Trim().Length > 0 && slot.Text.Trim().Length > 0 || !enabled.Checked) WriteRoom(false);
-        }
-
-        private void SaveRoom() { WriteRoom(true); }
-
-        private void WriteRoom(bool interactive)
-        {
-            string address = server.Text.Trim();
-            string player = slot.Text.Trim();
-            if (enabled.Checked && (address.Length == 0 || player.Length == 0))
-            {
-                if (!interactive) return;
-                MessageBox.Show(page.FindForm(), "Fill in the server address and the player name, or untick \"Connect to Archipelago\".",
-                    "Nebula Archipelago", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                return;
-            }
-            try
-            {
-                string path = IniPath;
-                var keep = new List<string>();
-                if (File.Exists(path))
-                {
-                    foreach (string raw in File.ReadAllLines(path))
-                    {
-                        string line = raw.Trim();
-                        int equals = line.IndexOf('=');
-                        string key = equals > 0 && line[0] != '#' && line[0] != ';' ? line.Substring(0, equals).Trim().ToLowerInvariant() : "";
-                        if (key == "server" || key == "slot" || key == "name" || key == "password" || key == "enabled") continue;
-                        keep.Add(raw);
-                    }
-                }
-                var text = new StringBuilder();
-                text.Append("server=").Append(address).Append("\r\n");
-                text.Append("slot=").Append(player).Append("\r\n");
-                text.Append("password=").Append(password.Text).Append("\r\n");
-                if (!enabled.Checked) text.Append("enabled=0\r\n");
-                foreach (string other in keep) text.Append(other).Append("\r\n");
-                FileUtil.WriteAllTextAtomic(path, text.ToString());
-                // A second file with the .txt extension would be read when this one is missing; keep only one.
-                string extra = path + ".txt";
-                if (File.Exists(extra)) File.Delete(extra);
-                RememberRoom();
-                roomStatus.Text = "Saved. It applies the next time the game starts.";
-            }
-            catch (Exception error)
-            {
-                if (!interactive) return;
-                MessageBox.Show(page.FindForm(), "The room could not be saved: " + error.Message, "Nebula Archipelago",
-                    MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
         }
 
         // ---- The APWorld ----

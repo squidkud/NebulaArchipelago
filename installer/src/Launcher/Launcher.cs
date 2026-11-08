@@ -19,7 +19,7 @@ namespace Nebula.Launcher
     internal static class Program
     {
         // Nebula Archipelago ships one program, Nebula.exe, built with NEBULA_SETTINGS_APP: it always opens
-        // this window (game, Archipelago room, settings, updates) and the game is started from its Play button.
+        // this window (game, APWorld, settings, updates) and the game is started from its Play button.
         // Without the define (a portable build) Nebula.exe starts the game directly once it is set up.
         [STAThread]
         private static int Main(string[] args)
@@ -1223,7 +1223,6 @@ namespace Nebula.Launcher
                 controls.Save();
                 session.Recording = (RecordingMode)Math.Max(0, recording.SelectedIndex);
                 if (!session.Portable) session.AskAboutUpdates = askUpdates.Checked;
-                archipelagoPage.SaveIfFilled();
                 session.Save();
                 return true;
             }
