@@ -99,6 +99,8 @@ public:
 #ifdef TARGET_PC
     // Archipelago: the one save file shows the Archipelago logo in 3D where the head would be.
     f32 getLogoScale() const;
+    // The file select is built before the connection: once connected, the one file takes its logo.
+    void enableLogo();
     /* 0x170 */ NebulaFileLogo* mLogo;
 #endif
 };
