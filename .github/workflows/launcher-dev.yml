@@ -1,5 +1,8 @@
 name: launcher-dev
 on:
+  push:
+    branches: ['ci-check']
+    paths: ['installer/**', '.github/workflows/launcher-dev.yml']
   workflow_dispatch:
 jobs:
   launcher:
