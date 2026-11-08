@@ -402,7 +402,7 @@ par-dessus le menu pause (fond étoilé de la carte des galaxies) :
   d'étoiles, dôme, Grand Stars ou étoiles vertes qui manquent) s'affiche « ??? » sans aucune information, sauf le Gateway
   et Bowser's Star Reactor qui sont toujours nommés ; et une étoile pour chaque position du slot :
   étoile **dorée** = faite (les libérations du serveur comptent), étoile **blanche un peu transparente** = faisable
-  d'après la logique mais pas encore faite, étoile **noire** = pas faisable. Les étoiles ont l'icône de leur type
+  d'après la logique mais pas encore faite, étoile **noire** = pas faisable. La Grand Star du Gateway (donnée au départ, ce n'est pas un emplacement) s'affiche en doré devant les autres, sans compter dans les totaux, et le sélecteur d'étoiles la montre comme prise. Les étoiles ont l'icône de leur type
   (étoile, comète, pièces violettes, cachée, étoile verte).
 - **Le détail** : en visant (pointeur) ou en choisissant (manette) une étoile, la ligne sous la liste donne son nom et
   ce qui lui manque : le dôme, le compteur d'étoiles de la galaxie, les Grand Stars demandés, les 3 étoiles vertes des

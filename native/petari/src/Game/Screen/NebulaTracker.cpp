@@ -187,6 +187,7 @@ namespace {
         TextBox* mName;
         TextBox* mCount;
         TextBox* mStars[cStarMax];
+        TextBox* mGiven;  // the Gateway's Grand Star, done from the start, in front of the stars
     };
 }  // namespace
 
@@ -268,6 +269,7 @@ struct NebulaTrackerParts {
     f32 mRowX[cRowMax];
     f32 mRowY[cRowMax];
     f32 mStarX[cRowMax][cStarMax];
+    f32 mGivenX[cRowMax];
     f32 mItemX[cItemMax];
     f32 mCountX[cCountNum];
 };
@@ -610,9 +612,18 @@ namespace {
             const f32 rowLeft = -p->mRowWidth * 0.5f;
             const f32 starsLeft = rowLeft + 12.0f + nameRoom + 12.0f;
             const f32 avail = p->mRowWidth - 12.0f - nameRoom - 12.0f - 48.0f;
+            const s32 front = rGalaxy.mOpen && rGalaxy.mGiven ? 1 : 0;
+            const s32 slots = rGalaxy.mStarNum + front;
             f32 spacing = p->mGlyphSize * 1.4f;
-            if (rGalaxy.mStarNum > 0 && spacing * rGalaxy.mStarNum > avail) {
-                spacing = avail / rGalaxy.mStarNum;
+            if (slots > 0 && spacing * slots > avail) {
+                spacing = avail / slots;
+            }
+            rRow.mGiven->SetVisible(front != 0);
+            if (front != 0) {
+                p->mGivenX[r] = p->mRowX[r] + starsLeft + spacing * 0.5f;
+                setGlyph(rRow.mGiven, '7', p->mGlyphSize);
+                setTextColor(rRow.mGiven, cGoldTop, cGoldBottom);
+                rRow.mGiven->mAlpha = toAlpha(1.0f);
             }
             for (s32 k = 0; k < cStarMax; k++) {
                 TextBox* pStar = rRow.mStars[k];
@@ -621,7 +632,7 @@ namespace {
                     continue;
                 }
                 const Star& rStar = rGalaxy.mStars[k];
-                p->mStarX[r][k] = p->mRowX[r] + starsLeft + spacing * (k + 0.5f);
+                p->mStarX[r][k] = p->mRowX[r] + starsLeft + spacing * (k + front + 0.5f);
                 setGlyph(pStar, kindGlyph(rStar.mKind), p->mGlyphSize);
                 if (rStar.mState == NebulaArchipelago::TrackerState_Done) {
                     setTextColor(pStar, cGoldTop, cGoldBottom);
@@ -796,6 +807,9 @@ namespace {
             rRow.mName->mTranslate = nw4r::math::VEC3(-rowW * 0.5f + 12.0f, textCentre(0.0f, clamp(rowH * 0.46f, 11.0f, 16.0f)), 0.0f);
             rRow.mCount->mTranslate = nw4r::math::VEC3(rowW * 0.5f - 12.0f, textCentre(0.0f, clamp(clamp(rowH * 0.46f, 11.0f, 16.0f) - 2.0f, 10.0f, 14.0f)), 0.0f);
             const Galaxy& rGalaxy = p->mGalaxies[r];
+            if (rGalaxy.mOpen && rGalaxy.mGiven) {
+                rRow.mGiven->mTranslate = nw4r::math::VEC3(p->mGivenX[r] - p->mRowX[r], glyphCentre(0.0f, p->mGlyphSize), 0.0f);
+            }
             for (s32 k = 0; k < rGalaxy.mStarNum && k < cStarMax; k++) {
                 TextBox* pStar = rRow.mStars[k];
                 pStar->SetVisible(true);
@@ -1105,6 +1119,13 @@ void NebulaTracker::init(const JMapInfoIter& rIter) {
             return;
         }
         paint(rRow.mBody, cRowFill, cRowRing);
+        snprintf(name, sizeof(name), "NtR%02dG", r);
+        rRow.mGiven = makeText(p, rRow.mRoot, name, 8);
+        if (rRow.mGiven == nullptr) {
+            p->mBoard = nullptr;
+            return;
+        }
+        setGlyph(rRow.mGiven, '7', 20.0f);
         for (s32 k = 0; k < cStarMax; k++) {
             snprintf(name, sizeof(name), "NtR%02dS%d", r, k);
             rRow.mStars[k] = makeText(p, rRow.mRoot, name, 8);

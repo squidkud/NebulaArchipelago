@@ -1484,6 +1484,11 @@ bool NebulaArchipelago::isStarReleased(s32 scenario) {
         return false;
     }
 
+    // The Gateway's Grand Star is given at the start (it is not a location): the star select shows it as taken.
+    if (scenario == 1 && strcmp(pStage, "HeavensDoorGalaxy") == 0) {
+        return true;
+    }
+
     for (s32 i = 0; i < cStarNum; i++) {
         const ApStar& rStar = cApStars[i];
 
@@ -1938,6 +1943,7 @@ namespace NebulaArchipelago {
         pOut->mPlace = place;
         pOut->mStarNum = 0;
         pOut->mOpen = false;
+        pOut->mGiven = strcmp(pContent, "HeavensDoorGalaxy") == 0;
 
         // What the place asks to be open (the APWorld's galaxy_caps: the star counter; the dome's door; the extras).
         const u32 cap = __NebulaArchipelago(NEBULA_AP_GALAXY_CAP, place);
