@@ -192,6 +192,24 @@ namespace NebulaArchipelago {
     };
     bool isSkillLocked(s32 skill);
 
+    // The in-game tracker (the pause menu's Tracker button): the slot's locations by galaxy, as the current save sees them
+    // (its own stars, plus what the server released). A galaxy with none of the slot's locations is not listed.
+    static const s32 cTrackerMissingMax = 16;
+    struct TrackerGalaxy {
+        const char* mStage;                 // the galaxy's game name
+        s32 mDome;                          // its dome (0: outside the domes)
+        s32 mTotal;                         // the slot's locations in it
+        s32 mChecked;                       // the ones checked
+        s32 mMissingNum;                    // the scenarios (star numbers) not checked yet, each once
+        s32 mMissing[cTrackerMissingMax];
+    };
+    s32 getTrackerGalaxyNum();
+    bool getTrackerGalaxy(s32 index, TrackerGalaxy* pOut);
+    //   how many of an item (NEBULA_AP_ITEM_*) the server has sent in all
+    s32 getReceivedCount(s32 item);
+    //   a slot option (NEBULA_AP_OPT_*)
+    s32 getSlotOption(s32 option);
+
     // The star select does not show this star: the slot leaves its kind (the Prankster Comet stars, the Purple Coin stars)
     // out of the multiworld.
     bool isScenarioHidden(const char* pStageName, s32 scenarioNo);

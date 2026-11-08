@@ -1575,6 +1575,11 @@ bool location_checked(std::uint32_t number) {
     return c != nullptr && c->engine().location_checked(number);
 }
 
+bool location_valid(std::uint32_t number) {
+    Client* c = client();
+    return c != nullptr && c->engine().location_valid(number);
+}
+
 std::uint32_t star_class(std::uint32_t index) noexcept {
     Client* c = client();
     return c != nullptr ? c->engine().star_class(index) : Engine::kClassUnknown;

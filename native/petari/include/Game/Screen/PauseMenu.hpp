@@ -48,5 +48,6 @@ public:
     /* 0x54 */ bool _54;
 #ifdef TARGET_PC
     NebulaPauseSettingsButton* mSettingsButton;  // Nebula's settings menu, from the lower band
+    NebulaPauseSettingsButton* mTrackerButton;   // the Archipelago tracker, beside it (null without an Archipelago game)
 #endif
 };

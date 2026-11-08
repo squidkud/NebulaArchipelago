@@ -706,7 +706,7 @@ void GameScene::draw2D() const {
     CategoryList::execute(MR::DrawType_WipeLayout);
 #ifdef TARGET_PC
     // Nebula's achievement board over everything while it is open (its pop-up: drawOverlay).
-    if (isNerve(GET_NERVE(GameScene, GameSceneNebulaBoard))) {
+    if (isNerve(GET_NERVE(GameScene, GameSceneNebulaBoard)) || NebulaAchievementBoard::isTrackerOpen()) {
         MR::getGameSceneLayoutHolder()->mAchievementBoard->drawOnTop();
     }
     MotionSignal::scene2D(false);
@@ -891,6 +891,22 @@ void GameScene::exePowerStarGet() {
 void GameScene::exePauseMenu() {
     if (MR::isFirstStep(this)) {
     }
+
+#ifdef TARGET_PC
+    // The Archipelago tracker (the pause menu's Tracker button): the board opens over the pause menu, which takes no
+    // input under it, and the pause goes on when it closes.
+    if (MR::isExistSceneObj(SceneObj_GameSceneLayoutHolder) && MR::getGameSceneLayoutHolder()->mAchievementBoard != nullptr) {
+        NebulaAchievementBoard* pBoard = MR::getGameSceneLayoutHolder()->mAchievementBoard;
+        if (NebulaAchievementBoard::takeTrackerRequest() && !pBoard->isOpen()) {
+            pBoard->open(true);
+        }
+        if (pBoard->isOpen()) {
+            pBoard->update();
+            CategoryList::execute(MR::MovementType_LayoutOnPause);
+            return;
+        }
+    }
+#endif
 
     mPauseSeq->movement();
     CategoryList::execute(MR::MovementType_LayoutOnPause);
