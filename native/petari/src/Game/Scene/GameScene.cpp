@@ -66,6 +66,7 @@
 #include "Game/Screen/GameSceneLayoutHolder.hpp"
 #include "Game/NPC/NebulaAchievementLuma.hpp"
 #include "Game/Screen/NebulaAchievementBoard.hpp"
+#include "Game/Screen/NebulaTracker.hpp"
 #include "Game/Screen/NebulaAchievementToast.hpp"
 #include "Game/System/NebulaAchievements.hpp"
 #include "Game/System/NebulaArchipelago.hpp"
@@ -706,8 +707,11 @@ void GameScene::draw2D() const {
     CategoryList::execute(MR::DrawType_WipeLayout);
 #ifdef TARGET_PC
     // Nebula's achievement board over everything while it is open (its pop-up: drawOverlay).
-    if (isNerve(GET_NERVE(GameScene, GameSceneNebulaBoard)) || NebulaAchievementBoard::isTrackerOpen()) {
+    if (isNerve(GET_NERVE(GameScene, GameSceneNebulaBoard))) {
         MR::getGameSceneLayoutHolder()->mAchievementBoard->drawOnTop();
+    }
+    if (NebulaTracker::isShown() && MR::getGameSceneLayoutHolder()->mTracker != nullptr) {
+        MR::getGameSceneLayoutHolder()->mTracker->drawOnTop();
     }
     MotionSignal::scene2D(false);
 #endif
@@ -893,15 +897,15 @@ void GameScene::exePauseMenu() {
     }
 
 #ifdef TARGET_PC
-    // The Archipelago tracker (the pause menu's Tracker button): the board opens over the pause menu, which takes no
-    // input under it, and the pause goes on when it closes.
-    if (MR::isExistSceneObj(SceneObj_GameSceneLayoutHolder) && MR::getGameSceneLayoutHolder()->mAchievementBoard != nullptr) {
-        NebulaAchievementBoard* pBoard = MR::getGameSceneLayoutHolder()->mAchievementBoard;
-        if (NebulaAchievementBoard::takeTrackerRequest() && !pBoard->isOpen()) {
-            pBoard->open(true);
+    // The Archipelago tracker (the pause menu's Tracker button): it opens over the pause menu, which takes no input
+    // under it, and the pause goes on when it closes.
+    if (MR::isExistSceneObj(SceneObj_GameSceneLayoutHolder) && MR::getGameSceneLayoutHolder()->mTracker != nullptr) {
+        NebulaTracker* pTracker = MR::getGameSceneLayoutHolder()->mTracker;
+        if (NebulaTracker::takeRequest() && !pTracker->isOpen()) {
+            pTracker->open();
         }
-        if (pBoard->isOpen()) {
-            pBoard->update();
+        if (pTracker->isOpen()) {
+            pTracker->update();
             CategoryList::execute(MR::MovementType_LayoutOnPause);
             return;
         }

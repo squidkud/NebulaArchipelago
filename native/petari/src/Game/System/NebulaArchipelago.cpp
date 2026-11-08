@@ -45,6 +45,8 @@ namespace {
         const char* mStage;
         s32 mScenario;
         s32 mKind;
+        s32 mFormA;  // the forms the star asks for with the transformation items: two groups, each the bits of the forms
+        s32 mFormB;  // of which one is needed (1 Bee, 2 Boo, 4 Spring, 8 Fire, 16 Ice, 32 Flying)
     };
 
 // cApGalaxies and cApStars, written by tools/gen_archipelago_stars.py from the APWorld's StarData.py.
@@ -1852,12 +1854,77 @@ namespace NebulaArchipelago {
         return false;
     }
 
-    s32 getTrackerGalaxyNum() {
+    s32 getTrackerPlaceNum() {
         return cGalaxyNum;
     }
 
-    bool getTrackerGalaxy(s32 index, TrackerGalaxy* pOut) {
-        if (pOut == nullptr || index < 0 || index >= cGalaxyNum || !isHostActive()) {
+    s32 getTrackerPlaceRoom(s32 place) {
+        return place >= 0 && place < cGalaxyNum ? cApGalaxies[place].mDome : 0;
+    }
+
+    s32 getTrackerDoorRoom(s32 door) {
+        return getDomeOfDoor(door);
+    }
+
+    s32 getTrackerGrandFlags() {
+        return getReceivedCount(NEBULA_AP_ITEM_GRAND_STAR) + 1;  // the first dome's flag is given at the start
+    }
+
+    namespace {
+        // The forms received, as the bits of the generated table.
+        s32 receivedForms() {
+            if (getSlotOption(NEBULA_AP_OPT_TRANSFORMATION_ITEMS) == 0) {
+                return 63;  // the forms are free
+            }
+
+            const s32 items[] = {NEBULA_AP_ITEM_BEE_MUSHROOM, NEBULA_AP_ITEM_BOO_MUSHROOM, NEBULA_AP_ITEM_SPRING_MUSHROOM,
+                                 NEBULA_AP_ITEM_FIRE_FLOWER, NEBULA_AP_ITEM_ICE_FLOWER, NEBULA_AP_ITEM_FLYING_STAR};
+            s32 mask = 0;
+
+            for (s32 i = 0; i < 6; i++) {
+                if (getReceivedCount(items[i]) > 0) {
+                    mask |= 1 << i;
+                }
+            }
+
+            return mask;
+        }
+
+        // What the place's galaxy asks to be open: the Observatory galaxies' Grand Stars and the trials' Green Stars.
+        s32 extraGrand(const char* pPlace) {
+            static const char* const cNames[] = {"BeltConveyerExGalaxy", "CocoonExGalaxy", "TearDropGalaxy", "FishTunnelGalaxy",
+                                                 "TransformationExGalaxy", "TeresaMario2DGalaxy", "SnowCapsuleGalaxy"};
+            static const s32 cGrand[] = {1, 2, 3, 4, 5, 6, 6};
+
+            for (s32 i = 0; i < 7; i++) {
+                if (strcmp(pPlace, cNames[i]) == 0) {
+                    return cGrand[i];
+                }
+            }
+
+            return 0;
+        }
+
+        bool needsGreens(const char* pPlace) {
+            return strcmp(pPlace, "TamakoroExLv2Galaxy") == 0 || strcmp(pPlace, "SurfingLv2Galaxy") == 0 || strcmp(pPlace, "CubeBubbleExLv2Galaxy") == 0;
+        }
+
+        bool isStarChecked(s32 index, u32 locationOffset) {
+            const ApStar& rStar = cApStars[index];
+            return GameDataFunction::hasPowerStar(rStar.mStage, rStar.mScenario) ||
+                   __NebulaArchipelago(NEBULA_AP_LOCATION_CHECKED, index + 1 + locationOffset) != 0;
+        }
+
+        // The star is a location of this slot.
+        bool isStarLocation(s32 index, u32 locationOffset) {
+            const ApStar& rStar = cApStars[index];
+            return sValid[index] && !isScenarioHidden(rStar.mStage, rStar.mScenario) &&
+                   __NebulaArchipelago(NEBULA_AP_LOCATION_VALID, index + 1 + locationOffset) != 0;
+        }
+    }  // namespace
+
+    bool getTrackerGalaxy(s32 place, TrackerGalaxy* pOut) {
+        if (pOut == nullptr || place < 0 || place >= cGalaxyNum || !isHostActive()) {
             return false;
         }
 
@@ -1865,46 +1932,88 @@ namespace NebulaArchipelago {
             checkStars();
         }
 
-        const ApGalaxy& rGalaxy = cApGalaxies[index];
-        pOut->mStage = rGalaxy.mName;
-        pOut->mDome = rGalaxy.mDome;
-        pOut->mTotal = 0;
-        pOut->mChecked = 0;
-        pOut->mMissingNum = 0;
+        const ApGalaxy& rPlace = cApGalaxies[place];
+        const char* pContent = getShuffledGalaxy(rPlace.mName);
+        pOut->mStage = pContent;
+        pOut->mPlace = place;
+        pOut->mStarNum = 0;
+
+        // What the place asks to be open (the APWorld's galaxy_caps: the star counter; the dome's door; the extras).
+        const u32 cap = __NebulaArchipelago(NEBULA_AP_GALAXY_CAP, place);
+        pOut->mNeedStars = cap == cNoCap ? rPlace.mCap : static_cast< s32 >(cap);
+        pOut->mNeedGrand = extraGrand(rPlace.mName);
+        pOut->mDoor = rPlace.mDome > 0 ? getDomeOpenNumber(rPlace.mDome) : 0;
+        const s32 counter = MR::getPowerStarNum();
+        const s32 grand = getTrackerGrandFlags();
+        const s32 greens = getReceivedCount(NEBULA_AP_ITEM_GREEN_STAR);
+        s32 galaxyNeed = 0;
+
+        if (pOut->mDoor > 0 && grand < pOut->mDoor) {
+            galaxyNeed |= TrackerNeed_Dome;
+        }
+
+        if (counter < pOut->mNeedStars) {
+            galaxyNeed |= TrackerNeed_Stars;
+        }
+
+        if (grand < pOut->mNeedGrand) {
+            galaxyNeed |= TrackerNeed_Grand;
+        }
+
+        if (needsGreens(rPlace.mName) && greens < 3) {
+            galaxyNeed |= TrackerNeed_Green;
+        }
+
+        const s32 forms = receivedForms();
         const u32 locationOffset = isLuigiSave() ? cLuigiOffset : 0;
 
         for (s32 i = 0; i < cStarNum && i < 256; i++) {
             const ApStar& rStar = cApStars[i];
 
-            if (!sValid[i] || strcmp(rStar.mStage, rGalaxy.mName) != 0 || isScenarioHidden(rStar.mStage, rStar.mScenario)) {
+            if (strcmp(rStar.mStage, pContent) != 0 || !isStarLocation(i, locationOffset) || pOut->mStarNum >= cTrackerStarMax) {
                 continue;
             }
 
-            const u32 location = i + 1 + locationOffset;
+            TrackerStar& rOut = pOut->mStars[pOut->mStarNum++];
+            rOut.mScenario = rStar.mScenario;
+            rOut.mKind = rStar.mKind;
+            rOut.mNeed = 0;
+            rOut.mForms = 0;
 
-            if (__NebulaArchipelago(NEBULA_AP_LOCATION_VALID, location) == 0) {
-                continue;  // not a location of this slot
-            }
-
-            pOut->mTotal++;
-
-            if (GameDataFunction::hasPowerStar(rStar.mStage, rStar.mScenario) || __NebulaArchipelago(NEBULA_AP_LOCATION_CHECKED, location) != 0) {
-                pOut->mChecked++;
+            if (isStarChecked(i, locationOffset)) {
+                rOut.mState = TrackerState_Done;
                 continue;
             }
 
-            bool listed = false;
+            rOut.mNeed = galaxyNeed;
 
-            for (s32 k = 0; k < pOut->mMissingNum; k++) {
-                listed = listed || pOut->mMissing[k] == rStar.mScenario;
+            // The groups not met: the first in the low byte, the second in the next (each a group of alternatives).
+            if (rStar.mFormA != 0 && (rStar.mFormA & forms) == 0) {
+                rOut.mForms |= rStar.mFormA;
             }
 
-            if (!listed && pOut->mMissingNum < cTrackerMissingMax) {
-                pOut->mMissing[pOut->mMissingNum++] = rStar.mScenario;
+            if (rStar.mFormB != 0 && (rStar.mFormB & forms) == 0) {
+                rOut.mForms |= rStar.mFormB << 8;
             }
+
+            if (rOut.mForms != 0) {
+                rOut.mNeed |= TrackerNeed_Form;
+            }
+
+            if (rStar.mKind == ApKind_festival) {
+                // The Star Festival is the last star: every other star of the save first.
+                for (s32 k = 0; k < cStarNum && k < 256; k++) {
+                    if (k != i && cApStars[k].mKind != ApKind_festival && isStarLocation(k, locationOffset) && !isStarChecked(k, locationOffset)) {
+                        rOut.mNeed |= TrackerNeed_Others;
+                        break;
+                    }
+                }
+            }
+
+            rOut.mState = rOut.mNeed == 0 ? TrackerState_Doable : TrackerState_Locked;
         }
 
-        return pOut->mTotal > 0;
+        return pOut->mStarNum > 0;
     }
 
     s32 getReceivedCount(s32 item) {
