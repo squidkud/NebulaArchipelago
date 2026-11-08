@@ -1937,6 +1937,7 @@ namespace NebulaArchipelago {
         pOut->mStage = pContent;
         pOut->mPlace = place;
         pOut->mStarNum = 0;
+        pOut->mOpen = false;
 
         // What the place asks to be open (the APWorld's galaxy_caps: the star counter; the dome's door; the extras).
         const u32 cap = __NebulaArchipelago(NEBULA_AP_GALAXY_CAP, place);
@@ -2011,6 +2012,15 @@ namespace NebulaArchipelago {
             }
 
             rOut.mState = rOut.mNeed == 0 ? TrackerState_Doable : TrackerState_Locked;
+        }
+
+        // Named once the galaxy is unlocked (or one of its stars was done); the Gateway and Bowser's Star Reactor are never hidden.
+        pOut->mOpen = galaxyNeed == 0 || strcmp(pContent, "HeavensDoorGalaxy") == 0 || strcmp(pContent, "KoopaBattleVs1Galaxy") == 0;
+
+        for (s32 k = 0; k < pOut->mStarNum; k++) {
+            if (pOut->mStars[k].mState == TrackerState_Done) {
+                pOut->mOpen = true;
+            }
         }
 
         return pOut->mStarNum > 0;

@@ -394,10 +394,13 @@ vérifiées en test, l'affichage dans le Launcher ne l'est pas.
 Avec une partie Archipelago, le menu **Start** a un bouton **Tracker** à côté de **Paramètres**. Il ouvre une page
 par-dessus le menu pause (fond étoilé de la carte des galaxies) :
 
-- **En haut, sept onglets** : *Dôme 1* à *Dôme 6* dans l'ordre où les dômes s'ouvrent (donc dans l'ordre mélangé si
-  `dome_shuffle` est activé), puis *Autres* (tout ce qui n'est pas dans un dôme : galaxies des Lumas goinfres, de
-  l'Observatoire, Bowser, etc.). Un dôme pas encore ouvert est grisé et son onglet ne s'ouvre pas.
-- **Sous l'onglet**, une ligne par galaxie (avec le nom, « faites / total ») et une étoile pour chaque position du slot :
+- **En haut, sept onglets** : les six dômes (*Terrace*, *Fountain*, *Kitchen*, *Bedroom*, *Engine Room*, *Garden*) dans
+  l'ordre où ils s'ouvrent dans le multiworld (donc pas l'ordre vanilla si `dome_shuffle` est activé), puis *Autres*
+  (tout ce qui n'est pas dans un dôme : galaxies des Lumas goinfres, Gateway, etc.). Un dôme pas encore ouvert s'affiche
+  « ??? » et ne s'ouvre pas.
+- **Sous l'onglet**, une ligne par galaxie (avec le nom, « faites / total ») ; une galaxie pas encore débloquée (compteur
+  d'étoiles, dôme, Grand Stars ou étoiles vertes qui manquent) s'affiche « ??? » sans aucune information, sauf le Gateway
+  et Bowser's Star Reactor qui sont toujours nommés ; et une étoile pour chaque position du slot :
   étoile **dorée** = faite (les libérations du serveur comptent), étoile **blanche un peu transparente** = faisable
   d'après la logique mais pas encore faite, étoile **noire** = pas faisable. Les étoiles ont l'icône de leur type
   (étoile, comète, pièces violettes, cachée, étoile verte).
