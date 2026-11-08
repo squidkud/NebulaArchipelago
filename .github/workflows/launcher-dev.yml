@@ -33,6 +33,16 @@ jobs:
           & $csc /nologo /target:winexe /platform:x64 /optimize+ "/win32manifest:installer\app.manifest" "/win32icon:installer\assets\nebula.ico" /define:NEBULA_SETTINGS_APP "/out:out\Nebula.exe" @refs @common @launcher
           if ($LASTEXITCODE -ne 0) { throw "csc failed ($LASTEXITCODE)" }
           Get-Item out\Nebula.exe | Select-Object Name, Length
+      - name: Print the file (base64) and its hash
+        shell: pwsh
+        run: |
+          $bytes = [IO.File]::ReadAllBytes("$PWD\out\Nebula.exe")
+          $sha = [BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash($bytes)).Replace('-','').ToLower()
+          "SHA256 $sha"
+          $b64 = [Convert]::ToBase64String($bytes)
+          "B64BEGIN"
+          for ($i = 0; $i -lt $b64.Length; $i += 200) { "B64 " + $b64.Substring($i, [Math]::Min(200, $b64.Length - $i)) }
+          "B64END"
       - uses: actions/upload-artifact@v4
         with:
           name: Nebula-launcher-dev
