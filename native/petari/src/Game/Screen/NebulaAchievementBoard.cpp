@@ -18,7 +18,6 @@
 #include "Game/Util/LayoutUtil.hpp"
 #include "Game/Util/MessageUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
-#include "Game/Util/SceneUtil.hpp"
 #include "Game/Util/ScreenUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
 #include "Game/Util/StarPointerUtil.hpp"
@@ -339,10 +338,6 @@ struct NebulaBoardParts {
     s32 mShopRefresh;    // frames until the shelves are read again (the server's answers come later)
     bool mShop;      // an Archipelago slot with a shop: the shelves take the place of the achievements
     s32 mShopNum;    // the shelves
-    bool mTracker;      // the pause menu's tracker: a card for each galaxy, in place of the achievements
-    s32 mTrackerNum;    // the galaxies listed
-    s32 mTrackerTotal;  // the slot's locations in them (the header's total)
-    wchar_t mTrackerLine[200];  // the row under the header: the items received
     s32 mWallet;     // the Star Bits the player has (the shop's header)
     f32 mScroll;
     f32 mScrollTarget;
@@ -386,16 +381,6 @@ struct NebulaBoardParts {
 };
 
 namespace {
-    // The tracker is asked for by the pause menu and opened by GameScene while the game is paused.
-    bool sTrackerRequested = false;
-    bool sTrackerOpen = false;
-    const s32 cTrackerMax = 64;
-
-    // The shop and the tracker are a list of cards alone: no tabs, no filters.
-    bool listOnly(const NebulaBoardParts* p) {
-        return p->mShop || p->mTracker;
-    }
-
     // The board's kits for NebulaUi's builders.
     Kits boardKits(NebulaBoardParts* pParts) {
         const Kits kits = {&pParts->mText, &pParts->mWindow, &pParts->mButton};
@@ -514,8 +499,6 @@ namespace {
         wchar_t text[48];
         if (p->mShop) {
             NebulaText::get(text, 48, "HintBuy");
-        } else if (p->mTracker) {
-            text[0] = 0;
         } else {
             wchar_t* q = glyphs;
             q = MR::addPictureFontTag(q, cGlyphMinus);
@@ -524,7 +507,7 @@ namespace {
         }
         setText(p->mHintGlyphs[HintTabs], glyphs);
         setText(p->mHintLabels[HintTabs], text);
-        p->mHintGlyphs[HintTabs]->SetVisible(!listOnly(p));
+        p->mHintGlyphs[HintTabs]->SetVisible(!p->mShop);
     }
 
     // The shelves of the Star Bit shop on the cards: the picture of what the shelf holds (this game's own item, else the
@@ -609,167 +592,6 @@ namespace {
         p->mArranged = false;  // the texts changed: laid out again at the next frame
     }
 
-    // The header's count and percentage.
-    void setHeader(NebulaBoardParts* p, s32 current, s32 total) {
-        wchar_t text[48];
-        formatCount(text, 48, current, total);
-        setText(p->mSummary, text);
-        wchar_t percent[8];
-        formatInt(percent, 8, total > 0 ? current * 100 / total : 0, 1);
-        const char* const names[] = {"n"};
-        const wchar_t* const values[] = {percent};
-        fill(text, 48, "BoardPercent", names, values, 1);
-        setText(p->mPercent, text);
-    }
-
-    // What the tracker's cards say of a galaxy: its stars checked out of the slot's, and the ones still to find.
-    void setTrackerCard(NebulaBoardParts* p, Card& rCard, const NebulaArchipelago::TrackerGalaxy& rGalaxy) {
-        wchar_t name[96];
-        name[0] = 0;
-        append(name, name + 96, MR::getGalaxyNameOnCurrentLanguage(rGalaxy.mStage));
-        setText(rCard.mName, name);
-        setText(rCard.mNameShadow, name);
-        const bool done = rGalaxy.mChecked >= rGalaxy.mTotal;
-        rCard.mUnlocked = done;
-        rCard.mDate = done ? 1 : 0;
-        rCard.mGoal = done ? 0 : rGalaxy.mTotal;
-        rCard.mCurrent = rGalaxy.mChecked;
-        if (done) {
-            NebulaText::get(rCard.mHintText, 192, "TrackerDone");
-        } else {
-            // The first three stars still missing, then how many more.
-            wchar_t list[160];
-            list[0] = 0;
-            wchar_t* q = list;
-            wchar_t* pEnd = list + 160;
-            const s32 shown = rGalaxy.mMissingNum < 3 ? rGalaxy.mMissingNum : 3;
-            for (s32 k = 0; k < shown; k++) {
-                if (k > 0) {
-                    q = append(q, pEnd, L", ");
-                }
-                q = append(q, pEnd, MR::getScenarioNameOnCurrentLanguage(rGalaxy.mStage, rGalaxy.mMissing[k]));
-            }
-            const s32 more = rGalaxy.mTotal - rGalaxy.mChecked - shown;
-            if (more > 0) {
-                wchar_t number[16];
-                formatInt(number, 16, more, 1);
-                const char* const moreNames[] = {"n"};
-                const wchar_t* const moreValues[] = {number};
-                wchar_t tail[32];
-                fill(tail, 32, "TrackerMore", moreNames, moreValues, 1);
-                q = append(q, pEnd, tail);
-            }
-            const char* const names[] = {"list"};
-            const wchar_t* const values[] = {list};
-            fill(rCard.mHintText, 192, "TrackerMissing", names, values, 1);
-        }
-        wchar_t meta[48];
-        formatCount(meta, 48, rGalaxy.mChecked, rGalaxy.mTotal);
-        setText(rCard.mMeta, meta);
-        paint(rCard.mBody, cCardFill, cCardRing);
-        paint(rCard.mBadge, cBadgeFill, cCardRing);
-        setTextColor(rCard.mName, cWhite, cWhite);
-        setTextColor(rCard.mHint, cSubText, cSubText);
-        setTextColor(rCard.mMeta, done ? cGold : cWhite, done ? cGold : cWhite);
-        rCard.mNameShadow->SetVisible(true);
-        if (rCard.mShopPicture != nullptr) {
-            rCard.mShopPicture->SetVisible(false);
-        }
-        if (rCard.mPicture != nullptr) {
-            rCard.mPicture->SetVisible(false);
-        }
-        if (rCard.mGlyph != nullptr) {
-            setGlyph(rCard.mGlyph, '7', cIcon);
-            setTextColor(rCard.mGlyph, done ? cGold : cIconLocked, done ? cGold : cIconLocked);
-            rCard.mGlyph->SetVisible(true);
-        }
-    }
-
-    // The row under the header: the Power Stars (and, with the slot's star items, the Grand and Green Stars) and, when
-    // the slot locks the transformations, the forms received.
-    void setTrackerLine(NebulaBoardParts* p) {
-        wchar_t power[16], grand[16], green[16];
-        formatNumber(power, 16, static_cast< u64 >(MR::getPowerStarNum()));
-        wchar_t* pEnd = p->mTrackerLine + 200;
-        wchar_t* q = p->mTrackerLine;
-        *q = 0;
-        if (NebulaArchipelago::getSlotOption(NEBULA_AP_OPT_STAR_ITEMS) != 0) {
-            formatNumber(grand, 16, static_cast< u64 >(NebulaArchipelago::getReceivedCount(NEBULA_AP_ITEM_GRAND_STAR)));
-            formatNumber(green, 16, static_cast< u64 >(NebulaArchipelago::getReceivedCount(NEBULA_AP_ITEM_GREEN_STAR)));
-            const char* const names[] = {"power", "grand", "green"};
-            const wchar_t* const values[] = {power, grand, green};
-            wchar_t line[128];
-            fill(line, 128, "TrackerItemsFull", names, values, 3);
-            q = append(q, pEnd, line);
-        } else {
-            const char* const names[] = {"power"};
-            const wchar_t* const values[] = {power};
-            wchar_t line[128];
-            fill(line, 128, "TrackerItems", names, values, 1);
-            q = append(q, pEnd, line);
-        }
-        if (NebulaArchipelago::getSlotOption(NEBULA_AP_OPT_TRANSFORMATION_ITEMS) != 0) {
-            const s32 items[] = {NEBULA_AP_ITEM_BEE_MUSHROOM, NEBULA_AP_ITEM_BOO_MUSHROOM, NEBULA_AP_ITEM_SPRING_MUSHROOM,
-                                 NEBULA_AP_ITEM_FIRE_FLOWER, NEBULA_AP_ITEM_ICE_FLOWER, NEBULA_AP_ITEM_FLYING_STAR};
-            const char* const ids[] = {"TrackerFormBee", "TrackerFormBoo", "TrackerFormSpring", "TrackerFormFire", "TrackerFormIce", "TrackerFormFlying"};
-            wchar_t list[96];
-            list[0] = 0;
-            wchar_t* l = list;
-            for (s32 i = 0; i < 6; i++) {
-                if (NebulaArchipelago::getReceivedCount(items[i]) > 0) {
-                    wchar_t form[24];
-                    NebulaText::get(form, 24, ids[i]);
-                    if (list[0] != 0) {
-                        l = append(l, list + 96, L", ");
-                    }
-                    l = append(l, list + 96, form);
-                }
-            }
-            wchar_t line[128];
-            if (list[0] == 0) {
-                NebulaText::get(line, 128, "TrackerFormsNone");
-            } else {
-                const char* const names[] = {"list"};
-                const wchar_t* const values[] = {list};
-                fill(line, 128, "TrackerForms", names, values, 1);
-            }
-            q = append(q, pEnd, L"  -  ");
-            q = append(q, pEnd, line);
-        }
-    }
-
-    // The tracker's cards: a galaxy each (those the slot has locations in), its stars checked and still missing; the
-    // header counts every location checked. Read again every half second (a release or a purchase changes them).
-    void refreshTracker(NebulaBoardParts* p) {
-        s32 checked = 0;
-        s32 total = 0;
-        s32 num = 0;
-        const s32 galaxies = NebulaArchipelago::getTrackerGalaxyNum();
-        for (s32 g = 0; g < galaxies && num < p->mCardNum && num < cTrackerMax; g++) {
-            NebulaArchipelago::TrackerGalaxy galaxy;
-            if (!NebulaArchipelago::getTrackerGalaxy(g, &galaxy)) {
-                continue;
-            }
-            setTrackerCard(p, p->mCards[num], galaxy);
-            checked += galaxy.mChecked;
-            total += galaxy.mTotal;
-            num++;
-        }
-        for (s32 i = num; i < p->mCardNum; i++) {
-            Card& rCard = p->mCards[i];
-            rCard.mUnlocked = false;
-            rCard.mGoal = 0;
-            rCard.mDate = 0;
-            rCard.mHintText[0] = 0;
-        }
-        p->mTrackerNum = num;
-        p->mTrackerTotal = total;
-        p->mUnlockedNum = checked;
-        setTrackerLine(p);
-        setHeader(p, checked, total);
-        p->mArranged = false;  // the texts changed: laid out again at the next frame
-    }
-
     // A (or a click) on a shelf: the question comes first (the item and its price); a shelf that cannot be bought only
     // sounds the "no".
     void askBuy(NebulaBoardParts* p, s32 index) {
@@ -821,7 +643,7 @@ namespace {
         p->mListLeft = left;
         p->mListRight = right - 12.0f;  // the scroll bar's room
         p->mFilterY = p->mTabY - cTabHeight * 0.5f - 10.0f - cFilterHeight * 0.5f;
-        p->mListTop = p->mTab == TabStats || listOnly(p) ? p->mTabY - cTabHeight * 0.5f - 16.0f : p->mFilterY - cFilterHeight * 0.5f - 14.0f;
+        p->mListTop = p->mTab == TabStats || p->mShop ? p->mTabY - cTabHeight * 0.5f - 16.0f : p->mFilterY - cFilterHeight * 0.5f - 14.0f;
         p->mListBottom = -p->mHeight * 0.5f + cFooter + 10.0f;
         p->mFooterY = -p->mHeight * 0.5f + cFooter * 0.5f;
 
@@ -847,7 +669,7 @@ namespace {
             const bool inFilter = p->mFilterMode == FilterAll || (p->mFilterMode == FilterUnlocked) == rCard.mUnlocked;
             // A secret shows only once unlocked; the 120-star goals once Halfway There is.
             const bool listed = rCard.mUnlocked || NebulaAchievements::isShownLocked(i);
-            rCard.mShown = p->mShop ? i < p->mShopNum : p->mTracker ? i < p->mTrackerNum : inTab && inFilter && listed;
+            rCard.mShown = p->mShop ? i < p->mShopNum : inTab && inFilter && listed;
             rCard.mOrder = rCard.mShown ? p->mShownNum++ : -1;
             rCard.mRoot->SetVisible(false);
 
@@ -958,20 +780,8 @@ namespace {
             const wchar_t* const values[] = {number};
             fill(count, 48, "ShopWallet", names, values, 1);
         }
-        if (p->mTracker) {
-            // The tracker's row: the items received.
-            setText(p->mTabCount, p->mTrackerLine);
-        } else {
-            setText(p->mTabCount, count);
-        }
+        setText(p->mTabCount, count);
         measure(p->mTabCount, 4000.0f, &width, &height);
-        if (p->mTracker) {
-            // A long line narrows into the row.
-            const f32 room = right - left;
-            p->mTabCount->mScale = nw4r::math::VEC2(width > room && width > 0.0f ? room / width : 1.0f, 1.0f);
-        } else {
-            p->mTabCount->mScale = nw4r::math::VEC2(1.0f, 1.0f);
-        }
 
         // The footer: Back on the left (its arrow, then its label), the pad's guide on the right.
         Chip& rBack = p->mBack;
@@ -1052,7 +862,7 @@ namespace {
         p->mPercent->mTranslate = nw4r::math::VEC3(right, textCentre(headerY, cSummarySize), 0.0f);
         const f32 barRight = right - percentWidth - 12.0f;
         shape(p->mSummaryTrack, barRight - barWidth * 0.5f, headerY, barWidth, 10.0f, 5.0f);
-        const s32 total = p->mShop ? p->mShopNum : p->mTracker ? p->mTrackerTotal : p->mCardNum;
+        const s32 total = p->mShop ? p->mShopNum : p->mCardNum;
         const f32 done = total > 0 ? static_cast< f32 >(p->mUnlockedNum) / total : 0.0f;
         const f32 fillWidth = barWidth * done * easeOut(open);
         shape(p->mSummaryBar, barRight - barWidth + fillWidth * 0.5f, headerY, fillWidth < 10.0f ? 10.0f : fillWidth, 10.0f, 5.0f);
@@ -1075,16 +885,16 @@ namespace {
             const bool chosen = tab ? k == p->mTab : k == p->mFilterMode;
             const bool focused = (tab ? p->mZone == ZoneTabs && p->mTabFocus == k : p->mZone == ZoneFilter && p->mFilterMode == k) &&
                                  (!p->mPointerMode || p->mPointerIn);
-            rChip.mRoot->SetVisible(!listOnly(p) && (tab || filters));
-            if (listOnly(p)) {
+            rChip.mRoot->SetVisible(!p->mShop && (tab || filters));
+            if (p->mShop) {
                 continue;
             }
             placeChip(rChip, rChip.mX, tab ? p->mTabY : p->mFilterY, chosen, focused, pulse);
             rChip.mText->mTranslate = nw4r::math::VEC3(0.0f, textCentre(0.0f, tab ? cTabSize : cFilterSize), 0.0f);
             rChip.mText->mAlpha = toAlpha(chosen ? 1.0f : 0.8f);
         }
-        p->mTabCount->mTranslate = nw4r::math::VEC3(right, textCentre(listOnly(p) ? p->mTabY : p->mFilterY, cFilterSize + 1.0f), 0.0f);
-        p->mTabCount->SetVisible(filters || listOnly(p));
+        p->mTabCount->mTranslate = nw4r::math::VEC3(right, textCentre(p->mShop ? p->mTabY : p->mFilterY, cFilterSize + 1.0f), 0.0f);
+        p->mTabCount->SetVisible(filters || p->mShop);
 
         // The list: a tab's change slides it in; the scissor cuts what reaches past the edges.
         const f32 switched = easeOut(static_cast< f32 >(p->mSwitchFrame) / cSwitchFrames);
@@ -1302,7 +1112,7 @@ namespace {
     }
 
     void selectTab(NebulaBoardParts* p, s32 tab) {
-        if (listOnly(p) || tab < 0 || tab >= TabNum || tab == p->mTab) {
+        if (p->mShop || tab < 0 || tab >= TabNum || tab == p->mTab) {
             return;
         }
         p->mSwitchDirection = tab > p->mTab ? 1 : -1;
@@ -1324,7 +1134,7 @@ namespace {
     }
 
     void selectFilter(NebulaBoardParts* p, s32 mode) {
-        if (listOnly(p) || mode < 0 || mode >= FilterNum || mode == p->mFilterMode) {
+        if (p->mShop || mode < 0 || mode >= FilterNum || mode == p->mFilterMode) {
             return;
         }
         p->mFilterMode = mode;
@@ -1383,7 +1193,7 @@ namespace {
             s32 focus = p->mCardFocus < 0 ? 0 : p->mCardFocus;
             if (direction == NebulaMenuFocus::Direction_Up) {
                 if (focus < columns) {
-                    p->mZone = listOnly(p) ? ZoneList : ZoneFilter;
+                    p->mZone = p->mShop ? ZoneList : ZoneFilter;
                 } else {
                     focus -= columns;
                 }
@@ -1437,13 +1247,13 @@ namespace {
 
         const bool inList = x >= p->mListLeft - 4.0f && x <= p->mListRight + 14.0f && y <= p->mListTop + 4.0f && y >= p->mListBottom - 4.0f;
         s32 overTab = -1;
-        for (s32 i = 0; i < TabNum && !listOnly(p); i++) {
+        for (s32 i = 0; i < TabNum && !p->mShop; i++) {
             if (isInside(x, y, p->mTabs[i].mX, p->mTabY, p->mTabs[i].mWidth, cTabHeight + 4.0f)) {
                 overTab = i;
             }
         }
         s32 overFilter = -1;
-        for (s32 i = 0; i < FilterNum && p->mTab != TabStats && !listOnly(p); i++) {
+        for (s32 i = 0; i < FilterNum && p->mTab != TabStats && !p->mShop; i++) {
             if (isInside(x, y, p->mFilters[i].mX, p->mFilterY, p->mFilters[i].mWidth, cFilterHeight + 4.0f)) {
                 overFilter = i;
             }
@@ -1860,7 +1670,7 @@ void NebulaAchievementBoard::init(const JMapInfoIter& rIter) {
     OSReport("NebulaAchievementBoard: %d cards, %s windows\n", p->mCardNum, ringed ? "ringed" : "plain");
 }
 
-void NebulaAchievementBoard::open(bool tracker) {
+void NebulaAchievementBoard::open() {
     NebulaBoardParts* p = mParts;
     if (p == nullptr || p->mBoard == nullptr) {
         return;
@@ -1868,12 +1678,7 @@ void NebulaAchievementBoard::open(bool tracker) {
     NebulaAchievements::flushStats();
     mIsOpen = true;
     setSharp(SharpBoard, true);
-    p->mTracker = tracker;
-    p->mTrackerNum = 0;
-    p->mTrackerTotal = 0;
-    p->mTrackerLine[0] = 0;
-    sTrackerOpen = tracker;
-    p->mShop = !tracker && NebulaArchipelago::hasShop();
+    p->mShop = NebulaArchipelago::hasShop();
     p->mShopNum = 0;
     if (p->mShop) {
         p->mShopNum = NebulaArchipelago::getShopNum();
@@ -1925,17 +1730,14 @@ void NebulaAchievementBoard::open(bool tracker) {
     setFooterHint(p);
     {
         wchar_t title[64];
-        NebulaText::get(title, 64, p->mTracker ? "TrackerTitle" : p->mShop ? "ShopTitle" : "BoardTitle");
+        NebulaText::get(title, 64, p->mShop ? "ShopTitle" : "BoardTitle");
         setText(p->mTitle, title);
         setText(p->mTitleShadow, title);
     }
     if (p->mShop) {
         refreshShop(p);
     }
-    if (p->mTracker) {
-        refreshTracker(p);
-    }
-    for (s32 i = 0; i < p->mCardNum && !listOnly(p); i++) {
+    for (s32 i = 0; i < p->mCardNum && !p->mShop; i++) {
         Card& rCard = p->mCards[i];
         {
             wchar_t name[96];
@@ -1981,7 +1783,7 @@ void NebulaAchievementBoard::open(bool tracker) {
 
     // The header: how many are unlocked.
     wchar_t text[48];
-    const s32 headerTotal = p->mShop ? p->mShopNum : p->mTracker ? p->mTrackerTotal : p->mCardNum;
+    const s32 headerTotal = p->mShop ? p->mShopNum : p->mCardNum;
     formatCount(text, 48, p->mUnlockedNum, headerTotal);
     setText(p->mSummary, text);
     setTextStyle(p->mSummary, cSummarySize, cWhite, cWhite, 5);
@@ -2215,10 +2017,6 @@ void NebulaAchievementBoard::exeWait() {
         setNerve(&NrvNebulaAchievementBoard::NebulaAchievementBoardNrvDisappear::sInstance);
         return;
     }
-    if (p->mTracker && ++p->mShopRefresh >= 30) {
-        p->mShopRefresh = 0;
-        refreshTracker(p);
-    }
     if (p->mShop) {
         if (++p->mShopRefresh >= 30) {
             // The server's answers (what a shelf holds) arrive after the shop opens.
@@ -2268,7 +2066,6 @@ void NebulaAchievementBoard::exeDisappear() {
     }
     p->mShown = false;
     p->mConfirmOn = false;
-    sTrackerOpen = false;
     NebulaArchipelago::setShopOpen(false);
     mBackground->kill();
     kill();
@@ -2276,19 +2073,5 @@ void NebulaAchievementBoard::exeDisappear() {
     setSharp(SharpBoard, false);
     NebulaAchievements::flushStats();
     MR::openSystemWipeFade(cFadeFrames);
-}
-
-void NebulaAchievementBoard::requestTracker() {
-    sTrackerRequested = true;
-}
-
-bool NebulaAchievementBoard::takeTrackerRequest() {
-    const bool requested = sTrackerRequested;
-    sTrackerRequested = false;
-    return requested;
-}
-
-bool NebulaAchievementBoard::isTrackerOpen() {
-    return sTrackerOpen;
 }
 #endif

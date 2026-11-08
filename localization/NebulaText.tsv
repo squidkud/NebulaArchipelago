@@ -619,16 +619,26 @@ HungryLumaFed	Yum! Just {red}{n} {icon} Star Bits{/red} more and {galaxy} is all
 HungryLumaOne	One last {red}1 {icon} Star Bit{/red} and I'll whisk you off to {galaxy}!		Plus qu'{red}1 {icon} Star Bit{/red} et je t'envoie direct à {galaxy} !	Plus qu'{red}1 {icon} Star Bit{/red} et je t'envoie direct à {galaxy} !										
 TrackerButton	Tracker		Tracker	Tracker									
 TrackerTitle	Archipelago Tracker		Tracker Archipelago	Tracker Archipelago									
-TrackerDone	All checked!		Tout est fait !	Tout est fait !									
-TrackerMissing	Missing: {list}		Manque : {list}	Manque : {list}									
-TrackerMore	 +{n}		 +{n}	 +{n}									
-TrackerItemsFull	Power Stars {power} - Grand Stars {grand} - Green Stars {green}		Power Stars {power} - Grand Stars {grand} - Étoiles vertes {green}	Power Stars {power} - Grand Stars {grand} - Étoiles vertes {green}									
-TrackerItems	Power Stars {power}		Power Stars {power}	Power Stars {power}									
-TrackerForms	Forms: {list}		Formes : {list}	Formes : {list}									
-TrackerFormsNone	Forms: none yet		Formes : aucune pour l'instant	Formes : aucune pour l'instant									
 TrackerFormBee	Bee		Abeille	Abeille									
 TrackerFormBoo	Boo		Fantôme	Fantôme									
 TrackerFormSpring	Spring		Ressort	Ressort									
 TrackerFormFire	Fire		Feu	Feu									
 TrackerFormIce	Ice		Glace	Glace									
 TrackerFormFlying	Flying		Vol	Vol									
+TrackerDome	Dome {n}		Dôme {n}	Dôme {n}									
+TrackerOther	Other		Autres	Autres									
+TrackerStarsCount	Stars {n}/{total}		Étoiles {n}/{total}	Étoiles {n}/{total}									
+TrackerGrandCount	Grand Stars {n}		Grand Stars {n}	Grand Stars {n}									
+TrackerGreenCount	Green Stars {n}		Étoiles vertes {n}	Étoiles vertes {n}									
+TrackerItemsLabel	Items		Objets	Objets									
+TrackerItemsNone	none yet		aucun pour l'instant	aucun pour l'instant									
+TrackerStatusDone	Done		Fait	Fait									
+TrackerStatusDoable	Doable now		Faisable	Faisable									
+TrackerNeeds	Needs: {list}		Nécessite : {list}	Nécessite : {list}									
+TrackerNeedDome	dome {n} open		dôme {n} ouvert	dôme {n} ouvert									
+TrackerNeedStars	{n} stars		{n} étoiles	{n} étoiles									
+TrackerNeedGrand	Grand Star {n}		Grand Star {n}	Grand Star {n}									
+TrackerNeedGreen	{n} Green Stars		{n} étoiles vertes	{n} étoiles vertes									
+TrackerNeedOthers	every other star		toutes les autres étoiles	toutes les autres étoiles									
+TrackerDetailHint	Point at a star to see what it needs		Vise une étoile pour voir ce qu'il lui faut	Vise une étoile pour voir ce qu'il lui faut									
+TrackerEmpty	Nothing to track here		Rien à suivre ici	Rien à suivre ici									

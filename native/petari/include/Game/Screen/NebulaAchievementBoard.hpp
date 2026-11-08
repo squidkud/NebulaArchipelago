@@ -20,15 +20,8 @@ public:
     virtual void init(const JMapInfoIter& rIter);
     virtual void control();
 
-    // `tracker`: the Archipelago tracker (a card for each galaxy: its stars checked and missing) in place of the
-    // achievements or the shop.
-    void open(bool tracker = false);
+    void open();
     bool isOpen() const;
-    // The pause menu's Tracker button asks; GameScene (paused) takes the request and opens the board. While it is open the
-    // pause menu below takes no input.
-    static void requestTracker();
-    static bool takeTrackerRequest();
-    static bool isTrackerOpen();
     // GameScene: one frame, and the drawing at the end of its 2D.
     void update();
     void drawOnTop() const;

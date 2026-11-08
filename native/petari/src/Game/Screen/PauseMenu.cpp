@@ -15,7 +15,7 @@
 #include "Game/Util/SequenceUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
 #ifdef TARGET_PC
-#include "Game/Screen/NebulaAchievementBoard.hpp"
+#include "Game/Screen/NebulaTracker.hpp"
 #include "Game/Screen/NebulaPauseSettingsButton.hpp"
 #include "Game/Screen/NebulaSettingsMenu.hpp"
 #include "Game/System/NebulaArchipelago.hpp"
@@ -314,7 +314,7 @@ void PauseMenu::forceToWaitAllButton() {
 void PauseMenu::exeSelecting() {
 #ifdef TARGET_PC
     // The tracker is open over the menu (GameScene runs it): the menu below takes no input.
-    if (NebulaAchievementBoard::isTrackerOpen()) {
+    if (NebulaTracker::isShown()) {
         return;
     }
 #endif
@@ -388,7 +388,7 @@ void PauseMenu::exeDecided() {
     } else if (mTrackerButton != nullptr && mTrackerButton->getButton()->mIsSelected) {
         // Tracker: GameScene opens it over the menu, which waits under it with its buttons ready.
         if (mTrackerButton->getButton()->isDecidedWait()) {
-            NebulaAchievementBoard::requestTracker();
+            NebulaTracker::request();
             forceToWaitAllButton();
             setNerve(GET_NERVE(PauseMenu, PauseMenuNrvSelecting));
         }

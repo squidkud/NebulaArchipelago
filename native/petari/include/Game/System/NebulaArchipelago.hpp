@@ -192,22 +192,51 @@ namespace NebulaArchipelago {
     };
     bool isSkillLocked(s32 skill);
 
-    // The in-game tracker (the pause menu's Tracker button): the slot's locations by galaxy, as the current save sees them
-    // (its own stars, plus what the server released). A galaxy with none of the slot's locations is not listed.
-    static const s32 cTrackerMissingMax = 16;
-    struct TrackerGalaxy {
-        const char* mStage;                 // the galaxy's game name
-        s32 mDome;                          // its dome (0: outside the domes)
-        s32 mTotal;                         // the slot's locations in it
-        s32 mChecked;                       // the ones checked
-        s32 mMissingNum;                    // the scenarios (star numbers) not checked yet, each once
-        s32 mMissing[cTrackerMissingMax];
+    // The in-game tracker (the pause menu's Tracker button). A "place" is a miniature of StarData.GALAXIES (the galaxy that
+    // stands in it is the shuffle's choice); each place lists the slot's locations of the galaxy standing in it, as the
+    // current save sees them, and what the logic asks of each (the APWorld's rules: the star counter, the Grand Stars of
+    // the dome, the Observatory galaxies' extra Grand Stars, the Green Stars of the trial galaxies, the forms when they are
+    // items, the Star Festival's other stars).
+    static const s32 cTrackerStarMax = 8;
+    enum TrackerState {
+        TrackerState_Done,    // checked
+        TrackerState_Doable,  // not checked, and the logic lets the player do it
+        TrackerState_Locked,  // not checked, and something is missing (mNeed)
     };
-    s32 getTrackerGalaxyNum();
-    bool getTrackerGalaxy(s32 index, TrackerGalaxy* pOut);
-    //   how many of an item (NEBULA_AP_ITEM_*) the server has sent in all
+    enum TrackerNeed {
+        TrackerNeed_Dome = 1,    // the dome is not open (TrackerGalaxy::mDoor)
+        TrackerNeed_Stars = 2,   // the star counter is short of TrackerGalaxy::mNeedStars
+        TrackerNeed_Grand = 4,   // the Observatory galaxy asks Grand Stars (TrackerGalaxy::mNeedGrand)
+        TrackerNeed_Green = 8,   // the trial galaxy asks the three Green Stars
+        TrackerNeed_Form = 16,   // forms are missing (TrackerStar::mForms: the first group not met in the low byte, the second in the next; each the forms of which one is needed: 1 Bee 2 Boo 4 Spring 8 Fire 16 Ice 32 Flying)
+        TrackerNeed_Others = 32, // the Star Festival asks every other star first
+    };
+    struct TrackerStar {
+        s32 mScenario;  // the star's number in its galaxy (1-based)
+        s32 mKind;      // StarData's kinds in the generated table's order: 0 star, 1 comet, 2 secret, 3 purple, 4 luigi, 5 green, 6 grand, 8 festival
+        s32 mState;     // TrackerState
+        s32 mNeed;      // TrackerNeed bits (locked only)
+        s32 mForms;
+    };
+    struct TrackerGalaxy {
+        const char* mStage;  // the galaxy standing in the place (its game name)
+        s32 mPlace;
+        s32 mStarNum;
+        TrackerStar mStars[cTrackerStarMax];
+        s32 mNeedStars;      // what the place asks of the star counter
+        s32 mNeedGrand;      // the Observatory galaxy's Grand Stars (0 none)
+        s32 mDoor;           // the dome's door number (0 outside the domes)
+    };
+    s32 getTrackerPlaceNum();
+    //   the place's own room (1 to 6, 0 outside the domes), and the room behind door `door` (1 to 6)
+    s32 getTrackerPlaceRoom(s32 place);
+    s32 getTrackerDoorRoom(s32 door);
+    //   the Grand Stars the player has (the door `door` of a dome is open with that many)
+    s32 getTrackerGrandFlags();
+    //   false when the galaxy standing in the place has no location in this slot
+    bool getTrackerGalaxy(s32 place, TrackerGalaxy* pOut);
+    //   how many of an item (NEBULA_AP_ITEM_*) the server has sent in all, and a slot option (NEBULA_AP_OPT_*)
     s32 getReceivedCount(s32 item);
-    //   a slot option (NEBULA_AP_OPT_*)
     s32 getSlotOption(s32 option);
 
     // The star select does not show this star: the slot leaves its kind (the Prankster Comet stars, the Purple Coin stars)

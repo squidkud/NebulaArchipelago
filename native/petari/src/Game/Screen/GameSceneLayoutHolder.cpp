@@ -9,6 +9,7 @@
 #include "Game/Screen/MissLayout.hpp"
 #include "Game/NPC/NebulaAchievementLuma.hpp"
 #include "Game/Screen/NebulaAchievementBoard.hpp"
+#include "Game/Screen/NebulaTracker.hpp"
 #include "Game/Screen/NebulaAchievementToast.hpp"
 #include "Game/System/NebulaArchipelago.hpp"
 #include "Game/Screen/NoteCounter.hpp"
@@ -61,10 +62,16 @@ GameSceneLayoutHolder::GameSceneLayoutHolder()
     mSaveIndicator = new NebulaAchievementToast(true);
     mSaveIndicator->initWithoutIter();
     mAchievementBoard = nullptr;
-    // The Observatory's Achievement Luma opens it; with an Archipelago game the pause menu's tracker does in every stage.
-    if (NebulaAchievementLuma::isHere() || NebulaArchipelago::isActive()) {
+    // The Observatory's Achievement Luma opens it.
+    if (NebulaAchievementLuma::isHere()) {
         mAchievementBoard = new NebulaAchievementBoard();
         mAchievementBoard->initWithoutIter();
+    }
+    // With an Archipelago game the pause menu's Tracker button opens the tracker, in every stage.
+    mTracker = nullptr;
+    if (NebulaArchipelago::isActive()) {
+        mTracker = new NebulaTracker();
+        mTracker->initWithoutIter();
     }
 #endif
 }

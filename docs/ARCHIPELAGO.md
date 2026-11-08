@@ -392,10 +392,23 @@ vérifiées en test, l'affichage dans le Launcher ne l'est pas.
 ### Le tracker en jeu
 
 Avec une partie Archipelago, le menu **Start** a un bouton **Tracker** à côté de **Paramètres**. Il ouvre une page
-par-dessus le menu pause : une carte par galaxie (celles où le slot a des étoiles), avec les étoiles faites sur le
-total, une barre, et les premières étoiles qui manquent. L'en-tête compte toutes les étoiles faites (les libérations du
-serveur comptent), et la ligne sous l'en-tête donne le compteur d'étoiles et, si les transformations sont des objets,
-les formes reçues. Comme le tracker PopTracker, il n'a pas de logique (il ne dit pas ce qui est faisable). B ferme.
+par-dessus le menu pause (fond étoilé de la carte des galaxies) :
+
+- **En haut, sept onglets** : *Dôme 1* à *Dôme 6* dans l'ordre où les dômes s'ouvrent (donc dans l'ordre mélangé si
+  `dome_shuffle` est activé), puis *Autres* (tout ce qui n'est pas dans un dôme : galaxies des Lumas goinfres, de
+  l'Observatoire, Bowser, etc.). Un dôme pas encore ouvert est grisé et son onglet ne s'ouvre pas.
+- **Sous l'onglet**, une ligne par galaxie (avec le nom, « faites / total ») et une étoile pour chaque position du slot :
+  étoile **dorée** = faite (les libérations du serveur comptent), étoile **blanche un peu transparente** = faisable
+  d'après la logique mais pas encore faite, étoile **noire** = pas faisable. Les étoiles ont l'icône de leur type
+  (étoile, comète, pièces violettes, cachée, étoile verte).
+- **Le détail** : en visant (pointeur) ou en choisissant (manette) une étoile, la ligne sous la liste donne son nom et
+  ce qui lui manque : le dôme, le compteur d'étoiles de la galaxie, les Grand Stars demandés, les 3 étoiles vertes des
+  galaxies d'épreuve, les transformations, ou « toutes les autres étoiles » pour le Star Festival.
+- **Les compteurs** (étoiles / total pour finir, Grand Stars, étoiles vertes), puis **Objets** : les icônes des
+  transformations reçues (quand elles sont des objets du pool), ajoutées au fur et à mesure.
+
+La logique est celle de l'APWorld (même table d'étoiles, générée par `tools/gen_archipelago_stars.py`). Commandes : -/+
+ou clic changent d'onglet, la croix directionnelle ou le pointeur choisissent une étoile, B ou le bouton Retour ferment.
 Le jeu n'a pas été lancé ici : l'affichage n'est pas testé.
 
 ## Options du mélange
