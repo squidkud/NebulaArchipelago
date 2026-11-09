@@ -8,6 +8,10 @@
 #include "Game/Screen/NebulaMenuFocus.hpp"
 #endif
 #include "Game/Map/FileSelectEffect.hpp"
+#ifdef TARGET_PC
+#include "Game/Util/FileUtil.hpp"
+#include <cstring>
+#endif
 #include "Game/Map/FileSelectFunc.hpp"
 #include "Game/Map/FIleSelectItem.hpp"
 #include "Game/Map/FileSelectItemDelegator.hpp"
@@ -284,8 +288,32 @@ void FileSelector::control() {
     updateBgm();
 #ifdef TARGET_PC
     updateQuitButton();
+    updateSky();
 #endif
 }
+
+#ifdef TARGET_PC
+void FileSelector::updateSky() {
+    static s32 sWait = 0;
+
+    if (mSky == nullptr || ++sWait < 15) {
+        return;
+    }
+
+    sWait = 0;
+    const char* pWanted = NebulaArchipelago::getShuffledSky("CometNearOrbitSky");
+
+    if (strcmp(pWanted, FileSelectSky::getSkyName()) == 0 || !MR::isLoadedObjectOrLayoutArchive(pWanted)) {
+        return;
+    }
+
+    // A new sky actor, built as at a start that already knew the shuffle (the one that works), in place of the old one.
+    FileSelectSky* pOld = mSky;
+    createSky();
+    pOld->kill();
+    NebulaArchipelago::logNote("Title sky rebuilt", FileSelectSky::getSkyName(), "");
+}
+#endif
 
 bool FileSelector::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
     if (MR::isMsgAutoRushBegin(msg) && isNerve(GET_NERVE(FileSelector, FileSelectorNrvWaitBind))) {
