@@ -2,6 +2,7 @@
 #include "Game/LiveActor/MaterialCtrl.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
+#include "Game/Util/FileUtil.hpp"
 #include "Game/Util/MathUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
 #ifdef TARGET_PC
@@ -22,6 +23,9 @@ FileSelectSky::~FileSelectSky() {
 }
 
 FileSelectSky::FileSelectSky(const char* pName) : LiveActor(pName), mAngleX(), mAngleY(), mProjmapEffectMtxSetter() {
+#ifdef TARGET_PC
+    mSkyWait = 0;
+#endif
 }
 
 void FileSelectSky::init(const JMapInfoIter& rIter) {
@@ -40,6 +44,30 @@ void FileSelectSky::init(const JMapInfoIter& rIter) {
     initNerve(GET_NERVE(FileSelectSky, FileSelectSkyNrvWait));
     makeActorDead();
 }
+
+#ifdef TARGET_PC
+void FileSelectSky::control() {
+    // The answer of the connection (skybox_shuffle and the seed) arrives after the screen was built: asked again a few times a second.
+    if (++mSkyWait >= 15) {
+        mSkyWait = 0;
+        swapSky();
+    }
+}
+
+void FileSelectSky::swapSky() {
+    const char* pWanted = NebulaArchipelago::getShuffledSky("CometNearOrbitSky");
+
+    if (strcmp(pWanted, sSkyName) == 0 || !MR::isLoadedObjectOrLayoutArchive(pWanted)) {
+        return;
+    }
+
+    sSkyName = pWanted;
+    NebulaArchipelago::logNote("Title sky swapped", sSkyName, "");
+    initModelManagerWithAnm(sSkyName, nullptr, false);
+    mProjmapEffectMtxSetter = MR::initDLMakerProjmapEffectMtxSetter(this);
+    MR::tryStartAllAnim(this, sSkyName);
+}
+#endif
 
 void FileSelectSky::calcAnim() {
     LiveActor::calcAnim();

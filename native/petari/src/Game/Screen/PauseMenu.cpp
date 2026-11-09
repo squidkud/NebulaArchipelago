@@ -101,7 +101,14 @@ void PauseMenu::init(const JMapInfoIter& rIter) {
 
     MR::connectToSceneLayoutOnPause(_30);
 
-    if (MR::getLuigiLetterGalaxyName()) {
+#ifdef TARGET_PC
+    // With an Archipelago game Luigi's letter (found while Luigi hides in a galaxy) has no button in the pause menu.
+    const bool hasLetter = MR::getLuigiLetterGalaxyName() && !NebulaArchipelago::isActive();
+#else
+    const bool hasLetter = MR::getLuigiLetterGalaxyName();
+#endif
+
+    if (hasLetter) {
         mLuigiLetter = MR::createLuigiLetterForMenu();
         mLuigiLetter->initWithoutIter();
 
@@ -155,7 +162,7 @@ void PauseMenu::appear() {
         _24->appear();
     }
 
-    if (MR::isOnLuigiHiding()) {
+    if (_38 != nullptr && MR::isOnLuigiHiding()) {
         _38->appear();
     }
 
