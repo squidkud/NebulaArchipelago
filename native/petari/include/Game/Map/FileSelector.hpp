@@ -152,6 +152,12 @@ public:
     void updateQuitButton();
     bool updateQuitQuestion();
     void offerFilesToMenuFocus();
+    // skybox_shuffle: the shuffle is known once connected, after the screen was built: every possible sky is built with the
+    // screen (as the one sky always was), only one shown; once the shuffle is known the shown one changes.
+    void updateSky();
+    static const s32 cSkyNum = 8;
+    FileSelectSky* mSkies[cSkyNum];
+    s32 mSkyIndex;
 #endif
 
     /* 0x8C */ FileSelectCameraController* mCameraController;

@@ -68,7 +68,7 @@ the galaxy can also be entered from the ADVANCED galaxy select of the settings. 
 stay). With `galaxy_shuffle_type: full` every chosen kind of galaxy is in one pool, so a dome can hold no boss or three
 and the Observatory's galaxies can stand in the domes (the place keeps its own miniature model, with the name, stars and launch of the galaxy that stands in it). A dome's galaxies are always shown (no "???") and the four that
 asked for a particular star (Buoy Base, Honeyclimb, Bonefin, Matter Splatter) open with their star count alone.
-`skybox_shuffle` (experimental: a swapped sky can draw as a blue screen and hide models, being fixed) swaps the skies of the stages for other skies. `star_colors` paints each star after the class of the item it hides (light blue `#5CBEFF` normal, blue `#6D8BE8` useful, purple `#897EC9` progression, red
+`skybox_shuffle` (experimental: a swapped sky can draw as a blue screen and hide models, being fixed) swaps the skies of the stages for other skies. Star colours (always on, not an option) paint each star after the class of the item it hides (light blue `#5CBEFF` normal, blue `#6D8BE8` useful, purple `#897EC9` progression, red
 trap; Grand Stars unchanged). `death_link` turns on DeathLink: a life lost is sent to the other DeathLink players, and
 their deaths kill Mario here.
 
@@ -124,7 +124,7 @@ stars a room asks follow the order the rooms open in. Both are experimental.
 
 ## Not done yet
 
-The Mario/Luigi colours, Hide Galaxy, Star Colors, and the by-sphere Luma mode of the
+The Mario/Luigi colours, Hide Galaxy, and the by-sphere Luma mode of the
 original Dolphin world are not in this version.
 
 Use a new save file for each multiworld.

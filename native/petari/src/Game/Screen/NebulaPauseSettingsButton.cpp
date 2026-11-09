@@ -13,13 +13,13 @@
 
 namespace {
     // The middle of the pause menu's lower band, between its counters' two rows (4 and -32 about their pane at -147).
-    const f32 cBandMiddle = -161.0f;
+    const f32 cBandMiddle = -176.0f;
     // The button at the size of the counters beside it; two buttons share the band at a smaller size.
     const f32 cScale = 0.62f;
-    const f32 cPairScale = 0.46f;
+    const f32 cPairScale = 0.44f;
     // The button is about 72 layout units high at scale 1 (rim and shadow included); the gap between the two buttons.
     const f32 cButtonHeight = 72.0f;
-    const f32 cPairGap = 3.0f;
+    const f32 cPairGap = 9.0f;
 };  // namespace
 
 NebulaPauseSettingsButton::NebulaPauseSettingsButton(const char* pName, const char* pTextId, s32 side)

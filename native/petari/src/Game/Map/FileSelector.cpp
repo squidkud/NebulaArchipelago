@@ -8,6 +8,10 @@
 #include "Game/Screen/NebulaMenuFocus.hpp"
 #endif
 #include "Game/Map/FileSelectEffect.hpp"
+#ifdef TARGET_PC
+#include "Game/Util/FileUtil.hpp"
+#include <cstring>
+#endif
 #include "Game/Map/FileSelectFunc.hpp"
 #include "Game/Map/FIleSelectItem.hpp"
 #include "Game/Map/FileSelectItemDelegator.hpp"
@@ -284,8 +288,48 @@ void FileSelector::control() {
     updateBgm();
 #ifdef TARGET_PC
     updateQuitButton();
+    updateSky();
 #endif
 }
+
+#ifdef TARGET_PC
+namespace {
+    // The skies the title can show: the default one first (never shuffled to a name that is not here).
+    const char* const cTitleSkies[8] = {"CometNearOrbitSky", "HalfGalaxySky", "GreenPlanetOrbitSky", "CloudSky", "RockPlanetOrbitSky", "KoopaVS1Sky", "VROrbit", "VRSandwichSun"};
+
+    s32 findTitleSky(const char* pName) {
+        for (s32 i = 0; i < 8; i++) {
+            if (strcmp(cTitleSkies[i], pName) == 0) {
+                return i;
+            }
+        }
+
+        return 0;
+    }
+}  // namespace
+
+void FileSelector::updateSky() {
+    static s32 sWait = 0;
+
+    if (++sWait < 15) {
+        return;
+    }
+
+    sWait = 0;
+    const s32 wanted = findTitleSky(NebulaArchipelago::getShuffledSky("CometNearOrbitSky"));
+
+    if (wanted == mSkyIndex || mSkies[wanted] == nullptr) {
+        return;
+    }
+
+    // The wanted sky was built with the screen: it is shown, the one shown goes.
+    mSkies[wanted]->appear();
+    mSkies[mSkyIndex]->kill();
+    mSkyIndex = wanted;
+    mSky = mSkies[wanted];
+    NebulaArchipelago::logNote("Title sky shown", cTitleSkies[wanted], "");
+}
+#endif
 
 bool FileSelector::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
     if (MR::isMsgAutoRushBegin(msg) && isNerve(GET_NERVE(FileSelector, FileSelectorNrvWaitBind))) {
@@ -320,9 +364,33 @@ void FileSelector::createCameraController() {
 }
 
 void FileSelector::createSky() {
+#ifdef TARGET_PC
+    mSkyIndex = findTitleSky(NebulaArchipelago::getShuffledSky("CometNearOrbitSky"));
+
+    for (s32 i = 0; i < cSkyNum; i++) {
+        mSkies[i] = nullptr;
+
+        if (i != 0 && i != mSkyIndex && !MR::isLoadedObjectOrLayoutArchive(cTitleSkies[i])) {
+            continue;
+        }
+
+        mSkies[i] = new FileSelectSky("\203\164\203\100\203\103\203\213\203\132\203\214\203\116\203\147\211\346\226\312\202\314\213\363" /* ファイルセレクト画面の空 */);
+        mSkies[i]->setModelName(cTitleSkies[i]);
+        mSkies[i]->initWithoutIter();
+    }
+
+    if (mSkies[mSkyIndex] == nullptr) {
+        mSkyIndex = 0;
+    }
+
+    mSky = mSkies[mSkyIndex];
+    mSky->appear();
+    NebulaArchipelago::logNote("Title sky", cTitleSkies[mSkyIndex], "");
+#else
     mSky = new FileSelectSky("\203\164\203\100\203\103\203\213\203\132\203\214\203\116\203\147\211\346\226\312\202\314\213\363" /* ファイルセレクト画面の空 */);
     mSky->initWithoutIter();
     mSky->appear();
+#endif
 }
 
 namespace {

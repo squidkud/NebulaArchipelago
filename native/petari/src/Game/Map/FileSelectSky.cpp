@@ -11,7 +11,6 @@
 namespace {
     const f32 cAngleIncY = 0.001f;
     const f32 cCycleX = 3000.0f;
-    const char* sSkyName = "CometNearOrbitSky";  // its model (another sky when skybox_shuffle is on)
 };  // namespace
 
 namespace NrvFileSelectSky {
@@ -26,8 +25,9 @@ FileSelectSky::FileSelectSky(const char* pName) : LiveActor(pName), mAngleX(), m
 
 void FileSelectSky::init(const JMapInfoIter& rIter) {
 #ifdef TARGET_PC
-    sSkyName = NebulaArchipelago::getShuffledSky("CometNearOrbitSky");
-    NebulaArchipelago::logNote("Title sky", sSkyName, "");
+    const char* sSkyName = mModelName;
+#else
+    const char* sSkyName = "CometNearOrbitSky";
 #endif
     initModelManagerWithAnm(sSkyName, nullptr, false);
     mScale.x = 0.8f;
@@ -59,7 +59,7 @@ bool FileSelectSky::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pRec
 void FileSelectSky::exeWait() {
     if (MR::isFirstStep(this)) {
 #ifdef TARGET_PC
-        MR::tryStartAllAnim(this, sSkyName);  // another sky has its own animations, or none
+        MR::tryStartAllAnim(this, mModelName);  // another sky has its own animations, or none
 #else
         MR::startBck(this, "CometNearOrbitSky");
         MR::startBtk(this, "CometNearOrbitSky");

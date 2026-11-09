@@ -643,7 +643,7 @@ class SMGWorld(World):
                 "exact_requirements": int(self.options.star_requirements.value == self.options.star_requirements.option_dome_offsets
                                           or bool(self.options.dome_shuffle)),
                 "luma_counts_set": 1 if self.luma_counts else 0,
-                "star_colors": int(bool(self.options.star_colors)),
+                "star_colors": 1,  # always on: not an option
                 "transformation_items": int(bool(self.options.transformation_items)),
                 "death_link": int(bool(self.options.death_link)),
                 "trap_percentage": int(self.options.trap_percentage.value),
