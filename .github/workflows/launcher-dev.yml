@@ -20,7 +20,7 @@ jobs:
           {
               internal static class BuildInfo
               {
-                  public const string Version = "99.0.0";
+                  public const string Version = "1.0.28";
                   public const string Commit = "$commit";
                   public const string Repository = "squidkud/NebulaArchipelago";
               }
