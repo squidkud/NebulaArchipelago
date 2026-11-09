@@ -144,7 +144,7 @@ const char* const kOptionNames[kOptionCount] = {
 
 // The options an override may change: the ones no logic depends on.
 bool overridable(std::uint32_t option) {
-    return option == static_cast<std::uint32_t>(Option::StarColors) || option == static_cast<std::uint32_t>(Option::DeathLink) ||
+    return option == static_cast<std::uint32_t>(Option::DeathLink) ||
            option == static_cast<std::uint32_t>(Option::MusicShuffle) || option == static_cast<std::uint32_t>(Option::EnemyShuffle) ||
            option == 15u /* skybox_shuffle */ ||
            (option >= static_cast<std::uint32_t>(Option::ColorFirst) && option <= static_cast<std::uint32_t>(Option::ColorLast));
@@ -1072,6 +1072,7 @@ std::uint32_t Engine::option_value(Option option) const {
 
 std::int64_t Engine::effective_option(Option option) const {
     const std::uint32_t id = static_cast<std::uint32_t>(option);
+    if (option == Option::StarColors) return 1;  // always on: not an option of the YAML, not overridable
     if (const auto over = overrides_.find(id); over != overrides_.end()) return over->second;
     const auto it = options_.find(id);
     return it != options_.end() ? it->second : 0;

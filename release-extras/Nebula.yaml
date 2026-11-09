@@ -354,13 +354,6 @@ Nebula:
   ###########################
   # Display and Multiplayer #
   ###########################
-  star_colors:
-    # The colour of a star in the level (and in the star select) tells the class of the item it hides: green
-    # is a normal item, blue is useful, gold is progression and red is a trap. Grand Stars keep their look. The game asks the
-    # server what each location holds when it connects, so the colours are there for the whole session.
-    'false': 50
-    'true': 0
-
   death_link:
     # When you die, everyone who enabled death link dies. Of course, the reverse is true too.
     'false': 50
