@@ -130,8 +130,7 @@ Mario Galaxy dans un multiworld. Il suppose que vous n'avez jamais compilé de p
   cercle (aucun ciel ne reste à sa place) : les ciels simples (Galaxy, Milky Way, Phantom, Desert, Aurora, Starry, l'espace sombre, mais
   aussi le ciel rétro, celui du combat de Bowser Jr., la chambre des enfants et un ciel de l'Observatoire), ceux dessinés
   avec une projection (Half Galaxy, Green Planet Orbit, Cloud, Rock Planet Orbit, VR Orbit, le soleil sandwich, le combat de Bowser ; VR Orbit est le ciel de l'Observatoire), et les trois
-  ciels intérieurs des dômes ; le ciel de l'écran titre et de la sélection de fichier change aussi (il faut avoir
-  joué une fois ce multiworld pour que le jeu connaisse l'option dès l'écran titre). Le ciel d'été en fait partie aussi (son
+  ciels intérieurs des dômes ; le ciel de l'écran titre et de la sélection de fichier change aussi. Le ciel d'été en fait partie aussi (son
   « espace intérieur » reste attaché à l'objet, pas au modèle). La nébuleuse de l'écran de sélection d'étoile prend aussi,
   avec la même option, une teinte tirée au hasard par multiworld (toujours la même pour un même multiworld). `archipelago.log` note
   « sky shuffle: X shows Y » et, pour chaque ciel rencontré, « Sky object » : si un ciel (celui de Toy Time, par
