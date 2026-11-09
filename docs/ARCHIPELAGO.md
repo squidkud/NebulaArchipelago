@@ -136,7 +136,7 @@ Mario Galaxy dans un multiworld. Il suppose que vous n'avez jamais compilé de p
   « sky shuffle: X shows Y » et, pour chaque ciel rencontré, « Sky object » : si un ciel (celui de Toy Time, par
   exemple) n'est pas dans ces groupes, son nom est dans ces lignes. Pas testé en jeu.
   Le ciel de l'écran titre / choix de fichier change **dès la connexion**, sans recharger la scène : les huit ciels
-  possibles sont chargés avec l'écran et l'acteur du ciel est reconstruit quand le jeu sait lequel (jamais essayé en jeu).
+  possibles sont chargés avec l'écran et un acteur de ciel par ciel possible est construit avec l'écran (un seul affiché) et le bon est affiché dès que le jeu sait lequel (jamais essayé en jeu).
 - **Mélange « Full »** (`galaxy_shuffle_type: full`) : tout ce que vous avez mis dans `galaxy_shuffle` est dans UN seul
   tas, n'importe quelle galaxie à n'importe quelle place : un dôme peut n'avoir aucun boss ou en avoir trois, et les
   galaxies de l'Observatoire (Sweet Sweet...) peuvent se trouver dans les dômes, où la place garde son

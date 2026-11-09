@@ -21,8 +21,8 @@ public:
 
     void exeWait();
 #ifdef TARGET_PC
-    // The model of the sky built last (skybox_shuffle can change it).
-    static const char* getSkyName();
+    // The model of this sky (before initWithoutIter): the title builds one actor per possible sky and shows the shuffled one.
+    void setModelName(const char* pName) { mModelName = pName; }
 #endif
 
 private:
@@ -30,4 +30,7 @@ private:
     /* 0x90 */ f32 mAngleY;
     /* 0x94 */ TPos3f mBaseMtx;
     /* 0xC4 */ ProjmapEffectMtxSetter* mProjmapEffectMtxSetter;
+#ifdef TARGET_PC
+    const char* mModelName = "CometNearOrbitSky";
+#endif
 };
