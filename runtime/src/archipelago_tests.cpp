@@ -100,7 +100,7 @@ int main() {
         const auto o = ap::parse_option_overrides(
             "server=a:1\n# comment\noption.star_colors = on\nOPTION.color_3=255\noption.death_link=0\n"
             "option.goal=2\noption.movement_items=1\noption.music_shuffle=maybe\noption.enemy_shuffle=0x1\n");
-        expect(o.at(static_cast<std::uint32_t>(ap::Option::StarColors)) == 1, "an override can be on/off");
+        expect(o.count(static_cast<std::uint32_t>(ap::Option::StarColors)) == 0, "star colors are always on: no override");
         expect(o.at(19u) == 255, "a colour override is a number");
         expect(o.at(static_cast<std::uint32_t>(ap::Option::DeathLink)) == 0, "off is 0");
         expect(o.count(static_cast<std::uint32_t>(ap::Option::Goal)) == 0, "the goal cannot be overridden");

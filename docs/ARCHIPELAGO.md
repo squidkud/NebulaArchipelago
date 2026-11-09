@@ -60,7 +60,7 @@ Mario Galaxy dans un multiworld. Il suppose que vous n'avez jamais compilé de p
   la salle qu'il ouvre (si la Terrasse mène à la Cuisine, le dôme de la Terrasse a l'aspect de celui de la Cuisine),
   et le nom affiché dessus est celui de cette salle ; le moment où il apparaît ne change pas. Une fois dans une salle, ses galaxies s'ouvrent avec le seul nombre d'étoiles demandé (les
   conditions de Grande Étoile du jeu, propres à sa salle d'origine, sont ignorées). Expérimental aussi.
-- **Couleur des étoiles selon l'objet** (`star_colors: true`, désactivé par défaut) : la couleur d'une étoile (dans le
+- **Couleur des étoiles selon l'objet** (toujours actif, ce n'est plus une option) : la couleur d'une étoile (dans le
   niveau et dans le choix des étoiles) dit la classe de l'objet qu'elle cache : **bleu clair** (`#5CBEFF`) = objet normal, **bleu** (`#6D8BE8`) =
   utile, **violet** (`#897EC9`) = progression (il en faut pour avancer), **rouge** = piège. Le jeu recolore les
   images de l'étoile en mémoire (il reconnaît laquelle est la jaune, la verte, la bleue d'après sa couleur ; les
@@ -497,8 +497,8 @@ Archipelago) : les compteurs d'étoiles, les transformations, les mouvements, et
 se coche toute seule. Les identifiants viennent de l'APWorld. Je n'ai pas pu lancer PopTracker ici : le pack n'est pas testé.
 
 **Options en direct.** Dans `archipelago.ini`, des lignes `option.<nom>=<valeur>` changent quelques options cosmétiques
-sans refaire de multiworld : `star_colors`, `death_link`, `music_shuffle`, `enemy_shuffle`, `skybox_shuffle`, `color_0` à
-`color_23`. Exemple : `option.star_colors=off`. Le fichier est relu toutes les 5 s pendant que le jeu tourne ; le jeu applique
+sans refaire de multiworld : `death_link`, `music_shuffle`, `enemy_shuffle`, `skybox_shuffle`, `color_0` à
+`color_23`. Exemple : `option.death_link=off`. Le fichier est relu toutes les 5 s pendant que le jeu tourne ; le jeu applique
 le changement au prochain niveau chargé (pas de menu dans le jeu : ce serait trop lourd). Les options de logique (objectifs,
 étoiles, mouvements...) ne peuvent pas être changées ainsi. Non testé en jeu. `enemy_shuffle` et `skybox_shuffle` changent ce que
 le jeu charge : après les avoir changés, redémarre le jeu (les changer pendant une partie a fait disparaître des modèles).

@@ -148,7 +148,7 @@ namespace {
         sStatus.mStartObservatory = optionIs(NEBULA_AP_OPT_START_OBSERVATORY);
         sStatus.mExactRequirements = sStatus.mStarItems && optionIs(NEBULA_AP_OPT_EXACT_REQUIREMENTS);
         sStatus.mLumaCounts = optionIs(NEBULA_AP_OPT_LUMA_COUNTS);
-        sStatus.mStarColors = optionIs(NEBULA_AP_OPT_STAR_COLORS);
+        sStatus.mStarColors = true;  // always on: not an option
         sStatus.mMusicShuffle = optionIs(NEBULA_AP_OPT_MUSIC_SHUFFLE);
         sStatus.mSkyShuffle = optionIs(NEBULA_AP_OPT_SKYBOX_SHUFFLE);
         sStatus.mSkyMode = sStatus.mSkyShuffle ? __NebulaArchipelago(NEBULA_AP_OPTION, NEBULA_AP_OPT_SKYBOX_SHUFFLE) : 0;

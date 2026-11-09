@@ -319,13 +319,6 @@ class TrapTypes(OptionSet):
     default = frozenset(TRAP_NAMES)
 
 
-class StarColors(Toggle):
-    """The colour of a star in the level (and in the star select) tells the class of the item it hides: green
-    is a normal item, blue is useful, gold is progression and red is a trap. Grand Stars keep their look. The game asks the
-    server what each location holds when it connects, so the colours are there for the whole session."""
-    display_name = "Star Colors by Item Class"
-
-
 class TransformationItems(Toggle):
     """The transformations become items. Bee Mushroom, Boo Mushroom, Spring Mushroom, Fire Flower, Ice Flower and Flying
     (the Red Star) are in the multiworld: taking one of those power-ups in a galaxy does nothing until you have received
@@ -460,7 +453,6 @@ class SMGOptions(PerGameCommonOptions):
     music_shuffle: MusicShuffle
     enemy_shuffle: EnemyShuffle
     skybox_shuffle: SkyboxShuffle
-    star_colors: StarColors
     death_link: DeathLink
     mario_cap_color: MarioCapColor
     mario_shirt_color: MarioShirtColor
@@ -482,7 +474,7 @@ GROUPS = [
     OptionGroup("Traps", [TrapPercentage, TrapTypes]),
     OptionGroup("Star Bit Shop", [ShopItems, ShopMinPrice, ShopMaxPrice]),
     OptionGroup("Shuffles", [DomeShuffle, GalaxyShuffle, GalaxyShuffleType, MusicShuffle, EnemyShuffle, SkyboxShuffle]),
-    OptionGroup("Display and Multiplayer", [StarColors, DeathLink]),
+    OptionGroup("Display and Multiplayer", [DeathLink]),
     OptionGroup("Mario Colors", [MarioCapColor, MarioShirtColor, MarioOverallsColor, MarioGlovesColor, MarioShoesColor]),
     OptionGroup("Luigi Colors", [LuigiCapColor, LuigiShirtColor, LuigiOverallsColor, LuigiGlovesColor, LuigiShoesColor]),
 ]
