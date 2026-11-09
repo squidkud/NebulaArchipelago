@@ -8217,11 +8217,14 @@ namespace NameObjFactory {
             }
 
             if (strcmp(pName, "FileSelector") == 0) {
-                // The sky of the title and file selection screens (FileSelectSky) is shuffled too.
-                const char* pTitleSky = NebulaArchipelago::getShuffledSkyArchive("CometNearOrbitSky");
+                // The sky of the title and file selection screens (FileSelectSky) is shuffled too. The shuffle is known once the
+                // player is connected, after this screen was built: every sky it can become is loaded with it, and
+                // FileSelectSky swaps its model the moment the answer comes (no reload of the scene).
+                static const char* const cTitleSkies[] = {"HalfGalaxySky", "GreenPlanetOrbitSky", "CloudSky", "RockPlanetOrbitSky",
+                                                          "KoopaVS1Sky",   "VROrbit",             "VRSandwichSun"};
 
-                if (strcmp(pTitleSky, "CometNearOrbitSky") != 0) {
-                    pCollector->addArchive(pTitleSky);
+                for (u32 i = 0; i < sizeof(cTitleSkies) / sizeof(cTitleSkies[0]); i++) {
+                    pCollector->addArchive(cTitleSkies[i]);
                 }
             }
 #endif

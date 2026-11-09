@@ -15,15 +15,23 @@ public:
     virtual ~FileSelectSky();
 
     virtual void init(const JMapInfoIter& rIter);
+    virtual void control();
     virtual void calcAnim();
     virtual void calcAndSetBaseMtx();
     virtual bool receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
 
     void exeWait();
+#ifdef TARGET_PC
+    // skybox_shuffle: the model becomes the shuffled sky as soon as the connection tells which.
+    void swapSky();
+#endif
 
 private:
     /* 0x8C */ f32 mAngleX;
     /* 0x90 */ f32 mAngleY;
     /* 0x94 */ TPos3f mBaseMtx;
     /* 0xC4 */ ProjmapEffectMtxSetter* mProjmapEffectMtxSetter;
+#ifdef TARGET_PC
+    s32 mSkyWait;
+#endif
 };
