@@ -152,6 +152,8 @@ public:
     void updateQuitButton();
     bool updateQuitQuestion();
     void offerFilesToMenuFocus();
+    // skybox_shuffle: the shuffle is known once connected, after the screen was built: the sky is built again then.
+    void updateSky();
 #endif
 
     /* 0x8C */ FileSelectCameraController* mCameraController;
