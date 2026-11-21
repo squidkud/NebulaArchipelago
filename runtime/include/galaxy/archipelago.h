@@ -397,6 +397,8 @@ enum class SaveOwner : std::uint32_t {
     Adopted = 3,  // no owner was recorded (files from before this page) but an earlier start played this multiworld: they are kept as they are, and recorded
 };
 [[nodiscard]] SaveOwner save_owner() noexcept;
+[[nodiscard]] std::uint32_t connected_seed() noexcept;       // the connected multiworld's id, 0 before the room is known
+[[nodiscard]] std::uint32_t recorded_save_seed() noexcept;   // the multiworld the save files are recorded as belonging to, 0 if none
 void claim_saves();  // the connected multiworld is the files' owner from now on
 [[nodiscard]] bool save_connection(const Connection& connection, std::string& error);
 

@@ -163,7 +163,7 @@ Mario Galaxy dans un multiworld. Il suppose que vous n'avez jamais compilé de p
   `archipelago.ini` les coupe. Pas testé en jeu.
 - **Luma du shop en rouge** : avec un shop, le Luma de l'Observatoire est rouge (jaune sans shop).
 - **Pas encore faits** : `hide_galaxy`, le mode `by_sphere` des Lumas.
-- **Un fichier de sauvegarde neuf par multiworld** : une sauvegarde n'est pas liée à une partie Archipelago.
+- **Une sauvegarde par multiworld** : en changeant de room (ou de slot), le jeu range la sauvegarde de l'ancienne partie dans `%LOCALAPPDATA%\Nebula\saves-multiworlds\<id>` et la remet toute seule quand on revient dans cette room ; une room jamais jouée commence à zéro. Jamais essayé en jeu.
 
 ## 1. Installer les outils (une seule fois)
 
@@ -335,8 +335,8 @@ grande, au milieu de l'écran de choix, sans son numéro, et à la place de la t
 d'Archipelago en 3D** (six disques arrondis qui tournent ; pas testé en jeu). Les boutons Copy, Icon et Erase n'existent
 plus (seul « Play This File » reste), la barre avec le nom et les étoiles reste en haut, et le fichier est **créé tout seul** à la connexion (rien à confirmer, pas de question d'icône : c'est la tête de
 Mario, ou de Luigi pour le fichier 2 avec `both`). Ces sauvegardes se font sans fenêtre : seul le petit « Saving... » du coin en bas à gauche (comme en jeu) l'annonce. L'écran de choix est construit au lancement du jeu, avant la connexion : il se met à jour juste après (sauvegardes relues, un seul fichier, logo). Deux fichiers seulement quand le YAML dit `character: both` explicitement ; sans cette option, un seul (Mario). Le nom affiché dans la barre est celui du slot (le joueur Archipelago). Le logo vient de `tools/gen_archipelago_logo_mesh.py` (relancez-le pour
-changer sa forme : `--preview image.png` en dessine un aperçu). Avec `character: both`, ce sont les sauvegardes 1 (Mario) et 2 (Luigi) qui existent, côte à côte, chacune avec la tête de son personnage au lieu du logo ; le Luigi d'une ancienne sauvegarde 1 n'est plus utilisé (il est dans la sauvegarde 2 désormais). Les autres sauvegardes sont effacées ; si une sauvegarde gardée vient d'un autre multiworld (autre salle ou autre slot), elle l'est aussi, pour
-repartir de zéro. Avant d'effacer quoi que ce soit, le jeu copie toutes les sauvegardes dans
+changer sa forme : `--preview image.png` en dessine un aperçu). Avec `character: both`, ce sont les sauvegardes 1 (Mario) et 2 (Luigi) qui existent, côte à côte, chacune avec la tête de son personnage au lieu du logo ; le Luigi d'une ancienne sauvegarde 1 n'est plus utilisé (il est dans la sauvegarde 2 désormais). Les autres sauvegardes sont effacées ; si une sauvegarde gardée vient d'un autre multiworld (autre salle ou autre slot), elle est d'abord rangée dans
+`%LOCALAPPDATA%\Nebula\saves-multiworlds\<id>` (remise toute seule en revenant dans cette room), puis on repart de zéro si la room n'a jamais été jouée. Avant d'effacer quoi que ce soit, le jeu copie toutes les sauvegardes dans
 `%LOCALAPPDATA%\Nebula\saves-backup\<date>` : rien n'est perdu pour de bon. Le fichier `archipelago-saves.txt` (même
 dossier) note à quel multiworld appartiennent les sauvegardes.
 
@@ -457,8 +457,7 @@ Le jeu n'a pas été lancé ici : l'affichage n'est pas testé.
 - **Couleurs de Mario/Luigi, sphères vertes : jamais essayés en jeu** (voir plus haut). `hide_galaxy` : pas fait.
 - Les objets 1-Up / Star Bits ne sont donnés que dans la partie jouable (pas pendant une cinématique, un menu ou une
   mort).
-- Un fichier de sauvegarde n'est pas lié à un multiworld : utilisez une sauvegarde neuve pour chaque partie, sinon les
-  étoiles déjà obtenues sont envoyées d'un coup.
+- Chaque multiworld garde sa propre sauvegarde (`saves-multiworlds`) : changer de room ne perd rien.
 - Seuls le build normal (`NebulaNative`), le build Vulkan et l'hôte SDL embarquent le client ; l'hôte « headless » ne le
   fait pas.
 

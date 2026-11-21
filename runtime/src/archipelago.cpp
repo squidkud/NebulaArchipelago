@@ -1756,6 +1756,24 @@ SaveOwner save_owner() noexcept {
     return c->engine().has_state_file() ? SaveOwner::Adopted : SaveOwner::Other;
 }
 
+std::uint32_t connected_seed() noexcept {
+    Client* c = client();
+    return c != nullptr ? c->engine().seed_id() : 0u;
+}
+
+std::uint32_t recorded_save_seed() noexcept {
+    const std::filesystem::path path = owner_file();
+    std::string text;
+    if (path.empty() || !read_file(path, text)) return 0u;
+    const std::size_t equals = text.find('=');
+    const std::string value = trim(equals == std::string::npos ? std::string_view(text) : std::string_view(text).substr(equals + 1u));
+    try {
+        return static_cast<std::uint32_t>(std::stoull(value));
+    } catch (...) {
+        return 0u;
+    }
+}
+
 void claim_saves() {
     Client* c = client();
     const std::uint32_t id = c != nullptr ? c->engine().seed_id() : 0u;
