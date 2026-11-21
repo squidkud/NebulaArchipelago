@@ -1763,6 +1763,39 @@ bool backup_save_files() {
     log_line("archipelago:", error ? "could not back up the save files" : "save files backed up before they are cleared");
     return !error;
 }
+
+// One save per multiworld: the files of the multiworld the game leaves are kept in saves-multiworlds\<id> (settings folder), and
+// the ones of the multiworld it connects to are put back when it played that one before. True when the connected multiworld's
+// files were put back (they are then its own: the game keeps them).
+bool swap_saves_for_multiworld() {
+    const uint32_t now = galaxy::archipelago::connected_seed();
+    const uint32_t had = galaxy::archipelago::recorded_save_seed();
+    fs::path live;
+    const fs::path settings = galaxy::runtime_settings_folder();
+    if (now == 0u || settings.empty() || gSaveDataPath.empty() || !nand_path(gSaveDataPath.c_str(), &live)) return false;
+    const fs::path root = settings / "saves-multiworlds";
+    std::error_code error;
+    if (had != 0u && had != now && fs::is_directory(live, error)) {
+        const fs::path keep = root / std::to_string(had);
+        fs::remove_all(keep, error);
+        fs::create_directories(keep, error);
+        fs::copy(live, keep, fs::copy_options::recursive | fs::copy_options::overwrite_existing, error);
+        log_line("archipelago:", error ? "could not keep the save files of the multiworld left" : "save files of the multiworld left kept");
+    }
+    const fs::path wanted = root / std::to_string(now);
+    if (!fs::is_directory(wanted, error)) return false;
+    // The live files are copied aside first (saves-backup), then replaced by the multiworld's own.
+    (void)backup_save_files();
+    for (const fs::directory_entry& entry : fs::directory_iterator(live, error)) fs::remove_all(entry.path(), error);
+    fs::copy(wanted, live, fs::copy_options::recursive | fs::copy_options::overwrite_existing, error);
+    if (error) {
+        log_line("archipelago:", "could not put the save files of this multiworld back");
+        return false;
+    }
+    log_line("archipelago:", "save files of this multiworld put back");
+    galaxy::archipelago::claim_saves();
+    return true;
+}
 #endif
 
 uint32_t svc_archipelago(void*, uint32_t what, uint32_t value) {
@@ -1838,8 +1871,11 @@ uint32_t svc_archipelago(void*, uint32_t what, uint32_t value) {
             return 0u;
         }
         return galaxy::gx::native_settings_gate_result();
-    case NEBULA_AP_SAVE_OWNER:
-        return static_cast<uint32_t>(galaxy::archipelago::save_owner());  // SaveOwner's numbers are NEBULA_AP_SAVE_OWNER's
+    case NEBULA_AP_SAVE_OWNER: {
+        galaxy::archipelago::SaveOwner owner = galaxy::archipelago::save_owner();
+        if (owner == galaxy::archipelago::SaveOwner::Other && swap_saves_for_multiworld()) owner = galaxy::archipelago::SaveOwner::Same;
+        return static_cast<uint32_t>(owner);  // SaveOwner's numbers are NEBULA_AP_SAVE_OWNER's
+    }
     case NEBULA_AP_CLAIM_SAVES:
         galaxy::archipelago::claim_saves();
         return 0u;
