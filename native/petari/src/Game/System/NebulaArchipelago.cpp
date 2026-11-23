@@ -16,6 +16,7 @@
 #include "Game/Util/PlayerUtil.hpp"
 #include "Game/Util/SceneUtil.hpp"
 #include "Game/Util/ScreenUtil.hpp"
+#include "Game/Util/SequenceUtil.hpp"
 #include <cstdio>
 #include <cstring>
 #include <nebula_game_api.h>
@@ -795,9 +796,10 @@ namespace NebulaArchipelago {
         }
 
         // Connected to another multiworld than the one this save was started with (the connection page of the settings, in game): the
-        // save files are only exchanged on the connection screen after the title, so nothing is sent or received until the right
-        // room is back or the game goes back to the title.
+        // save files are only exchanged on the connection screen after the title: the game goes back to the title (as the pause
+        // menu's Quit does), where the other multiworld's files are put in place. Nothing is sent or received meanwhile.
         static bool sWrongRoom = false;
+        static bool sLeaving = false;
 
         if (sGateStep == GateDone && __NebulaArchipelago(NEBULA_AP_STATE, 0) == 2) {
             const u32 seed = __NebulaArchipelago(NEBULA_AP_SEED, 0);
@@ -808,7 +810,7 @@ namespace NebulaArchipelago {
                     writeLog("connected to another multiworld than this save's: nothing is sent or received");
 
                     if (sNoticeNum < cNoticeMax) {
-                        const char* pText = "Another room: go back to the title to play it";
+                        const char* pText = "Another room: back to the title";
                         wchar_t* pDst = sNotices[sNoticeNum];
                         s32 i = 0;
 
@@ -821,11 +823,19 @@ namespace NebulaArchipelago {
                     }
                 }
 
+                if (inPlay && !sLeaving) {
+                    sLeaving = true;
+                    writeLog("going back to the title");
+                    MR::closeSystemWipeFadeWithCaptureScreen(90);
+                    MR::requestChangeSceneTitle();
+                }
+
                 return;
             }
         }
 
         sWrongRoom = false;
+        sLeaving = false;
 
         // Mario's save of a slot keeps the slot's own number; Luigi's has another (each save has its own items to receive).
         const s32 file = GameDataFunction::getUserFileIndex() + (isLuigiSave() ? 10 : 0);
