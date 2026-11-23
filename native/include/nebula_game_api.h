@@ -402,7 +402,7 @@ enum {
     NEBULA_AP_SHOP_HINT,    /* the shop is open: its unbought shelves are declared as hints to the players concerned; -> 0 */
     NEBULA_AP_SPHERE_GUARD, /* value 0: -> 1 when the green spheres in the domes are allowed; 1: a dome holds one (a file marks it until 2 or a normal exit); 2: the dome is left; -> 0 */
     NEBULA_AP_GATE,         /* value 1: the connection screen opens (the settings menu on its Archipelago page alone) -> 0; value 0: -> 0 while it is up, 1 once the client is connected, 2 once the player went on without */
-    NEBULA_AP_SAVE_OWNER,   /* -> 0 not connected yet (the room's seed is not known), 1 the save files belong to this multiworld, 2 they belong to another one (or none): they are to be cleared, 3 no owner was recorded but this multiworld was played before: keep them as they are */
+    NEBULA_AP_SAVE_OWNER,   /* -> 0 not connected yet (the room's seed is not known), 1 the save files belong to this multiworld, 2 they belong to another one (or none): they are to be cleared, 3 no owner was recorded but this multiworld was played before: keep them as they are ; 4 the files of this multiworld were just put back on the disk (the game loads them again, then they are its own) */
     NEBULA_AP_CLAIM_SAVES,  /* the connected multiworld owns the save files from now on; -> 0 */
     NEBULA_AP_BACKUP_SAVES, /* the save files are copied to saves-backup\<date> in the settings folder; -> 1 done, 0 failed */
     NEBULA_AP_LOCATION_CHECKED, /* value: a location number: 1 when it is checked (by this game, or on the server: a release), else 0 */

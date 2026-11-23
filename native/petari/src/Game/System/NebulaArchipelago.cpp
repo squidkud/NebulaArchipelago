@@ -16,6 +16,7 @@
 #include "Game/Util/PlayerUtil.hpp"
 #include "Game/Util/SceneUtil.hpp"
 #include "Game/Util/ScreenUtil.hpp"
+#include "Game/Util/SequenceUtil.hpp"
 #include <cstdio>
 #include <cstring>
 #include <nebula_game_api.h>
@@ -580,7 +581,8 @@ namespace {
 
 namespace {
     // The connection screen after the title, and the save files of the multiworld.
-    enum { GateIdle, GateOpen, GateSaves, GateDone };
+    enum { GateIdle, GateOpen, GateReload, GateSaves, GateDone };
+    u32 sGateOwner;                    // the files' owner, asked once (the host may put the multiworld's own files back)
     const s32 cUserFileNum = 6;        // the file select's files, numbered from 1
     s32 sGateStep = GateIdle;
     u32 sGateSeed;                     // the multiworld the gate passed with
@@ -598,7 +600,7 @@ namespace {
     // multiworld (or none). Only those that hold something; a copy of the save files first. The multiworld's own files are then
     // created, so that the file select shows them ready (with the head of their character) and nothing is asked.
     void prepareSaves() {
-        const u32 owner = __NebulaArchipelago(NEBULA_AP_SAVE_OWNER, 0);
+        const u32 owner = sGateOwner == 4 ? 1 : sGateOwner;  // 4: put back, read again: the files are the multiworld's own
         sWipeCount = 0;
         sWipeAt = 0;
         sMakeCount = 0;
@@ -740,10 +742,28 @@ namespace NebulaArchipelago {
                 sGateStep = GateIdle;  // skipped: the title goes on, and asks again the next time
                 return true;
             }
+            sGateOwner = __NebulaArchipelago(NEBULA_AP_SAVE_OWNER, 0);
+
+            if (sGateOwner == 4) {
+                // The game keeps the save files in memory (read once at start-up): the ones the host just put back on the disk are read again.
+                GameSequenceFunction::startPreLoadSaveDataSequence();
+                sGateStep = GateReload;
+                return false;
+            }
+
             prepareSaves();
             sGateStep = GateSaves;
             return false;
         }
+        case GateReload:
+            if (GameSequenceFunction::isActiveSaveDataHandleSequence()) {
+                return false;
+            }
+
+            writeLog("save files of this multiworld read again");
+            prepareSaves();
+            sGateStep = GateSaves;
+            return false;
         default:
             if (!stepSaves()) {
                 return false;
@@ -775,12 +795,57 @@ namespace NebulaArchipelago {
             }
         }
 
+        // Connected to another multiworld than the one this save was started with (the connection page of the settings, in game): the
+        // save files are only exchanged on the connection screen after the title: the game goes back to the title (as the pause
+        // menu's Quit does), where the other multiworld's files are put in place. Nothing is sent or received meanwhile.
+        static bool sWrongRoom = false;
+        static bool sLeaving = false;
+
+        if (sGateStep == GateDone && __NebulaArchipelago(NEBULA_AP_STATE, 0) == 2) {
+            const u32 seed = __NebulaArchipelago(NEBULA_AP_SEED, 0);
+
+            if (seed != 0 && seed != sGateSeed) {
+                if (!sWrongRoom) {
+                    sWrongRoom = true;
+                    writeLog("connected to another multiworld than this save's: nothing is sent or received");
+
+                    if (sNoticeNum < cNoticeMax) {
+                        const char* pText = "Another room: back to the title";
+                        wchar_t* pDst = sNotices[sNoticeNum];
+                        s32 i = 0;
+
+                        for (; pText[i] != 0 && i < cNoticeLength - 1; i++) {
+                            pDst[i] = static_cast< wchar_t >(pText[i]);
+                        }
+
+                        pDst[i] = 0;
+                        sNoticeIcons[sNoticeNum++] = 0;
+                    }
+                }
+
+                if (inPlay && !sLeaving) {
+                    sLeaving = true;
+                    writeLog("going back to the title");
+                    MR::closeSystemWipeFadeWithCaptureScreen(90);
+                    MR::requestChangeSceneTitle();
+                }
+
+                return;
+            }
+        }
+
+        sWrongRoom = false;
+        sLeaving = false;
+
         // Mario's save of a slot keeps the slot's own number; Luigi's has another (each save has its own items to receive).
         const s32 file = GameDataFunction::getUserFileIndex() + (isLuigiSave() ? 10 : 0);
 
-        if (file != sFile) {
-            // Another save file: its stars are reported again (the host ignores a location it already has).
+        static u32 sScanSeed = 0;
+
+        if (file != sFile || sGateSeed != sScanSeed) {
+            // Another save file (or another multiworld): its stars are reported again (the host ignores a location it already has).
             sFile = file;
+            sScanSeed = sGateSeed;
             sGoalReported = false;
             memset(sReported, 0, sizeof(sReported));
             sOwned = 0;
