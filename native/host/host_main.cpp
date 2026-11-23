@@ -1872,8 +1872,9 @@ uint32_t svc_archipelago(void*, uint32_t what, uint32_t value) {
         }
         return galaxy::gx::native_settings_gate_result();
     case NEBULA_AP_SAVE_OWNER: {
-        galaxy::archipelago::SaveOwner owner = galaxy::archipelago::save_owner();
-        if (owner == galaxy::archipelago::SaveOwner::Other && swap_saves_for_multiworld()) owner = galaxy::archipelago::SaveOwner::Same;
+        const galaxy::archipelago::SaveOwner owner = galaxy::archipelago::save_owner();
+        // 4: the multiworld's own files were put back on the disk: the game reads them again (it keeps the files in memory).
+        if (owner == galaxy::archipelago::SaveOwner::Other && swap_saves_for_multiworld()) return 4u;
         return static_cast<uint32_t>(owner);  // SaveOwner's numbers are NEBULA_AP_SAVE_OWNER's
     }
     case NEBULA_AP_CLAIM_SAVES:
