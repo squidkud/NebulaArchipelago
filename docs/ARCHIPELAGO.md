@@ -164,6 +164,7 @@ Mario Galaxy dans un multiworld. Il suppose que vous n'avez jamais compilé de p
 - **Luma du shop en rouge** : avec un shop, le Luma de l'Observatoire est rouge (jaune sans shop).
 - **Pas encore faits** : `hide_galaxy`, le mode `by_sphere` des Lumas.
 - **Une sauvegarde par multiworld** : en changeant de room (ou de slot), le jeu range la sauvegarde de l'ancienne partie dans `%LOCALAPPDATA%\Nebula\saves-multiworlds\<id>` et la remet toute seule quand on revient dans cette room ; une room jamais jouée commence à zéro. Jamais essayé en jeu.
+  Le changement de room se fait au titre : en changeant de room depuis les réglages en pleine partie, le jeu n'envoie et ne reçoit plus rien (un message le dit) tant qu'on n'est pas revenu à la bonne room ou au titre.
 
 ## 1. Installer les outils (une seule fois)
 

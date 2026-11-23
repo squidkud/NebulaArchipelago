@@ -794,6 +794,39 @@ namespace NebulaArchipelago {
             }
         }
 
+        // Connected to another multiworld than the one this save was started with (the connection page of the settings, in game): the
+        // save files are only exchanged on the connection screen after the title, so nothing is sent or received until the right
+        // room is back or the game goes back to the title.
+        static bool sWrongRoom = false;
+
+        if (sGateStep == GateDone && __NebulaArchipelago(NEBULA_AP_STATE, 0) == 2) {
+            const u32 seed = __NebulaArchipelago(NEBULA_AP_SEED, 0);
+
+            if (seed != 0 && seed != sGateSeed) {
+                if (!sWrongRoom) {
+                    sWrongRoom = true;
+                    writeLog("connected to another multiworld than this save's: nothing is sent or received");
+
+                    if (sNoticeNum < cNoticeMax) {
+                        const char* pText = "Another room: go back to the title to play it";
+                        wchar_t* pDst = sNotices[sNoticeNum];
+                        s32 i = 0;
+
+                        for (; pText[i] != 0 && i < cNoticeLength - 1; i++) {
+                            pDst[i] = static_cast< wchar_t >(pText[i]);
+                        }
+
+                        pDst[i] = 0;
+                        sNoticeIcons[sNoticeNum++] = 0;
+                    }
+                }
+
+                return;
+            }
+        }
+
+        sWrongRoom = false;
+
         // Mario's save of a slot keeps the slot's own number; Luigi's has another (each save has its own items to receive).
         const s32 file = GameDataFunction::getUserFileIndex() + (isLuigiSave() ? 10 : 0);
 
